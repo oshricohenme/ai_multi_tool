@@ -5025,3 +5025,37 @@ builds them, one by one with progress; an interrupted build is redone by whichev
 
 94 Rust tests pass; `reindex_touches_only_what_changed` now also checks that `update_serving`
 leaves 7 missing, `update` builds them, and `ensure_lookups` then has nothing to do.
+
+## 2026-11-06 · 54. One server per worktree, bound to its folder; two builds no longer fight
+
+**What broke** (fps_europe, 206,600 files, a 12.6 GB index): `mt query` failed with `database is
+locked`. Evidence from `.mt/serve.log` and `events.jsonl`:
+- three servers started in 2.5 min (47-50 s load each): one per Claude session (the default
+  `MT_SERVER_SCOPE=session`, sockets in `/tmp/mt-s-<session>.sock`) plus the folder's own;
+- two mt builds on the machine: Claude's own `mt` calls ran `~/.local/bin/mt` (`~/orca/mt`), the
+  hooks the plugin's binary. A server answered any other build with "stale" and exited, so the
+  two builds took turns stopping each other's server;
+- each refused caller ran in-process, whose `Index::update` writes; with a server persisting (and
+  building lookup tables on a 12.6 GB DB) the 5 s busy timeout ran out: `database is locked`;
+- lookup tables were left 4 of 7, every server being stopped part way through building them.
+
+**Changed:**
+- one server per worktree, bound to its folder (`.mt/mt.sock`; a deep path gets a socket named
+  by a hash of the folder, still that folder's alone). SessionStart only makes sure it runs and
+  waits up to 3 s; SessionEnd no longer stops it (other sessions there use it; it exits when
+  idle). `MT_SOCKET`/`MT_SOCKET_ROOT` and per-session servers are gone; `MT_SERVER_SCOPE=off`
+  remains for tests;
+- builds compare by size and mtime, not path (the same binary in two plugin version folders is
+  one build). Another build still gets "stale" (every mt build then answers in-process), but the
+  server exits only for a newer build: an older one can never stop it;
+- `Index::update`, when the server holds the write lock past the timeout, answers from the index
+  as it stands (a note on stderr) instead of failing.
+
+**Checked** (watchly copy): two SessionStarts, one server; five `mt context` calls from the old
+`~/.local/bin/mt` build answered, the server untouched; a new-build call and a SessionEnd, same
+server; `serve --stop` stopped it. 95 Rust tests pass (new: `one_build_in_two_places_is_one_build_and_newer_wins`;
+`tests/map.rs` and `tests/ops.rs` now use the folder's socket).
+
+**Next: memory.** A server holds every file's text and the whole graph (defs with a path string
+each, refs as a string map per file, name maps): ~993 MB RSS on gym_software (9,721 files, 133 MB
+of source), 7.5 GB of texts alone on fps_europe. The goal is a few hundred MB on any repo.

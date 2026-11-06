@@ -19,6 +19,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+/// SQLite said another connection holds the write lock past the busy timeout.
+pub fn is_busy(e: &rusqlite::Error) -> bool {
+    matches!(e, rusqlite::Error::SqliteFailure(f, _) if matches!(f.code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked))
+}
+
 /// The lookup tables one-shot commands, `mt tools` and the visualizer query through (the daemon
 /// answers from memory and needs none of them): name, and what it indexes.
 const LOOKUPS: [(&str, &str); 7] = [
@@ -334,8 +339,16 @@ impl Index {
     /// Stat the tree, re-parse what changed, drop what disappeared; then make sure the lookup
     /// tables exist, since one-shot commands query through them.
     pub fn update(&self) -> rusqlite::Result<UpdateStats> {
-        let st = self.update_serving()?;
-        self.ensure_lookups()?;
+        // The worktree's server may be writing (a large persist, its background lookup build):
+        // then answer from the index as it stands, rather than fail the command.
+        let st = match self.update_serving() {
+            Err(e) if is_busy(&e) => { eprintln!("mt: the index is busy (the worktree's server is writing it); answering from it as it stands"); return Ok(UpdateStats::default()); }
+            r => r?,
+        };
+        match self.ensure_lookups() {
+            Err(e) if is_busy(&e) => {}
+            r => { r?; }
+        }
         Ok(st)
     }
 

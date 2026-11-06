@@ -338,7 +338,7 @@ pub fn doctor() -> String {
     line(idx.is_file(), format!("index {}", idx.display()), "`mt index` (the daemon also builds it on first use)");
     #[cfg(unix)]
     {
-        let sock = std::env::var_os("MT_SOCKET").map(PathBuf::from).unwrap_or_else(|| crate::serve::socket_path(&r));
+        let sock = crate::serve::socket_path(&r);
         let up = std::os::unix::net::UnixStream::connect(&sock).is_ok();
         line(up, format!("daemon socket {}", sock.display()), "starts on the first mt call; `mt serve` runs one in the foreground");
     }

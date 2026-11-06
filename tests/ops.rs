@@ -4,9 +4,9 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-fn mt(dir: &Path, sock: &str, args: &[&str]) -> (i32, String) {
+fn mt(dir: &Path, _sock: &str, args: &[&str]) -> (i32, String) {
     let o = Command::new(env!("CARGO_BIN_EXE_mt")).current_dir(dir).args(args)
-        .env("MT_SOCKET", sock).env("MT_SOCKET_ROOT", dir).env("MT_SESSION", "ops-it")
+        .env("MT_SESSION", "ops-it")
         .env_remove("MT_NO_DAEMON").env_remove("CLAUDE_CODE_SESSION_ID")
         .stdout(Stdio::piped()).stderr(Stdio::piped()).output().unwrap();
     (o.status.code().unwrap_or(-1), String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr))

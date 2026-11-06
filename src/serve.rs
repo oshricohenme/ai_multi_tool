@@ -72,14 +72,8 @@ pub struct Resp {
 }
 
 pub fn socket_path(root: &Path) -> PathBuf {
-    // A session-scoped daemon (set by the plugin's SessionStart hook) applies only inside the
-    // repo it was started for; any other repo falls back to its own per-repo socket.
-    if let Some(p) = std::env::var_os("MT_SOCKET") {
-        let for_root = std::env::var_os("MT_SOCKET_ROOT").map(PathBuf::from);
-        if for_root.map(|r| r == root || std::fs::canonicalize(&r).ok().as_deref() == Some(root)).unwrap_or(true) {
-            return PathBuf::from(p);
-        }
-    }
+    // One server per worktree, bound to its folder. macOS caps socket paths at ~104 bytes, so a
+    // deep worktree gets a socket named by a hash of its path: still that folder's alone.
     let p = root.join(".mt/mt.sock");
     if p.as_os_str().len() < 100 {
         p
@@ -111,11 +105,21 @@ pub fn request_at(sock: &Path, req: &Req) -> Option<Resp> {
     c.read_to_string(&mut buf).ok()?;
     let r: Resp = serde_json::from_str(&buf).ok()?;
     if !r.ok && r.out == "stale" {
-        // it was another build; it is exiting now. Give the socket a moment to go.
+        // another build: this call answers in-process. If ours is the newer build, that server is
+        // exiting so ours can take over; give the socket a moment to go.
         std::thread::sleep(Duration::from_millis(50));
         return None;
     }
     Some(r)
+}
+
+/// The build an `exe_id` names: its size and mtime. The path is left out, so the same binary in
+/// two places (two plugin versions, a moved copy) is one build.
+fn build_of(exe_id: &str) -> (&str, u128) {
+    let mut it = exe_id.rsplitn(3, ':');
+    let m = it.next().unwrap_or("");
+    let size = it.next().unwrap_or("");
+    (size, m.parse().unwrap_or(0))
 }
 
 /// Send a batch to apply. None only when no daemon took it (none running, or another build):
@@ -342,11 +346,17 @@ fn handle(mut c: UnixStream, live: &Live, walker: Walker, cookies: &Cookies, coo
         Ok(r) => r,
         Err(e) => { reply(&mut c, false, format!("bad request: {e}")); return; }
     };
-    if !req.exe.is_empty() && req.exe != me {
+    if !req.exe.is_empty() && build_of(&req.exe) != build_of(&me) {
+        // One server per worktree, so two builds meet here. Either way the caller is told
+        // "stale" (every mt build answers that in-process), but only a newer build takes the
+        // server over: an older one never stops it, so two builds cannot take turns restarting it.
         reply(&mut c, false, "stale".into());
-        drop(c);
-        let _ = std::fs::remove_file(sock);
-        std::process::exit(0);
+        if build_of(&req.exe).1 > build_of(&me).1 {
+            drop(c);
+            let _ = std::fs::remove_file(sock);
+            std::process::exit(0);
+        }
+        return;
     }
     // every answer from here on is also an event for `mt visualize`, written after the reply
     let reply = |c: &mut UnixStream, ok: bool, out: String| {
@@ -437,5 +447,22 @@ fn handle(mut c: UnixStream, live: &Live, walker: Walker, cookies: &Cookies, coo
     }
     if timing {
         println!("request {}: read {:.2} ms, barrier {:.2} ms, work {:.2} ms, reply {:.2} ms", req.cmd, (t0 - t_accept).as_secs_f64() * 1e3, t_barrier.as_secs_f64() * 1e3, (t_work - t_barrier).as_secs_f64() * 1e3, (t0.elapsed() - t_work).as_secs_f64() * 1e3);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_of;
+
+    #[test]
+    fn one_build_in_two_places_is_one_build_and_newer_wins() {
+        let a = "/cfg/plugins/cache/mkt/mt/aaa/bin/mt-x:74000000:1700000000000000000";
+        let moved = "/cfg/plugins/cache/mkt/mt/bbb/bin/mt-x:74000000:1700000000000000000";
+        let newer = "/Users/me/.local/bin/mt:73900000:1700000009000000000";
+        let colon = "/odd:path/mt:74000000:1700000000000000000";
+        assert_eq!(build_of(a), build_of(moved), "the same binary moved to another plugin version");
+        assert_eq!(build_of(a), build_of(colon), "a ':' in the path does not change the build");
+        assert!(build_of(newer).1 > build_of(a).1, "the later build is the newer one");
+        assert_ne!(build_of(newer), build_of(a));
     }
 }

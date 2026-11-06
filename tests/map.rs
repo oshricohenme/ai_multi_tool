@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 
 fn mt(dir: &Path, sock: &str, sid: &str, args: &[&str], stdin: &str, daemon: bool) -> String {
     let mut c = Command::new(env!("CARGO_BIN_EXE_mt"));
-    c.current_dir(dir).args(args).env("MT_SESSION", sid).env("MT_SOCKET", sock).env("MT_SOCKET_ROOT", dir)
+    let _ = sock; // the worktree's own socket: there is one server per folder
+    c.current_dir(dir).args(args).env("MT_SESSION", sid)
         .env_remove("CLAUDE_CODE_SESSION_ID").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     if daemon { c.env_remove("MT_NO_DAEMON"); } else { c.env("MT_NO_DAEMON", "1"); }
     let mut ch = c.spawn().unwrap();
@@ -33,10 +34,10 @@ fn map_then_expand_from_memory_then_disk_after_an_edit() {
     for round in 0..3 {
         let dir = std::env::temp_dir().join(format!("mt-map-it-{}-{round}", std::process::id()));
         repo(&dir);
-        let sock = format!("/tmp/mt-map-it-{}-{round}.sock", std::process::id());
+        let sock = dir.join(".mt/mt.sock").to_string_lossy().into_owned();
         let sid = format!("map-it-{}-{round}", std::process::id());
         let mut d = Command::new(env!("CARGO_BIN_EXE_mt")).current_dir(&dir).arg("serve")
-            .env("MT_SOCKET", &sock).env("MT_SOCKET_ROOT", &dir).env_remove("MT_SESSION").env_remove("MT_NO_DAEMON")
+            .env_remove("MT_SESSION").env_remove("MT_NO_DAEMON")
             .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
         let t = Instant::now();
         while !Path::new(&sock).exists() && t.elapsed() < Duration::from_secs(10) { std::thread::sleep(Duration::from_millis(20)); }

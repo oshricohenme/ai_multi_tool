@@ -3,21 +3,23 @@
 //! subprocesses (definitions come from the in-process parser), and the session's state files
 //! come from the same functions `mt query` and `mt expand` use.
 //!
-//!   session-start  start this session's `mt serve`, export MT_SESSION / MT_SOCKET to every Bash
-//!                  call (CLAUDE_ENV_FILE), and brief Claude with the skill
+//!   session-start  make sure the worktree's one `mt serve` runs (bound to its folder, shared by
+//!                  every session there), export MT_SESSION to every Bash call (CLAUDE_ENV_FILE),
+//!                  and brief Claude with the skill
 //!   prompt         one line on every user prompt
 //!   pretool        an old-style code read (sed -n ranges, cat/head/tail of code, grep -A on a
 //!                  func, repo-wide identifier grep) gets the mt command that returns the same
 //!                  lines. A lone `sed -n A,Bp file` is rewritten in place (updatedInput), so the
 //!                  read costs no extra turn; anything else is denied with the command (strict)
 //!                  or allowed with a hint (nudge)
-//!   session-end    stop this session's server
+//!   session-end    forget the session's pending state (the worktree's server stays: other
+//!                  sessions may use it; it exits on its own after MT_IDLE_MIN idle minutes)
 //!
-//! Knobs: MT_SERVER_SCOPE=session (default) | repo | off; MT_ENFORCE=strict (default) | nudge |
+//! Knobs: MT_SERVER_SCOPE=off starts no server; MT_ENFORCE=strict (default) | nudge |
 //! off; MT_REWRITE=0 denies instead of rewriting; MT_INJECT_SKILL=0 skips the skill text.
 //! Every decision goes to <repo>/.mt/hooks.log (the repo of the event's cwd) with the rule that fired.
 
-use crate::{definitions_with, fnv1a, index, languages, query, serve};
+use crate::{definitions_with, index, languages, query, serve};
 use regex::Regex;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -65,11 +67,6 @@ fn emit(v: Value) {
 
 fn ident_ok(s: &str) -> bool {
     s.len() >= 3 && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-/// The socket of a session's server. macOS caps socket paths at ~104 bytes: short, outside the repo.
-pub fn sock_for(sid: &str) -> String {
-    format!("/tmp/mt-s-{:012x}.sock", fnv1a(sid.as_bytes()) & 0xffff_ffff_ffff)
 }
 
 fn short(sid: &str) -> &str {
@@ -136,43 +133,26 @@ fn session_start(d: &Value) {
         }
         log(&format!("session-start {sid}: reset what was shown (source {})", d["source"]));
     }
-    use std::os::unix::process::CommandExt;
     let sid = d.get("session_id").and_then(|v| v.as_str()).unwrap_or("nosession");
     let root = index::find_root(&cwd_of(d));
-    let scope = std::env::var("MT_SERVER_SCOPE").unwrap_or_else(|_| "session".into());
-    let mut env_lines = vec![format!("export MT_SESSION=\"{sid}\"")];
+    let scope = std::env::var("MT_SERVER_SCOPE").unwrap_or_default();
+    let env_lines = vec![format!("export MT_SESSION=\"{sid}\"")];
     let mut server = "off".to_string();
     if scope != "off" {
-        if let Ok(exe) = std::env::current_exe() {
-            let mut cmd = std::process::Command::new(exe);
-            cmd.arg("serve").current_dir(&root).stdin(std::process::Stdio::null()).process_group(0);
-            if let Ok(f) = std::fs::File::create(format!("/tmp/mt-serve-{}.log", short(sid))) {
-                if let Ok(f2) = f.try_clone() { cmd.stderr(f2); }
-                cmd.stdout(f);
-            }
-            let sock = sock_for(sid);
-            if scope == "session" {
-                cmd.env("MT_SOCKET", &sock).env("MT_SOCKET_ROOT", &root);
-                env_lines.push(format!("export MT_SOCKET=\"{sock}\""));
-                env_lines.push(format!("export MT_SOCKET_ROOT=\"{}\"", root.display()));
-            }
-            let t = Instant::now();
-            match cmd.spawn() {
-                Ok(child) => {
-                    let _ = std::fs::write(format!("/tmp/mt-serve-{}.pid", short(sid)), child.id().to_string());
-                    if scope == "session" {
-                        // wait briefly so the first mt call is warm; never block the session long
-                        while t.elapsed() < Duration::from_secs(3) && !Path::new(&sock).exists() {
-                            std::thread::sleep(Duration::from_millis(10));
-                        }
-                        let up = if Path::new(&sock).exists() { "up" } else { "still loading" };
-                        server = format!("session server pid {}, socket {sock}, {up} after {} ms", child.id(), t.elapsed().as_millis());
-                    } else {
-                        server = format!("per-repo server pid {}", child.id());
-                    }
-                }
-                Err(e) => server = format!("not started: {e}"),
-            }
+        // One server per worktree, bound to its folder (`.mt/mt.sock`), shared by every session
+        // and agent working there: never one per session, never one shared across folders.
+        let _ = std::fs::create_dir_all(root.join(".mt"));
+        let sock = serve::socket_path(&root);
+        let answers = || std::os::unix::net::UnixStream::connect(&sock).is_ok();
+        let t = Instant::now();
+        if answers() {
+            server = format!("the worktree's server, already running ({})", sock.display());
+        } else {
+            serve::spawn(&root);
+            // wait briefly so the first mt call is warm; never block the session long
+            while t.elapsed() < Duration::from_secs(3) && !answers() { std::thread::sleep(Duration::from_millis(10)); }
+            let up = if answers() { "up" } else { "still loading" };
+            server = format!("the worktree's server, {up} after {} ms ({})", t.elapsed().as_millis(), sock.display());
         }
         log(&format!("session-start {sid} {} {server}", root.display()));
     }
@@ -373,20 +353,8 @@ fn skill_body() -> String {
 
 fn session_end(d: &Value) {
     let sid = d.get("session_id").and_then(|v| v.as_str()).unwrap_or("nosession");
-    let pidf = format!("/tmp/mt-serve-{}.pid", short(sid));
-    let sock = sock_for(sid);
-    let req = serve::Req { cmd: "stop".into(), exe: serve::exe_id(), ..Default::default() };
-    if serve::request_at(Path::new(&sock), &req).is_some() {
-        log(&format!("session-end {sid} stopped via socket"));
-    } else if let Some(pid) = std::fs::read_to_string(&pidf).ok().and_then(|p| p.trim().parse::<u32>().ok()) {
-        // no answer on the socket (still loading, or another build): signal it
-        let _ = std::process::Command::new("kill").args(["-TERM", &pid.to_string()]).status();
-        log(&format!("session-end {sid} stopped pid {pid}"));
-    } else {
-        log(&format!("session-end {sid} nothing to stop"));
-    }
-    let _ = std::fs::remove_file(&pidf);
-    let _ = std::fs::remove_file(&sock);
+    // the worktree's server stays up for the other sessions there; it exits when idle
+    log(&format!("session-end {sid}"));
     let _ = std::fs::remove_file(pending_file(sid));
 }
 

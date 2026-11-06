@@ -147,7 +147,7 @@ fn file_defs(root: &Path, path: &str) -> Result<Value, String> {
 fn status(root: &Path) -> Result<Value, String> {
     #[cfg(unix)]
     let (sock, up) = {
-        let s = std::env::var_os("MT_SOCKET").map(PathBuf::from).unwrap_or_else(|| crate::serve::socket_path(root));
+        let s = crate::serve::socket_path(root);
         let up = std::os::unix::net::UnixStream::connect(&s).is_ok();
         (s.display().to_string(), up)
     };
