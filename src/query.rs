@@ -211,8 +211,8 @@ fn par_files<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> Option<R> + Sync) 
     let chunk = items.len().div_ceil(threads).max(1);
     let f = &f;
     std::thread::scope(|s| {
-        let hs: Vec<_> = items.chunks(chunk).map(|c| s.spawn(move || c.iter().filter_map(f).collect::<Vec<R>>())).collect();
-        hs.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+        let hs: Vec<_> = items.chunks(chunk).map(|c| s.spawn(move || (c.iter().filter_map(f).collect::<Vec<R>>(), crate::work::snapshot()))).collect();
+        hs.into_iter().flat_map(|h| h.join().map(|(v, w)| { crate::work::absorb(w); v }).unwrap_or_default()).collect()
     })
 }
 
@@ -863,10 +863,10 @@ pub fn run<S: Store>(st: &S, input: &str, sid: Option<&str>, stats: &UpdateStats
                     let mut f = Files { cache: HashMap::new() };
                     let mut r = run_one(st, &mut f, q, i, prior, found);
                     r.how = if r.how.is_empty() { format!("{} ms", tq.elapsed().as_millis()) } else { format!("{} ms; {}", tq.elapsed().as_millis(), r.how) };
-                    (i, r, f)
+                    (i, r, f, crate::work::snapshot())
                 })
             }).collect();
-            hs.into_iter().filter_map(|h| h.join().ok()).collect()
+            hs.into_iter().filter_map(|h| h.join().ok()).map(|(i, r, f, w)| { crate::work::absorb(w); (i, r, f) }).collect()
         });
         for (i, r, f) in done {
             prior.insert(r.id.clone(), r.names.clone());

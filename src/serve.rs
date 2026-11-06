@@ -352,8 +352,10 @@ fn handle(mut c: UnixStream, idx: &Index, walker: Walker, cookies: &Cookies, coo
     // ---- expand needs neither the graph nor the barrier: it serves the session's kept items from
     // memory, each only while its file's stamp is unchanged, and reads the disk (hash-checked) otherwise
     if req.cmd == "expand" {
+        let wm = crate::work::mark();
         let args: Vec<String> = req.input.split('\n').map(String::from).filter(|s| !s.trim().is_empty()).collect();
-        let (ok, s) = crate::query::expand(root, &args, Some(req.session.as_str()).filter(|s| !s.is_empty()));
+        let (ok, mut s) = crate::query::expand(root, &args, Some(req.session.as_str()).filter(|s| !s.is_empty()));
+        if ok { s.push_str(&crate::work::footer(root, Some(&req.session), "expand", &s, &wm)); }
         reply(&mut c, ok, s);
         return;
     }
@@ -402,6 +404,7 @@ fn handle(mut c: UnixStream, idx: &Index, walker: Walker, cookies: &Cookies, coo
     }
 
     // ---- readers: the index
+    let wm = crate::work::mark();
     let g: &Index = idx;
     let st = UpdateStats { files: g.file_count(), ..Default::default() };
     let index_ms = t0.elapsed().as_millis();
@@ -422,6 +425,12 @@ fn handle(mut c: UnixStream, idx: &Index, walker: Walker, cookies: &Cookies, coo
         other => Err(format!("unknown command {other:?}")),
     };
     let t_work = t0.elapsed();
+    // every answer ends saying how much work it took and what it saved
+    let out = match out {
+        // (not after JSON: that stays parseable)
+        Ok(mut s) if matches!(req.cmd.as_str(), "query" | "context") && !req.json => { s.push_str(&crate::work::footer(root, Some(&req.session), &req.cmd, &s, &wm)); Ok(s) }
+        o => o,
+    };
     match out {
         Ok(s) => reply(&mut c, true, s),
         Err(e) => reply(&mut c, false, e),

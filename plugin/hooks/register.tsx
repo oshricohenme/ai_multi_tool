@@ -22,8 +22,8 @@ async function refresh($: EngineInterface): Promise<void> {
     }
     const activity = JSON.parse(r.stdout) as Activity
     await update($, view, v => ({ ...v, activity, error: null }))
-    // nothing done yet: no status entry at all
-    $.ui.status(activity.events > 0 && (activity.requests > 0 || activity.compressions > 0 || activity.mcp_calls > 0) ? activity.line : undefined)
+    // from the session's start (the server's start is the first event), as graft's bar is
+    $.ui.status(activity.events > 0 ? activity.line : undefined)
   } catch (err) {
     await update($, view, v => ({ ...v, error: `mt activity: ${String(err).slice(0, 200)}` }))
   }

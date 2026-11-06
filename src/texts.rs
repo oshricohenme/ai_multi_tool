@@ -7,5 +7,7 @@ use std::sync::Arc;
 
 /// The file's text, from disk.
 pub fn get(root: &Path, rel: &str) -> Option<Arc<str>> {
-    std::fs::read(root.join(rel)).ok().map(|b| Arc::from(String::from_utf8_lossy(&b).as_ref()))
+    let b = std::fs::read(root.join(rel)).ok()?;
+    crate::work::read(1, b.len());
+    Some(Arc::from(String::from_utf8_lossy(&b).as_ref()))
 }

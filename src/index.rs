@@ -19,6 +19,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+/// The rows a lookup returned, counted for the answer's `[mt] work:` line.
+fn counted<T>(v: Vec<T>) -> Vec<T> {
+    crate::work::rows(v.len());
+    v
+}
+
 /// SQLite said another connection holds the write lock past the busy timeout.
 pub fn is_busy(e: &rusqlite::Error) -> bool {
     matches!(e, rusqlite::Error::SqliteFailure(f, _) if matches!(f.code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked))
@@ -324,6 +330,7 @@ pub fn extract(root: &Path, rel: &str, mtime: i64, size: i64) -> Extracted {
 
 impl Index {
     pub fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+        crate::work::lookup();
         self.db.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -791,7 +798,7 @@ impl Index {
                 start: r.get::<_, i64>(6)? as usize, end: r.get::<_, i64>(7)? as usize, head: r.get::<_, i64>(8)? as usize, sig: r.get(9)?,
             })
         })
-        .map(|it| it.flatten().collect())
+        .map(|it| counted(it.flatten().collect()))
         .unwrap_or_default()
     }
 
@@ -805,11 +812,11 @@ impl Index {
         );
         let db = self.conn();
         if let Ok(mut q) = db.prepare("SELECT role, COUNT(*) FROM files GROUP BY role ORDER BY 2 DESC") {
-            let rows: Vec<String> = q.query_map([], |r| Ok(format!("{}={}", r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).map(|it| it.flatten().collect()).unwrap_or_default();
+            let rows: Vec<String> = q.query_map([], |r| Ok(format!("{}={}", r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).map(|it| counted(it.flatten().collect())).unwrap_or_default();
             s.push_str(&format!("roles: {}\n", rows.join(" ")));
         }
         if let Ok(mut q) = db.prepare("SELECT lang, COUNT(*) FROM files GROUP BY lang ORDER BY 2 DESC LIMIT 14") {
-            let rows: Vec<String> = q.query_map([], |r| Ok(format!("{}={}", r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).map(|it| it.flatten().collect()).unwrap_or_default();
+            let rows: Vec<String> = q.query_map([], |r| Ok(format!("{}={}", r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).map(|it| counted(it.flatten().collect())).unwrap_or_default();
             s.push_str(&format!("tiers: {}\n", rows.join(" ")));
         }
         s
@@ -862,7 +869,7 @@ impl Store for Index {
     fn spellings(&self, name: &str) -> Vec<String> {
         let db = self.conn();
         let Ok(mut q) = db.prepare_cached("SELECT name FROM names WHERE norm=?1") else { return vec![] };
-        let mut v: Vec<String> = q.query_map([norm(name)], |r| r.get::<_, String>(0)).map(|it| it.flatten().collect()).unwrap_or_default();
+        let mut v: Vec<String> = q.query_map([norm(name)], |r| r.get::<_, String>(0)).map(|it| counted(it.flatten().collect())).unwrap_or_default();
         v.sort();
         v
     }
@@ -870,7 +877,7 @@ impl Store for Index {
     fn postings(&self, term: &str) -> Vec<(i64, f32, f32)> {
         let db = self.conn();
         let Ok(mut q) = db.prepare_cached("SELECT def, tf, len FROM search_post WHERE term=?1") else { return vec![] };
-        q.query_map([term], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)? as f32, r.get::<_, f64>(2)? as f32))).map(|it| it.flatten().collect()).unwrap_or_default()
+        q.query_map([term], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)? as f32, r.get::<_, f64>(2)? as f32))).map(|it| counted(it.flatten().collect())).unwrap_or_default()
     }
 
     fn search_stats(&self) -> (f64, f64) {
@@ -888,7 +895,7 @@ impl Store for Index {
     fn text_files(&self) -> Vec<(String, String)> {
         let db = self.conn();
         let Ok(mut st) = db.prepare("SELECT path, role FROM files WHERE lang NOT IN ('binary','skipped') AND lang NOT LIKE '%too large%'") else { return vec![] };
-        st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).map(|it| it.flatten().collect()).unwrap_or_default()
+        st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).map(|it| counted(it.flatten().collect())).unwrap_or_default()
     }
 
     fn defs_named(&self, last: &str) -> Vec<DefRow> {
@@ -907,7 +914,7 @@ impl Store for Index {
         let db = self.conn();
         let Ok(mut q) = db.prepare_cached("SELECT f.path, f.role, r.lines FROM refs r JOIN files f ON f.id=r.file WHERE r.name=?1") else { return vec![] };
         q.query_map([name], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))
-            .map(|it| it.flatten().map(|(p, ro, l)| (p, ro, l.split(',').filter_map(|x| x.parse().ok()).collect())).collect())
+            .map(|it| counted(it.flatten().map(|(p, ro, l)| (p, ro, l.split(',').filter_map(|x| x.parse().ok()).collect())).collect()))
             .unwrap_or_default()
     }
 
@@ -928,13 +935,13 @@ impl Store for Index {
         let q = format!("SELECT path, role FROM files WHERE role IN ({})", roles.iter().map(|r| format!("'{r}'")).collect::<Vec<_>>().join(","));
         let db = self.conn();
         let Ok(mut st) = db.prepare(&q) else { return vec![] };
-        st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).map(|it| it.flatten().collect()).unwrap_or_default()
+        st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).map(|it| counted(it.flatten().collect())).unwrap_or_default()
     }
 
     fn table_uses(&self, table: &str) -> Vec<(String, String, usize)> {
         let db = self.conn();
         let Ok(mut q) = db.prepare_cached("SELECT f.path, f.role, t.line FROM tables t JOIN files f ON f.id=t.file WHERE t.kind='use' AND t.name=?1 COLLATE NOCASE") else { return vec![] };
-        q.query_map([table], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)? as usize))).map(|it| it.flatten().collect()).unwrap_or_default()
+        q.query_map([table], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)? as usize))).map(|it| counted(it.flatten().collect())).unwrap_or_default()
     }
 
 }

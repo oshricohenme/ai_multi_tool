@@ -110,9 +110,9 @@ impl Files {
         let cache = std::thread::scope(|s| {
             let hs: Vec<_> = paths
                 .chunks(chunk)
-                .map(|c| s.spawn(move || c.iter().map(|p| (p.clone(), read_lines(root, p))).collect::<Vec<_>>()))
+                .map(|c| s.spawn(move || (c.iter().map(|p| (p.clone(), read_lines(root, p))).collect::<Vec<_>>(), crate::work::snapshot())))
                 .collect();
-            hs.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+            hs.into_iter().flat_map(|h| h.join().map(|(v, w)| { crate::work::absorb(w); v }).unwrap_or_default()).collect()
         });
         Files { cache }
     }
@@ -305,43 +305,87 @@ pub(crate) fn gather<S: Store>(idx: &S, query: &str) -> Result<Gathered, String>
             let mut routes: Vec<(String, String)> = vec![]; // (route prefix, handler name)
             let mut names: Vec<String> = caller_names.iter().map(|(n, _)| n.clone()).collect();
             if FUNC_KINDS.contains(&t.kind.as_str()) { names.push(last.to_string()); }
+            // (caller name, a file referencing it, its first 20 reference lines): common names reach
+            // thousands of files, so each is read on every core and only those lines are looked at
+            let mut jobs: Vec<(String, String, Vec<usize>)> = vec![];
             for cname in names.iter().take(40) {
                 for (path, role, lines) in idx.refs(cname) {
                     if role == "test" || role == "integration" || role == "doc" { continue; }
-                    let fl = files.get(&root, &path).clone();
-                    for l1 in lines.iter().take(20) {
-                        let Some(text) = fl.get(l1 - 1) else { continue };
-                        for c in route_rx().captures_iter(text) {
-                            let r = c[1].split('{').next().unwrap_or("").split(':').next().unwrap_or("").trim_end_matches('/').to_string();
-                            if r.len() >= 5 && !routes.iter().any(|(x, _)| *x == r) {
-                                routes.push((r, cname.clone()));
-                            }
-                        }
+                    jobs.push((cname.clone(), path, lines.into_iter().take(20).collect()));
+                }
+            }
+            let found: Vec<Vec<String>> = {
+                let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+                let chunk = jobs.len().div_ceil(threads).max(1);
+                let root = &root;
+                std::thread::scope(|s| {
+                    let hs: Vec<_> = jobs.chunks(chunk).map(|c| s.spawn(move || {
+                        let out: Vec<Vec<String>> = c.iter().map(|(_, path, lines)| {
+                            let Some(t) = crate::texts::get(root, path) else { return vec![] };
+                            let all: Vec<&str> = t.lines().collect();
+                            lines.iter().filter_map(|l1| all.get(l1 - 1)).flat_map(|text| route_rx().captures_iter(text)
+                                .map(|c| c[1].split('{').next().unwrap_or("").split(':').next().unwrap_or("").trim_end_matches('/').to_string()).collect::<Vec<_>>()).collect()
+                        }).collect();
+                        (out, crate::work::snapshot())
+                    })).collect();
+                    hs.into_iter().flat_map(|h| { let (v, w) = h.join().unwrap_or_default(); crate::work::absorb(w); v }).collect()
+                })
+            };
+            // in the order the files were listed, as before: the first caller to register a route keeps it
+            for ((cname, _, _), rs) in jobs.iter().zip(found) {
+                for r in rs {
+                    if r.len() >= 5 && !routes.iter().any(|(x, _)| *x == r) {
+                        routes.push((r, cname.clone()));
                     }
                 }
             }
             if !routes.is_empty() {
-                let tests = idx.files_with_roles(&["test", "integration"]);
                 let routes: Vec<&(String, String)> = routes.iter().take(30).collect();
+                // Only test files that can hold a route are read. A route's inner segments (`api` in
+                // `/api/users`) stand between `/`s in any text that holds the route, so a file holding it
+                // references that word (every identifier of 3+ characters is indexed, strings included):
+                // the rarest such word of each route names the candidates. A route without one: all tests.
+                let word = |s: &str| s.len() >= 3 && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+                let mut cand: Option<std::collections::HashSet<String>> = Some(Default::default());
+                for (r, _) in &routes {
+                    let segs: Vec<&str> = r.split('/').collect();
+                    let inner: Vec<&str> = segs[..segs.len().saturating_sub(1)].iter().copied().filter(|s| word(s)).collect();
+                    let best = inner.iter().map(|s| idx.refs(s)).min_by_key(|v| v.len());
+                    match (best, cand.as_mut()) {
+                        (Some(files), Some(c)) => c.extend(files.into_iter().map(|(p, _, _)| p)),
+                        _ => { cand = None; break; }
+                    }
+                }
+                let tests: Vec<(String, String)> = idx.files_with_roles(&["test", "integration"]).into_iter()
+                    .filter(|(p, _)| cand.as_ref().is_none_or(|c| c.contains(p))).collect();
                 // each route quoted the three ways a test writes a URL
                 let needles: Vec<[String; 3]> = routes.iter().map(|(r, _)| [format!("\"{r}"), format!("`{r}"), format!("'{r}")]).collect();
                 // one pass over the test files, on every core: only a file that names a route anywhere
                 // is split into lines (a large repo has thousands of test files and few name a route)
-                let matching: HashMap<String, Vec<String>> = {
+                let matching: HashMap<String, (std::sync::Arc<str>, Vec<String>)> = {
                     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
                     let chunk = tests.len().div_ceil(threads).max(1);
                     let (root, needles) = (&root, &needles);
                     std::thread::scope(|s| {
-                        let hs: Vec<_> = tests.chunks(chunk).map(|c| s.spawn(move || c.iter().filter_map(|(tp, _)| {
-                            let t = crate::texts::get(root, tp)?;
-                            needles.iter().any(|ns| ns.iter().any(|n| t.contains(n.as_str()))).then(|| (tp.clone(), t.lines().map(String::from).collect()))
-                        }).collect::<Vec<_>>())).collect();
-                        hs.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+                        let hs: Vec<_> = tests.chunks(chunk).map(|c| s.spawn(move || {
+                            let found = c.iter().filter_map(|(tp, _)| {
+                                let t = crate::texts::get(root, tp)?;
+                                needles.iter().any(|ns| ns.iter().any(|n| t.contains(n.as_str()))).then(|| { let l = t.lines().map(String::from).collect::<Vec<String>>(); (tp.clone(), (t.clone(), l)) })
+                            }).collect::<Vec<_>>();
+                            (found, crate::work::snapshot())
+                        })).collect();
+                        hs.into_iter().flat_map(|h| {
+                            let (found, w) = h.join().unwrap_or_default();
+                            crate::work::absorb(w);
+                            found
+                        }).collect()
                     })
                 };
                 for ((route, handler), ns) in routes.iter().zip(&needles) {
                     for (tp, role) in &tests {
-                        let Some(tl) = matching.get(tp) else { continue };
+                        let Some((text, tl)) = matching.get(tp) else { continue };
+                        // the whole file once per route; its lines only when it holds this route
+                        if !ns.iter().any(|n| text.contains(n.as_str())) { continue; }
                         let hits: Vec<usize> = tl.iter().enumerate().filter(|(_, l)| ns.iter().any(|n| l.contains(n.as_str()))).map(|(i, _)| i).take(3).collect();
                         if hits.is_empty() { continue; }
                         let fdefs = defs_in(idx, tp);
@@ -658,7 +702,7 @@ fn render_text(merged: &[Item], shown: &[bool], files: &mut Files, root: &std::p
         s.push_str(&format!("## not shown (raise --max-pointers, or query a narrower name): {}\n", parts.join(", ")));
     } else {
         s.push_str(&format!(
-            "## complete: all {} references to {last} in {} indexed files are listed above (as bodies or pointers with their exact lines); no need to grep again. Index covers {} files; it skips hidden dirs, node_modules, vendor, build output.\n",
+            "## complete: all {} references to {last} in {} indexed files are listed above (as bodies or pointers with their exact lines); no need to grep again. Index covers {} files: everything git does not ignore.\n",
             refs.0, refs.1, st.files
         ));
     }

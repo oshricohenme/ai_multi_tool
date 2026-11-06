@@ -5162,3 +5162,30 @@ was picked up and one in `build/` was not; adding `bin/` to `.gitignore` removed
 
 **Cost to expect:** repos that commit dependencies or generated folders (not gitignored) now index
 them too; that is the rule, and it makes the size and speed work (dedupe by content next) matter more.
+
+## 2026-11-06 · 58. A `[mt] work:` line on every answer; a status line like graft's
+
+**Asked:** a status line like graft's, and every answer saying how much work mt did, as graft's
+packs end with `[graft] tokens saved ≈ N (P%); this pack ≈ X tok vs reading the K file(s) whole ≈ Y tok`.
+
+**The line** (`work.rs`): every `query`, `context`, `expand` and `search` answer, through the server
+or in-process, ends with `[mt] work: <index lookups> (<rows>) · <files read> (<KB>) · <ms> · this
+reply ≈ R tok vs ≈ W tok to read the K files it covers whole: ≈ S tok saved (P%, estimate)`.
+Counters are per thread (a request is one thread) and worker threads hand theirs back (`snapshot`/
+`absorb`), so parallel parts are counted and concurrent requests never mix. JSON output gets no
+line. Each line also records a `saved` event, which `mt activity` sums (`tokens_saved`).
+
+**The status line:** `mt statusline` reads Claude Code's JSON and prints two lines:
+`◤ mt · 6,974 files · ✓ server up · 4 calls · ~436.0k tok saved` / `▸ ctx 41% · last: query search
+"close the account" (322 ms)` (a batch's JSON is shown as its operations). It opens the index read
+only and never creates one. The plugin's status entry (`◤ mt · …`) now shows from the session's start.
+
+**What the line exposed at once:** `context` read 1,766 files (35 MB) per call on gym_software. Two
+places: route detection read every file referencing each of up to 40 caller names (now each file
+read once, on every core, looking only at the reference lines; same routes, same order), and the
+route-in-tests match rebuilt a substring searcher per line per route per test file (now the whole
+text is checked once per route first; test files are also narrowed by a route's inner path word in
+the refs index). `context listValueAccounts`: 1,289 → ~390 ms. It still reads ~1,800 files, honestly
+counted: the next thing to cut. Outputs compared on 13 names against the build before: identical
+but for database-table items, which differ between two runs of the old build too (known
+nondeterminism, section 55). 100 Rust tests pass; the plugin's 2 tests pass.

@@ -103,6 +103,23 @@ starts `claude` there; re-run after each push, `/reload-plugins` in an open sess
 cd your-repo && sh ~/orca/ai_multi_tool/install.sh   # or: curl -fsSL https://raw.githubusercontent.com/oshricohenme/ai_multi_tool/main/install.sh | sh
 ```
 
+**Status line.** The plugin shows mt's line in Claude Code's status area from the start of each
+session (`◤ mt · 12 calls · ~48.2k tok saved · last context 38 ms`). For the two-line bar graft
+draws, set it as the `statusLine` command (or call it from your own status line script):
+
+```json
+{"statusLine": {"type": "command", "command": "mt statusline"}}
+```
+
+```
+◤ mt · 6,974 files · ✓ server up · 4 calls · ~436.0k tok saved
+▸ ctx 41% · last: query search "close the account" (322 ms)
+```
+
+Every `query`, `context`, `expand` and `search` answer ends with what it took and what it saved:
+`[mt] work: 53 index lookups (3,001 rows) · 1,800 files read (37,975 KB) · 383 ms · this reply ≈ 1,167
+tok vs ≈ 159,369 tok to read the 20 files it covers whole: ≈ 158,202 tok saved (99%, estimate)`.
+
 [docs/USAGE.md](docs/USAGE.md) covers permanent install, every command, the configuration
 variables and troubleshooting.
 

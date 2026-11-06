@@ -38,6 +38,7 @@ mod vctx;
 mod coord;
 #[cfg(unix)]
 mod serve;
+mod work;
 #[cfg(unix)]
 mod hook;
 
@@ -209,6 +210,10 @@ enum Cmd {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
+    /// Claude Code's status line, two lines as graft draws its own: files indexed, the server,
+    /// this session's calls and tokens saved; then the context window and the last call. Reads the
+    /// JSON Claude Code sends on stdin. Settings: {"statusLine": {"type": "command", "command": "mt statusline"}}
+    Statusline,
     /// Call MCP tools through mt: `list`, `tools <server> [tool..]`, `call` (a batch from stdin,
     /// or `<server> <tool> [json]`). Long results are kept for `mt out`. `mt mcp help`.
     Mcp {
@@ -531,6 +536,12 @@ fn main() -> ExitCode {
     };
     match cli.cmd {
         Cmd::Tools { op } => return tools_cmd(op),
+        Cmd::Statusline => {
+            let mut input = String::new();
+            let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut input);
+            println!("{}", events::statusline(&serde_json::from_str(&input).unwrap_or_default()));
+            ExitCode::SUCCESS
+        }
         Cmd::Activity { session, json, line, statusline, limit } => {
             let mut root = index::find_root(&std::env::current_dir().unwrap_or_default());
             let mut session = session;
@@ -597,8 +608,9 @@ fn main() -> ExitCode {
             let mut idx = match open_index(false) { Ok(i) => i, Err(c) => return c };
             let t0 = std::time::Instant::now();
             let st = match idx.update() { Ok(s) => s, Err(e) => { eprintln!("mt: {e}"); return ExitCode::from(2) } };
+            let wm = work::mark();
             match context::run(&idx, &query, &context::Opts { budget, json, max_pointers, edit, map, session: None }, &st, t0.elapsed().as_millis(), t0) {
-                Ok(s) => { print!("{s}"); ExitCode::SUCCESS }
+                Ok(s) => { print!("{s}{}", if json { String::new() } else { work::footer(&idx.root, query::session_id().as_deref(), "context", &s, &wm) }); ExitCode::SUCCESS }
                 Err(e) => { println!("{e}"); ExitCode::from(1) }
             }
         }
@@ -674,8 +686,10 @@ fn main() -> ExitCode {
             if let Some(r) = via_daemon(&root_of_cwd(), serve::Req { cmd: "expand".into(), input: handles.join("\n"), session: query::session_id().unwrap_or_default(), ..Default::default() }) {
                 return emit(r);
             }
+            let wm = work::mark();
             let (ok, out) = query::expand(&root_of_cwd(), &handles, None);
             print!("{out}");
+            if ok { print!("{}", work::footer(&root_of_cwd(), query::session_id().as_deref(), "expand", &out, &wm)); }
             if let Some(n) = coord::notice(&root_of_cwd(), &coord::me()) { print!("{n}") }
             if ok { ExitCode::SUCCESS } else { ExitCode::from(1) }
         }
@@ -691,8 +705,9 @@ fn main() -> ExitCode {
             let mut idx = match open_index(false) { Ok(i) => i, Err(c) => return c };
             let t0 = std::time::Instant::now();
             let st = match idx.update() { Ok(s) => s, Err(e) => { eprintln!("mt: {e}"); return ExitCode::from(2) } };
+            let wm = work::mark();
             match query::run(&idx, &input, None, &st, t0.elapsed().as_millis(), t0) {
-                Ok(s) => { print!("{s}"); if let Some(n) = coord::notice(&root_of_cwd(), &coord::me()) { print!("{n}") } ExitCode::SUCCESS }
+                Ok(s) => { print!("{s}{}", work::footer(&idx.root, query::session_id().as_deref(), "query", &s, &wm)); if let Some(n) = coord::notice(&root_of_cwd(), &coord::me()) { print!("{n}") } ExitCode::SUCCESS }
                 Err(e) => { println!("{e}"); ExitCode::from(1) }
             }
         }
@@ -736,8 +751,9 @@ fn main() -> ExitCode {
             let mut idx = match open_index(false) { Ok(i) => i, Err(c) => return c };
             let t0 = std::time::Instant::now();
             let st = match idx.update() { Ok(s) => s, Err(e) => { eprintln!("mt: {e}"); return ExitCode::from(2) } };
+            let wm = work::mark();
             match query::run(&idx, &q, None, &st, t0.elapsed().as_millis(), t0) {
-                Ok(s) => { print!("{s}"); ExitCode::SUCCESS }
+                Ok(s) => { print!("{s}{}", work::footer(&idx.root, query::session_id().as_deref(), "search", &s, &wm)); ExitCode::SUCCESS }
                 Err(e) => { println!("{e}"); ExitCode::from(1) }
             }
         }

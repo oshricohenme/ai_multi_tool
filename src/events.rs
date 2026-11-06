@@ -63,9 +63,14 @@ pub fn activity(root: &Path, session: Option<&str>, limit: usize) -> Value {
     let mut by_cmd: std::collections::BTreeMap<String, (usize, f64)> = Default::default();
     for r in &reqs { let x = by_cmd.entry(r["cmd"].as_str().unwrap_or("?").to_string()).or_default(); x.0 += 1; x.1 += r["ms"].as_f64().unwrap_or(0.0); }
     let kept_out = (sum("compress", "chars_in") - sum("compress", "chars_out")).max(0.0);
+    // what the answers' `[mt] work:` lines estimated they saved, against reading their files whole
+    let saved = sum("saved", "tokens");
     let line = |e: &Value| -> Value {
         let (label, detail) = match e["kind"].as_str().unwrap_or("") {
-            "request" => (e["cmd"].as_str().unwrap_or("?").to_string(), e["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or(e["header"].as_str().unwrap_or("")).to_string()),
+            "request" => {
+                let subject = e["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or(e["header"].as_str().unwrap_or(""));
+                (e["cmd"].as_str().unwrap_or("?").to_string(), ops_of(subject).unwrap_or_else(|| subject.to_string()))
+            }
             "compress" => ("compress".into(), format!("{} {}→{} chars, kept as {}", e["what"].as_str().unwrap_or(""), e["chars_in"], e["chars_out"], e["id"].as_str().unwrap_or(""))),
             "mcp" => ("mcp".into(), format!("{}.{} {} chars{}", e["server"].as_str().unwrap_or(""), e["tool"].as_str().unwrap_or(""), e["chars"], if e["ok"] == false { " ✗" } else { "" })),
             "reindex" => ("reindex".into(), format!("{} changed, {} removed", e["changed"].as_array().map_or(0, |a| a.len()), e["removed"].as_array().map_or(0, |a| a.len()))),
@@ -80,7 +85,7 @@ pub fn activity(root: &Path, session: Option<&str>, limit: usize) -> Value {
         "requests": reqs.len(), "request_ms": reqs.iter().map(|r| r["ms"].as_f64().unwrap_or(0.0)).sum::<f64>().round(),
         "by_cmd": by_cmd.iter().map(|(k, (c, ms))| json!({"cmd": k, "count": c, "avg_ms": (ms / *c as f64 * 10.0).round() / 10.0})).collect::<Vec<_>>(),
         "compressions": n("compress"), "chars_kept_out": kept_out as u64, "tokens_kept_out": (kept_out / 4.0).round() as u64,
-        "mcp_calls": n("mcp"), "reindexes": n("reindex"), "last_request": last,
+        "mcp_calls": n("mcp"), "reindexes": n("reindex"), "last_request": last, "tokens_saved": saved as u64,
         "recent": evs.iter().rev().take(limit).map(line).collect::<Vec<_>>(),
     });
     let l = status_line(&out);
@@ -88,14 +93,61 @@ pub fn activity(root: &Path, session: Option<&str>, limit: usize) -> Value {
     out
 }
 
-/// One line for a status bar: `mt ▸ 14 calls · ~52k tok kept out · last query 4 ms`.
+/// A `mt query` batch (JSON) as its operations, for a person: `search "close the account", callers "Foo"`.
+/// None when the text is not a batch.
+pub fn ops_of(subject: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(subject.trim()).ok()?;
+    let qs = v.get("queries").cloned().unwrap_or(v);
+    const NOT_OPS: &[&str] = &["id", "limit", "in", "regex", "view", "expect", "depth", "max", "budget", "files", "ext"];
+    let ops: Vec<String> = qs.as_array()?.iter().filter_map(|q| {
+        let (op, arg) = q.as_object()?.iter().find(|(k, _)| !NOT_OPS.contains(&k.as_str()))?;
+        Some(match arg { Value::String(s) => format!("{op} \"{}\"", s.chars().take(40).collect::<String>()), _ => op.clone() })
+    }).collect();
+    (!ops.is_empty()).then(|| ops.join(", "))
+}
+
+fn k(n: f64) -> String {
+    if n >= 1e6 { format!("{:.1}M", n / 1e6) } else if n >= 1000.0 { format!("{:.1}k", n / 1000.0) } else { format!("{n}") }
+}
+
+/// One line for a status bar: `◤ mt · 14 calls · ~48.2k tok saved · ~52k tok kept out · last query 4 ms`.
 pub fn status_line(a: &Value) -> String {
-    let k = |n: f64| if n >= 1000.0 { format!("{:.1}k", n / 1000.0) } else { format!("{n}") };
     let mut parts = vec![format!("{} call{}", a["requests"], if a["requests"] == 1 { "" } else { "s" })];
     if a["mcp_calls"].as_u64().unwrap_or(0) > 0 { parts.push(format!("{} mcp", a["mcp_calls"])); }
+    if a["tokens_saved"].as_u64().unwrap_or(0) > 0 { parts.push(format!("~{} tok saved", k(a["tokens_saved"].as_u64().unwrap_or(0) as f64))); }
     if a["tokens_kept_out"].as_u64().unwrap_or(0) > 0 { parts.push(format!("~{} tok kept out", k(a["tokens_kept_out"].as_u64().unwrap_or(0) as f64))); }
     if let Some(l) = a.get("last_request").filter(|l| !l.is_null()) { parts.push(format!("last {} {} ms", l["cmd"].as_str().unwrap_or(""), l["ms"])); }
-    format!("mt ▸ {}", parts.join(" · "))
+    format!("◤ mt · {}", parts.join(" · "))
+}
+
+/// Claude Code's status line (`mt statusline`, graft's two-line shape): the index and its server,
+/// then this session's calls and savings; below, the context window and the last call. `input` is
+/// the JSON Claude Code sends. Reads only: never creates an index where there is none.
+pub fn statusline(input: &Value) -> String {
+    let dir = input.pointer("/workspace/current_dir").or_else(|| input.get("cwd")).and_then(|d| d.as_str()).map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let root = crate::index::find_root(&dir);
+    let db = root.join(".mt/index.sqlite");
+    if !db.is_file() { return "◤ mt · no index here yet (the session's start builds it)".into(); }
+    let files: i64 = rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX).ok()
+        .and_then(|c| c.query_row("SELECT count(*) FROM files", [], |r| r.get(0)).ok()).unwrap_or(0);
+    #[cfg(unix)]
+    let up = std::os::unix::net::UnixStream::connect(crate::serve::socket_path(&root)).is_ok();
+    #[cfg(not(unix))]
+    let up = false;
+    let a = activity(&root, input.get("session_id").and_then(|s| s.as_str()), 1);
+    let mut top = vec!["◤ mt".to_string(), format!("{} files", crate::work::n(files.max(0) as u64)), (if up { "✓ server up" } else { "server off" }).to_string()];
+    top.push(format!("{} call{}", a["requests"], if a["requests"] == 1 { "" } else { "s" }));
+    if a["tokens_saved"].as_u64().unwrap_or(0) > 0 { top.push(format!("~{} tok saved", k(a["tokens_saved"].as_u64().unwrap_or(0) as f64))); }
+    if a["tokens_kept_out"].as_u64().unwrap_or(0) > 0 { top.push(format!("~{} tok kept out", k(a["tokens_kept_out"].as_u64().unwrap_or(0) as f64))); }
+    let mut bottom = vec![];
+    if let Some(p) = input.pointer("/context_window/used_percentage").and_then(|p| p.as_f64()) { bottom.push(format!("ctx {}%", p.round())); }
+    if let Some(r) = a["recent"].as_array().and_then(|r| r.iter().find(|e| e["kind"] == "request")) {
+        bottom.push(format!("last: {} {}{}", r["label"].as_str().unwrap_or(""), r["detail"].as_str().unwrap_or("").chars().take(60).collect::<String>(), r["ms"].as_f64().map(|m| format!(" ({m:.0} ms)")).unwrap_or_default()));
+    }
+    let mut s = top.join(" · ");
+    if !bottom.is_empty() { s.push_str(&format!("\n▸ {}", bottom.join(" · "))); }
+    s
 }
 
 /// One daemon request: what was asked, how it went, which code it touched.
@@ -142,7 +194,11 @@ mod tests {
         assert_eq!(a["mcp_calls"], 1);
         assert_eq!(a["reindexes"], 1);
         assert_eq!(a["recent"][0]["label"], "reindex");
-        assert_eq!(super::status_line(&a), "mt ▸ 1 call · 1 mcp · ~9.5k tok kept out · last query 4.0 ms");
+        assert_eq!(super::status_line(&a), "◤ mt · 1 call · 1 mcp · ~9.5k tok kept out · last query 4.0 ms");
+        // a batch's JSON reads as its operations
+        assert_eq!(super::ops_of(r#"{"queries":[{"id":"s","search":"close the account","limit":12}]}"#).as_deref(), Some(r#"search "close the account""#));
+        assert_eq!(super::ops_of(r#"[{"id":"a","callers":"Foo"},{"id":"b","grep":"TODO","regex":false}]"#).as_deref(), Some(r#"callers "Foo", grep "TODO""#));
+        assert_eq!(super::ops_of("WriteAudit"), None);
         assert_eq!(super::activity(&d, None, 10)["requests"], 2);
         let _ = std::fs::remove_dir_all(&d);
     }

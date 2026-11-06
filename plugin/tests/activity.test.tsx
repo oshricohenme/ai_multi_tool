@@ -8,7 +8,7 @@ const PANE = {
 } as const
 
 const ACTIVITY = {
-  line: 'mt ▸ 3 calls · 1 mcp · ~9.5k tok kept out · last query 4 ms',
+  line: '◤ mt · 3 calls · 1 mcp · ~2.1k tok saved · ~9.5k tok kept out · last query 4 ms',
   events: 5, requests: 3, compressions: 1, tokens_kept_out: 9500, mcp_calls: 1, reindexes: 1,
   by_cmd: [{ cmd: 'query', count: 2, avg_ms: 4 }, { cmd: 'apply', count: 1, avg_ms: 120 }],
   recent: [
