@@ -1,6 +1,5 @@
 {
   "name": "coach",
-  "version": "0.1.0",
   "description": "Claude coach: inspect every model call and tool call: reasoning, actions, tokens, cost and timing",
   "types": "./types/index.d.ts"
 }

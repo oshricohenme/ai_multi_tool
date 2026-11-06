@@ -96,6 +96,13 @@ local web app, `/coach`). Install either or both; `mt` downloads its binary on f
 /plugin install coach --marketplace oshricohenme/ai_multi_tool
 ```
 
+To try them on an existing repo and keep up with every push (installs for that repo only, then
+starts `claude` there; re-run after each push, `/reload-plugins` in an open session):
+
+```bash
+cd your-repo && sh ~/orca/ai_multi_tool/install.sh   # or: curl -fsSL https://raw.githubusercontent.com/oshricohenme/ai_multi_tool/main/install.sh | sh
+```
+
 [docs/USAGE.md](docs/USAGE.md) covers permanent install, every command, the configuration
 variables and troubleshooting.
 
