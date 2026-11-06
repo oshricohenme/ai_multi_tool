@@ -5238,3 +5238,17 @@ times swing; CPU time is steadier): before, three runs 17.0 / 20.6 / 28.6 s wall
 after, **9.3 / 9.3 / 9.4 s** wall (CPU ~22-23 s). The saving is waiting on the write-ahead log, not
 computation. What remains is SQLite on one thread: write 4.0 s, lookup tables 5.6 s.
 99 Rust tests pass.
+
+## 2026-11-06 · 61. Search postings packed per word and file; references read by row range
+
+**Rows.** gym_software: 4,505,476 search postings (one per word and definition) but only 1,106,582
+(word, file) pairs, and 2,449,249 reference rows. `search_post` is now (term, file, posts): one row
+per word and file, its postings packed as (def i64, tf f32, len f32). Its lookup is on `term` alone.
+A file's references, like its postings, are one block of rows (`files.refs_lo..refs_hi`), so the
+`refs_file` lookup table is gone; `tools.rs` reads a file's references by that range. Schema 9.
+
+**Checked** against `07ac27f` (gym_software, a fresh session each run, timings stripped): 8 of 8
+searches and 6 of 6 `context` answers identical. 99 Rust tests pass.
+
+**Measured:** index 448 → 336 MB; write 4.0 → 3.0 s; a fresh index 6.2 s in one run, 9.5 s in
+another (load 13). The lookup tables (~6 s) are the largest step left.

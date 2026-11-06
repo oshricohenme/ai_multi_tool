@@ -32,13 +32,14 @@ pub fn is_busy(e: &rusqlite::Error) -> bool {
 
 /// The lookup tables one-shot commands, `mt tools` and the visualizer query through (the daemon
 /// answers from memory and needs none of them): name, and what it indexes.
-const LOOKUPS: [(&str, &str); 9] = [
+const LOOKUPS: [(&str, &str); 8] = [
     ("defs_last", "defs(last)"), ("defs_file", "defs(file)"),
-    ("refs_name", "refs(name)"), ("refs_file", "refs(file)"),
+    ("refs_name", "refs(name)"),
     ("tables_name", "tables(name COLLATE NOCASE)"), ("tables_file", "tables(file)"),
-    // plain-word search: a word's postings, covering (one index read per word). A file's postings are
-    // one block of rows (files.post_lo..post_hi), so deleting them needs no index of its own.
-    ("search_term", "search_post(term, def, tf, len)"),
+    // plain-word search: a word's rows (one per file, its postings packed). A file's postings and its
+    // references are each one block of rows (files.post_lo..post_hi, refs_lo..refs_hi): read and
+    // deleted by rowid range, with no index of their own.
+    ("search_term", "search_post(term)"),
     // quoted paths and routes: by place (a file's lines; deletes), and by text (a route's prefix)
     ("lits_at", "lits(file, line)"), ("lits_text", "lits(kind, text)"),
 ];
@@ -135,7 +136,7 @@ impl Progress {
     }
 }
 
-const SCHEMA_VERSION: &str = "8";
+const SCHEMA_VERSION: &str = "9";
 const MAX_FILE: u64 = 1_500_000;
 const MAX_DATA_FILE: u64 = 200_000;
 
@@ -428,16 +429,16 @@ impl Index {
                  DROP TABLE IF EXISTS search_post; DROP TABLE IF EXISTS search_doc; DROP TABLE IF EXISTS names; DROP TABLE IF EXISTS lits;
                  CREATE TABLE lits(file INTEGER NOT NULL, line INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL);
                  CREATE INDEX lits_at ON lits(file, line); CREATE INDEX lits_text ON lits(kind, text);
-                 CREATE TABLE search_post(term TEXT NOT NULL, def INTEGER NOT NULL, tf REAL NOT NULL, len REAL NOT NULL);
-                 CREATE INDEX search_term ON search_post(term, def, tf, len);
+                 CREATE TABLE search_post(term TEXT NOT NULL, file INTEGER NOT NULL, posts BLOB NOT NULL);
+                 CREATE INDEX search_term ON search_post(term);
                  CREATE TABLE search_doc(def INTEGER PRIMARY KEY, len REAL NOT NULL);
                  CREATE TABLE names(name TEXT PRIMARY KEY, norm TEXT NOT NULL) WITHOUT ROWID;
                  CREATE INDEX names_norm ON names(norm);
-                 CREATE TABLE files(id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL, mtime INTEGER, size INTEGER, lang TEXT, role TEXT, lines INTEGER, post_lo INTEGER, post_hi INTEGER);
+                 CREATE TABLE files(id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL, mtime INTEGER, size INTEGER, lang TEXT, role TEXT, lines INTEGER, post_lo INTEGER, post_hi INTEGER, refs_lo INTEGER, refs_hi INTEGER);
                  CREATE TABLE defs(id INTEGER PRIMARY KEY, file INTEGER NOT NULL, kind TEXT, name TEXT, last TEXT, scope TEXT, start INTEGER, end INTEGER, head INTEGER, sig TEXT);
                  CREATE INDEX defs_last ON defs(last); CREATE INDEX defs_file ON defs(file);
                  CREATE TABLE refs(file INTEGER NOT NULL, name TEXT NOT NULL, lines TEXT NOT NULL);
-                 CREATE INDEX refs_name ON refs(name); CREATE INDEX refs_file ON refs(file);
+                 CREATE INDEX refs_name ON refs(name);
                  CREATE TABLE tables(file INTEGER NOT NULL, name TEXT NOT NULL, line INTEGER, kind TEXT);
                  CREATE INDEX tables_name ON tables(name COLLATE NOCASE); CREATE INDEX tables_file ON tables(file);",
             )?;
@@ -853,16 +854,17 @@ impl Index {
         {
             let mut id_of = tx.prepare("SELECT id FROM files WHERE path=?1")?;
             let del = |id: i64, all: bool| -> rusqlite::Result<()> {
-                // the file's postings are one block of rows: deleted by their rowid range
-                let range = tx.query_row("SELECT post_lo, post_hi FROM files WHERE id=?1", [id], |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, Option<i64>>(1)?)));
-                if let Ok((Some(lo), Some(hi))) = range {
-                    tx.execute("DELETE FROM search_post WHERE rowid BETWEEN ?1 AND ?2", [lo, hi])?;
+                // the file's postings and references are blocks of rows: deleted by their rowid ranges
+                let ranges = tx.query_row("SELECT post_lo, post_hi, refs_lo, refs_hi FROM files WHERE id=?1", [id],
+                    |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, Option<i64>>(2)?, r.get::<_, Option<i64>>(3)?)));
+                if let Ok((pl, ph, rl, rh)) = ranges {
+                    if let (Some(lo), Some(hi)) = (pl, ph) { tx.execute("DELETE FROM search_post WHERE rowid BETWEEN ?1 AND ?2", [lo, hi])?; }
+                    if let (Some(lo), Some(hi)) = (rl, rh) { tx.execute("DELETE FROM refs WHERE rowid BETWEEN ?1 AND ?2", [lo, hi])?; }
                 }
-                // and the range forgotten, so a later block reusing those rowids is never taken for it
-                tx.execute("UPDATE files SET post_lo=NULL, post_hi=NULL WHERE id=?1", [id])?;
+                // and the ranges forgotten, so a later block reusing those rowids is never taken for them
+                tx.execute("UPDATE files SET post_lo=NULL, post_hi=NULL, refs_lo=NULL, refs_hi=NULL WHERE id=?1", [id])?;
                 tx.execute("DELETE FROM search_doc WHERE def IN (SELECT id FROM defs WHERE file=?1)", [id])?;
                 tx.execute("DELETE FROM defs WHERE file=?1", [id])?;
-                tx.execute("DELETE FROM refs WHERE file=?1", [id])?;
                 tx.execute("DELETE FROM tables WHERE file=?1", [id])?;
                 tx.execute("DELETE FROM lits WHERE file=?1", [id])?;
                 if all {
@@ -888,16 +890,17 @@ impl Index {
             let mut ins_ref = tx.prepare("INSERT INTO refs(file, name, lines) VALUES(?1,?2,?3)")?;
             let mut ins_tab = tx.prepare("INSERT INTO tables(file, name, line, kind) VALUES(?1,?2,?3,?4)")?;
             let mut ins_lit = tx.prepare("INSERT INTO lits(file, line, kind, text) VALUES(?1,?2,?3,?4)")?;
-            let mut ins_post = tx.prepare("INSERT INTO search_post(term, def, tf, len) VALUES(?1,?2,?3,?4)")?;
+            let mut ins_post = tx.prepare("INSERT INTO search_post(term, file, posts) VALUES(?1,?2,?3)")?;
             let mut ins_doc = tx.prepare("INSERT INTO search_doc(def, len) VALUES(?1,?2)")?;
-            let mut set_posts = tx.prepare("UPDATE files SET post_lo=?1, post_hi=?2 WHERE id=?3")?;
+            let mut set_ranges = tx.prepare("UPDATE files SET post_lo=?1, post_hi=?2, refs_lo=?3, refs_hi=?4 WHERE id=?5")?;
             // every spelling of every identifier, once (`spellings` looks names up by their norm)
             let mut ins_name = tx.prepare("INSERT OR IGNORE INTO names(name, norm) VALUES(?1,?2)")?;
             let mut named: std::collections::HashSet<&str> = std::collections::HashSet::new();
             for (i, e) in extracted.iter().enumerate() {
                 prog.show(|| format!("{} {}/{} files", bar(base + i + 1, total), base + i + 1, total));
                 let id: i64 = up.query_row(params![e.rel, e.mtime, e.size, e.lang, e.role, e.lines as i64, e.hash], |r| r.get(0))?;
-                let (mut lo, mut hi) = (None::<i64>, 0i64);
+                // each word's postings in this file, packed (def, tf, len), so one row per word and file
+                let mut packed: std::collections::BTreeMap<&str, Vec<u8>> = Default::default();
                 for (i, (d, sig)) in e.defs.iter().enumerate() {
                     let last = d.name.rsplit_once('.').map(|(_, l)| l).unwrap_or(&d.name);
                     ins_def.execute(params![id, d.kind, d.name, last, d.path.join("."), d.start as i64, d.end as i64, d.head as i64, sig])?;
@@ -905,20 +908,31 @@ impl Index {
                         let did = tx.last_insert_rowid();
                         ins_doc.execute(params![did, len])?;
                         for (t, tf) in terms {
-                            ins_post.execute(params![t, did, tf, len])?;
-                            let r = tx.last_insert_rowid();
-                            lo.get_or_insert(r);
-                            hi = r;
+                            let b = packed.entry(t.as_str()).or_default();
+                            b.extend_from_slice(&did.to_le_bytes());
+                            b.extend_from_slice(&tf.to_le_bytes());
+                            b.extend_from_slice(&len.to_le_bytes());
                         }
                     }
                 }
-                if let Some(lo) = lo { set_posts.execute(params![lo, hi, id])?; }
+                let (mut plo, mut phi) = (None::<i64>, 0i64);
+                for (t, b) in &packed {
+                    ins_post.execute(params![t, id, b])?;
+                    let r = tx.last_insert_rowid();
+                    plo.get_or_insert(r);
+                    phi = r;
+                }
                 for (n, _) in &e.refs {
                     if named.insert(n.as_str()) { ins_name.execute(params![n, norm(n)])?; }
                 }
+                let (mut rlo, mut rhi) = (None::<i64>, 0i64);
                 for (n, l) in &e.refs {
                     ins_ref.execute(params![id, n, l.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")])?;
+                    let r = tx.last_insert_rowid();
+                    rlo.get_or_insert(r);
+                    rhi = r;
                 }
+                if plo.is_some() || rlo.is_some() { set_ranges.execute(params![plo, plo.map(|_| phi), rlo, rlo.map(|_| rhi), id])?; }
                 for (n, l, k) in &e.tables {
                     ins_tab.execute(params![id, n, *l as i64, k])?;
                 }
@@ -1025,8 +1039,14 @@ impl Store for Index {
 
     fn postings(&self, term: &str) -> Vec<(i64, f32, f32)> {
         let db = self.conn();
-        let Ok(mut q) = db.prepare_cached("SELECT def, tf, len FROM search_post WHERE term=?1") else { return vec![] };
-        q.query_map([term], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)? as f32, r.get::<_, f64>(2)? as f32))).map(|it| counted(it.flatten().collect())).unwrap_or_default()
+        let Ok(mut q) = db.prepare_cached("SELECT posts FROM search_post WHERE term=?1") else { return vec![] };
+        let blobs: Vec<Vec<u8>> = q.query_map([term], |r| r.get::<_, Vec<u8>>(0)).map(|it| counted(it.flatten().collect())).unwrap_or_default();
+        // (def i64, tf f32, len f32), little-endian, 16 bytes each
+        blobs.iter().flat_map(|b| b.chunks_exact(16).map(|c| (
+            i64::from_le_bytes(c[0..8].try_into().unwrap_or_default()),
+            f32::from_le_bytes(c[8..12].try_into().unwrap_or_default()),
+            f32::from_le_bytes(c[12..16].try_into().unwrap_or_default()),
+        )).collect::<Vec<_>>()).collect()
     }
 
     fn search_stats(&self) -> (f64, f64) {
