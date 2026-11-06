@@ -69,7 +69,15 @@ echo "mt plugin: $P"
 
 step "4. the binary"
 stamp="$P/bin/.release"
-if [ "$(cat "$stamp" 2>/dev/null || true)" != "$tag" ]; then rm -f "$P"/bin/mt-*; fi
+if [ "$(cat "$stamp" 2>/dev/null || true)" != "$tag" ]; then
+  rm -f "$P"/bin/mt-*
+  # a new plugin version, same binary: move it over from the version before instead of downloading
+  for d in "$(dirname "$P")"/*/; do d=${d%/}
+    if [ ! -L "$d" ] && [ "$d" != "$P" ] && [ "$(cat "$d/bin/.release" 2>/dev/null || true)" = "$tag" ] && ls "$d"/bin/mt-* >/dev/null 2>&1; then
+      mv "$d"/bin/mt-* "$P/bin/" && echo "binary unchanged, moved over from $(basename "$d")"; break
+    fi
+  done
+fi
 v=$(MT_BIN= PATH=/usr/bin:/bin "$P/bin/mt" --version) || { echo "the binary did not download" >&2; exit 1; }
 echo "$tag" > "$stamp"
 echo "$v ($(short "$tag"))"
