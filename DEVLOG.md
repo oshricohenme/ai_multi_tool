@@ -5059,3 +5059,52 @@ server; `serve --stop` stopped it. 95 Rust tests pass (new: `one_build_in_two_pl
 **Next: memory.** A server holds every file's text and the whole graph (defs with a path string
 each, refs as a string map per file, name maps): ~993 MB RSS on gym_software (9,721 files, 133 MB
 of source), 7.5 GB of texts alone on fps_europe. The goal is a few hundred MB on any repo.
+
+## 2026-11-06 · 55. The server's memory: from 1.2 GB to 36 MB, answering from SQLite
+
+**Goal** (the owner's): a few hundred MB at most, on any repo.
+
+**Where the memory was** (gym_software copy: 9,721 files, 133 MB of source, 417k defs, 2.68M refs;
+`footprint`, physical): the server held every file's text (`texts`), the whole graph (defs with a
+path string each, refs as a string map per file, name maps), and plain-word search documents for
+every definition once anything was searched (`search::cache`). Attribution after phase 2a, by step:
+started 7.5 MB; after 20 `context --map` 33 MB; after a repo-wide grep 33 MB; after the first
+`mt search` **438 MB**.
+
+**Changed:**
+- 2a: the server answers through `Index` (SQLite, the lookup tables) instead of `graph::Graph`;
+  `query::run`/`context::run`/`apply` were already generic over `Store`. The reindexer writes each
+  change before it acknowledges waiting requests. File text is read from disk on demand (the OS
+  caches it, outside the process). `graph.rs` and the in-memory texts are deleted. The lookup
+  tables are built before the server answers again (it now needs them).
+- 2b: plain-word search keeps each definition's weighted words on disk (`search_post`: term,
+  def, tf, len, with a covering index; `search_doc`: def, len), computed while parsing by the
+  same code as before (`search::terms`, `postings_for`). A question reads only its own words'
+  postings; BM25, the matched-share and name/role factors and the coupling boost are unchanged.
+  The name/role factors apply to the best 500 by text score (`ponytail:` note in `search.rs`).
+  Schema 6.
+- 2c: `context::gather` preloaded every test file as lines and, per route, cloned each file's
+  lines and built three strings per line (93% of a 3 s call in `sample`). Now one parallel pass
+  over the test files' text; only files naming a route are split into lines.
+
+**Measured** (`bench.sh`: build, 20 `context --map`, 10 query batches incl. a repo-wide grep, 4
+searches, 8 parallel `context`; then the server's physical footprint):
+
+| gym_software | before | 2a | 2b | 2c |
+|---|---|---|---|---|
+| physical footprint | 1,212 MB | 508 MB | 142 MB | **36 MB** |
+| `context --map` p50 / max | 27 / 3,956 ms | 28 / 2,514 | 35 / 6,498 | **30 / 122** |
+| query batch p50 | 22 ms | 62 | 66 | 64 |
+| search p50 / max | 122 / 5,279 ms | 95 / 4,666 | 27 / 36 | **27 / 34** |
+| 8 parallel `context` | 3,483 ms | 2,609 | 1,257 | **76** |
+| fresh `mt build` | 4.8 s | 8.6 | 14.2 | 13.8 |
+| index on disk | 297 MB | | 528 MB | |
+
+watchly (5,073 files): 495 MB → 39 MB; 8 parallel 1,801 → 48 ms; `mt build` 2.6 → 4.6 s.
+
+**Worse, and next:** a fresh index is ~3x slower and the index ~1.8x larger (4.5M postings rows,
+the lookup tables now built up front); a query batch with a repo-wide grep is ~3x slower (it reads
+files from disk). **Found, not fixed:** `context --map` output is not deterministic run to run
+(the order of table items, from a HashMap): 24 lines differed between two runs of the old build.
+95 Rust tests pass (twice). One run of the suite had `hook_reads_and_mcp` fail; it passed alone
+3/3 and in two later full runs: a flake under parallel tests, not yet explained.

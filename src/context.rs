@@ -322,14 +322,27 @@ pub(crate) fn gather<S: Store>(idx: &S, query: &str) -> Result<Gathered, String>
             }
             if !routes.is_empty() {
                 let tests = idx.files_with_roles(&["test", "integration"]);
-                let paths: Vec<String> = tests.iter().map(|(p, _)| p.clone()).filter(|p| !files.cache.contains_key(p)).collect();
-                let loaded = Files::load_all(&root, &paths);
-                files.cache.extend(loaded.cache);
-                for (route, handler) in routes.iter().take(30) {
-                    let needle = format!("\"{route}");
+                let routes: Vec<&(String, String)> = routes.iter().take(30).collect();
+                // each route quoted the three ways a test writes a URL
+                let needles: Vec<[String; 3]> = routes.iter().map(|(r, _)| [format!("\"{r}"), format!("`{r}"), format!("'{r}")]).collect();
+                // one pass over the test files, on every core: only a file that names a route anywhere
+                // is split into lines (a large repo has thousands of test files and few name a route)
+                let matching: HashMap<String, Vec<String>> = {
+                    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+                    let chunk = tests.len().div_ceil(threads).max(1);
+                    let (root, needles) = (&root, &needles);
+                    std::thread::scope(|s| {
+                        let hs: Vec<_> = tests.chunks(chunk).map(|c| s.spawn(move || c.iter().filter_map(|(tp, _)| {
+                            let t = crate::texts::get(root, tp)?;
+                            needles.iter().any(|ns| ns.iter().any(|n| t.contains(n.as_str()))).then(|| (tp.clone(), t.lines().map(String::from).collect()))
+                        }).collect::<Vec<_>>())).collect();
+                        hs.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+                    })
+                };
+                for ((route, handler), ns) in routes.iter().zip(&needles) {
                     for (tp, role) in &tests {
-                        let tl = files.get(&root, tp).clone();
-                        let hits: Vec<usize> = tl.iter().enumerate().filter(|(_, l)| l.contains(&needle) || l.contains(&format!("`{route}")) || l.contains(&format!("'{route}"))).map(|(i, _)| i).take(3).collect();
+                        let Some(tl) = matching.get(tp) else { continue };
+                        let hits: Vec<usize> = tl.iter().enumerate().filter(|(_, l)| ns.iter().any(|n| l.contains(n.as_str()))).map(|(i, _)| i).take(3).collect();
                         if hits.is_empty() { continue; }
                         let fdefs = defs_in(idx, tp);
                         for h in hits {

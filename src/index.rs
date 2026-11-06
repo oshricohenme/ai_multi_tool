@@ -26,10 +26,12 @@ pub fn is_busy(e: &rusqlite::Error) -> bool {
 
 /// The lookup tables one-shot commands, `mt tools` and the visualizer query through (the daemon
 /// answers from memory and needs none of them): name, and what it indexes.
-const LOOKUPS: [(&str, &str); 7] = [
+const LOOKUPS: [(&str, &str); 9] = [
     ("defs_last", "defs(last)"), ("defs_file", "defs(file)"),
     ("refs_name", "refs(name)"), ("refs_file", "refs(file)"), ("refs_norm", "refs(lower(replace(name,'_','')))"),
     ("tables_name", "tables(name COLLATE NOCASE)"), ("tables_file", "tables(file)"),
+    // plain-word search: a word's postings, covering (one index read per word); a definition's, to delete them
+    ("search_term", "search_post(term, def, tf, len)"), ("search_def", "search_post(def)"),
 ];
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -70,7 +72,7 @@ impl Progress {
     pub fn clear(&mut self) { if self.on && self.last.take().is_some() { eprint!("\r\x1b[2K"); } }
 }
 
-const SCHEMA_VERSION: &str = "5";
+const SCHEMA_VERSION: &str = "6";
 const MAX_FILE: u64 = 1_500_000;
 const MAX_DATA_FILE: u64 = 200_000;
 
@@ -244,6 +246,8 @@ pub struct Extracted {
     pub tables: Vec<(String, usize, &'static str)>,
     /// fnv1a of the file's bytes
     pub hash: i64,
+    /// each definition as a plain-word search document (weighted words, length), aligned with `defs`
+    pub search: Vec<Option<(Vec<(String, f32)>, f32)>>,
 }
 
 fn content_hash(bytes: &[u8]) -> i64 {
@@ -252,7 +256,7 @@ fn content_hash(bytes: &[u8]) -> i64 {
 
 pub fn extract(root: &Path, rel: &str, mtime: i64, size: i64) -> Extracted {
     let role = role_of(rel);
-    let mut ex = Extracted { rel: rel.to_string(), mtime, size, lang: "skipped".into(), role, lines: 0, defs: vec![], refs: vec![], tables: vec![], hash: 0 };
+    let mut ex = Extracted { rel: rel.to_string(), mtime, size, lang: "skipped".into(), role, lines: 0, defs: vec![], refs: vec![], tables: vec![], hash: 0, search: vec![] };
     let Ok(bytes) = fs::read(root.join(rel)) else { return ex };
     ex.hash = content_hash(&bytes);
     if bytes.iter().take(8000).any(|&b| b == 0) {
@@ -276,6 +280,7 @@ pub fn extract(root: &Path, rel: &str, mtime: i64, size: i64) -> Extracted {
         let sig: String = src_lines.get(d.head).map(|l| l.trim()).unwrap_or("").chars().take(200).collect();
         (d, sig)
     }).collect();
+    ex.search = crate::search::postings_for(rel, role, &ex.defs, &src_lines);
     let mut refs: HashMap<&str, Vec<usize>> = HashMap::new();
     for (i, line) in src.lines().enumerate() {
         for m in ident_rx().find_iter(line) {
@@ -318,6 +323,10 @@ impl Index {
         if v.as_deref() != Some(SCHEMA_VERSION) {
             db.execute_batch(
                 "DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS defs; DROP TABLE IF EXISTS refs; DROP TABLE IF EXISTS tables;
+                 DROP TABLE IF EXISTS search_post; DROP TABLE IF EXISTS search_doc;
+                 CREATE TABLE search_post(term TEXT NOT NULL, def INTEGER NOT NULL, tf REAL NOT NULL, len REAL NOT NULL);
+                 CREATE INDEX search_term ON search_post(term, def, tf, len); CREATE INDEX search_def ON search_post(def);
+                 CREATE TABLE search_doc(def INTEGER PRIMARY KEY, len REAL NOT NULL);
                  CREATE TABLE files(id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL, mtime INTEGER, size INTEGER, lang TEXT, role TEXT, lines INTEGER);
                  CREATE TABLE defs(id INTEGER PRIMARY KEY, file INTEGER NOT NULL, kind TEXT, name TEXT, last TEXT, scope TEXT, start INTEGER, end INTEGER, head INTEGER, sig TEXT);
                  CREATE INDEX defs_last ON defs(last); CREATE INDEX defs_file ON defs(file);
@@ -359,6 +368,14 @@ impl Index {
         let known = self.known()?;
         let bulk = known.is_empty();
         self.refresh(&known, None, bulk).map(|(st, _, _)| st)
+    }
+
+    /// The content hashes the index holds for these paths (the server's reindexer: a file whose
+    /// stamp moved but whose bytes did not is only restamped).
+    pub fn stored_hashes(&self, paths: &[&str]) -> HashMap<String, i64> {
+        let db = self.conn();
+        let Ok(mut q) = db.prepare_cached("SELECT hash FROM files WHERE path=?1") else { return HashMap::new() };
+        paths.iter().filter_map(|p| q.query_row([p], |r| r.get::<_, Option<i64>>(0)).ok().flatten().map(|h| (p.to_string(), h))).collect()
     }
 
     /// The lookup tables not built yet: after a first index, or a build that was interrupted.
@@ -609,6 +626,8 @@ impl Index {
         {
             let mut id_of = tx.prepare("SELECT id FROM files WHERE path=?1")?;
             let del = |id: i64, all: bool| -> rusqlite::Result<()> {
+                tx.execute("DELETE FROM search_post WHERE def IN (SELECT id FROM defs WHERE file=?1)", [id])?;
+                tx.execute("DELETE FROM search_doc WHERE def IN (SELECT id FROM defs WHERE file=?1)", [id])?;
                 tx.execute("DELETE FROM defs WHERE file=?1", [id])?;
                 tx.execute("DELETE FROM refs WHERE file=?1", [id])?;
                 tx.execute("DELETE FROM tables WHERE file=?1", [id])?;
@@ -634,12 +653,19 @@ impl Index {
             let mut ins_def = tx.prepare("INSERT INTO defs(file, kind, name, last, scope, start, end, head, sig) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)")?;
             let mut ins_ref = tx.prepare("INSERT INTO refs(file, name, lines) VALUES(?1,?2,?3)")?;
             let mut ins_tab = tx.prepare("INSERT INTO tables(file, name, line, kind) VALUES(?1,?2,?3,?4)")?;
+            let mut ins_post = tx.prepare("INSERT INTO search_post(term, def, tf, len) VALUES(?1,?2,?3,?4)")?;
+            let mut ins_doc = tx.prepare("INSERT INTO search_doc(def, len) VALUES(?1,?2)")?;
             for (i, e) in extracted.iter().enumerate() {
                 prog.show(|| format!("index: writing {}/{} files", i + 1, extracted.len()));
                 let id: i64 = up.query_row(params![e.rel, e.mtime, e.size, e.lang, e.role, e.lines as i64, e.hash], |r| r.get(0))?;
-                for (d, sig) in &e.defs {
+                for (i, (d, sig)) in e.defs.iter().enumerate() {
                     let last = d.name.rsplit_once('.').map(|(_, l)| l).unwrap_or(&d.name);
                     ins_def.execute(params![id, d.kind, d.name, last, d.path.join("."), d.start as i64, d.end as i64, d.head as i64, sig])?;
+                    if let Some(Some((terms, len))) = e.search.get(i) {
+                        let did = tx.last_insert_rowid();
+                        ins_doc.execute(params![did, len])?;
+                        for (t, tf) in terms { ins_post.execute(params![t, did, tf, len])?; }
+                    }
                 }
                 for (n, l) in &e.refs {
                     ins_ref.execute(params![id, n, l.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")])?;
@@ -708,6 +734,13 @@ pub trait Store: Sync {
     fn text_files(&self) -> Vec<(String, String)>;
     /// Every identifier in the repo that spells the same name: `userID`, `user_id`, `UserId`, `USER_ID`.
     fn spellings(&self, name: &str) -> Vec<String>;
+    /// Plain-word search: (definition id, weighted count, document length) of every definition
+    /// whose words include `term`.
+    fn postings(&self, term: &str) -> Vec<(i64, f32, f32)>;
+    /// Plain-word search: how many definitions are documents, and their average length.
+    fn search_stats(&self) -> (f64, f64);
+    /// These definitions, by id.
+    fn defs_by_ids(&self, ids: &[i64]) -> Vec<DefRow>;
 }
 
 /// The key two spellings of one name share: lowercase, underscores and dashes dropped.
@@ -730,6 +763,24 @@ impl Store for Index {
         let mut v: Vec<String> = q.query_map([norm(name)], |r| r.get::<_, String>(0)).map(|it| it.flatten().collect()).unwrap_or_default();
         v.sort();
         v
+    }
+
+    fn postings(&self, term: &str) -> Vec<(i64, f32, f32)> {
+        let db = self.conn();
+        let Ok(mut q) = db.prepare_cached("SELECT def, tf, len FROM search_post WHERE term=?1") else { return vec![] };
+        q.query_map([term], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)? as f32, r.get::<_, f64>(2)? as f32))).map(|it| it.flatten().collect()).unwrap_or_default()
+    }
+
+    fn search_stats(&self) -> (f64, f64) {
+        self.conn().query_row("SELECT count(*), coalesce(avg(len), 0) FROM search_doc", [], |r| Ok((r.get::<_, i64>(0)? as f64, r.get::<_, f64>(1)?))).unwrap_or((0.0, 0.0))
+    }
+
+    fn defs_by_ids(&self, ids: &[i64]) -> Vec<DefRow> {
+        // integers only, so they go in the statement itself, in chunks
+        ids.chunks(500).flat_map(|c| {
+            let list = c.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            self.rows(&format!("SELECT {} WHERE d.id IN ({list})", Self::DEF_COLS), &[])
+        }).collect()
     }
 
     fn text_files(&self) -> Vec<(String, String)> {
@@ -848,7 +899,7 @@ mod reindex_tests {
         write(&root, "sub/b.go", "package sub\n\nfunc Beta() int {\n\treturn 2\n}\n");
         let mut idx = Index::open(&root).unwrap();
         assert_eq!(idx.update_serving().unwrap().changed, 2, "first index parses both files");
-        assert_eq!(idx.missing_lookups().unwrap().len(), 7, "a first index for the daemon leaves the lookup tables to it");
+        assert_eq!(idx.missing_lookups().unwrap().len(), LOOKUPS.len(), "a first index for the daemon leaves the lookup tables to it");
         assert_eq!(idx.update().unwrap().changed, 0, "nothing changed: nothing re-parsed");
         assert!(idx.missing_lookups().unwrap().is_empty(), "update builds what is missing");
         assert_eq!(idx.ensure_lookups().unwrap(), 0, "and once built, nothing to do");

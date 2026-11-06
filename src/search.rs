@@ -5,12 +5,12 @@
 //! Ranked by BM25, with a small boost for how much of the repo mentions it (coupling) and less
 //! weight for tests and docs unless the question is about them. Deterministic.
 //!
-//! The daemon keeps each file's documents per file version (`precache`), so a question costs a
-//! ranking pass, not a re-read of the repo.
+//! Each definition's weighted words are computed when its file is indexed and kept on disk, in
+//! the index (`search_post`, `search_doc`): a question reads the postings of its own words only,
+//! so its cost and memory follow the question, not the size of the repo.
 
 use crate::index::{DefRow, Store};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock};
 
 const STOP: &[&str] = &[
     "the", "a", "an", "of", "in", "on", "for", "to", "which", "what", "how", "is", "are", "was", "were", "be", "been", "it", "its",
@@ -69,66 +69,38 @@ pub fn words(text: &str) -> Vec<String> {
     out
 }
 
-/// One definition, as the ranking sees it.
-#[derive(Clone)]
-struct Doc {
-    def: DefRow,
-    /// term -> weighted count (name words weigh most)
-    tf: HashMap<String, f32>,
-    len: f32,
-}
-
-fn doc_for(d: &DefRow, lines: &[String], container: bool) -> Doc {
+/// A definition's searchable words, each with its weight (name words weigh most), and the
+/// document's length: what the ranking sees of it. `container`: a class or impl holding other
+/// definitions is its header and doc only (its members are documents of their own).
+#[allow(clippy::too_many_arguments)]
+pub fn terms(name: &str, scope: &str, path: &str, start: usize, end: usize, head: usize, container: bool, lines: &[&str]) -> (Vec<(String, f32)>, f32) {
     let mut tf: HashMap<String, f32> = HashMap::new();
     let mut add = |t: String, w: f32| *tf.entry(t).or_default() += w;
-    for t in words(&d.name) { add(t, 4.0); }
-    for t in words(&d.scope) { add(t, 1.5); }
-    let path_words: HashSet<String> = words(&d.path.replace(['/', '.'], " ")).into_iter().collect();
+    for t in words(name) { add(t, 4.0); }
+    for t in words(scope) { add(t, 1.5); }
+    let path_words: HashSet<String> = words(&path.replace(['/', '.'], " ")).into_iter().collect();
     for t in path_words { add(t, 1.0); }
-    let e = d.end.min(lines.len().saturating_sub(1));
-    // a container (a class or impl holding other definitions) is its header and doc only: its
-    // members are documents of their own
-    let last = if container { (d.head + 2).min(e) } else { e };
-    for l in lines.iter().take(last + 1).skip(d.start).take(600) {
+    let e = end.min(lines.len().saturating_sub(1));
+    let last = if container { (head + 2).min(e) } else { e };
+    for l in lines.iter().take(last + 1).skip(start).take(600) {
         for t in words(l) { add(t, 1.0); }
     }
     let len = tf.values().sum::<f32>().max(1.0);
-    Doc { def: d.clone(), tf, len }
+    let mut v: Vec<(String, f32)> = tf.into_iter().collect();
+    v.sort_by(|a, b| a.0.cmp(&b.0));
+    (v, len)
 }
 
-/// path -> (version stamp, its documents)
-fn cache() -> &'static Mutex<HashMap<String, ((u128, u64), Arc<Vec<Doc>>)>> {
-    static C: OnceLock<Mutex<HashMap<String, ((u128, u64), Arc<Vec<Doc>>)>>> = OnceLock::new();
-    C.get_or_init(Default::default)
-}
-
-fn stamp(root: &std::path::Path, rel: &str) -> Option<(u128, u64)> {
-    let m = std::fs::metadata(root.join(rel)).ok()?;
-    Some((m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos(), m.len()))
-}
-
-fn docs_of<S: Store>(st: &S, rel: &str) -> Arc<Vec<Doc>> {
-    let root = st.root();
-    let st_now = stamp(root, rel);
-    if crate::precache::enabled() {
-        if let (Some(s), Some((cs, d))) = (st_now, cache().lock().unwrap_or_else(|e| e.into_inner()).get(rel)) {
-            if *cs == s { return d.clone(); }
-        }
-    }
-    let Some(text) = crate::texts::get(root, rel) else { return Arc::new(vec![]) };
-    let lines: Vec<String> = text.lines().map(String::from).collect();
-    let defs = st.defs_in(rel);
-    let inside_fn = |d: &DefRow| defs.iter().any(|o| crate::context::FUNC_KINDS.contains(&o.kind.as_str()) && o.start <= d.start && d.end <= o.end && (o.start, o.end) != (d.start, d.end));
-    let docs: Vec<Doc> = defs.iter()
-        // a function's own locals (`var out`, `e := …`) are not what anyone searches for
-        .filter(|d| !inside_fn(d))
-        .map(|d| {
-            let container = defs.iter().any(|o| o.start > d.start && o.end <= d.end && (o.start, o.end) != (d.start, d.end));
-            doc_for(d, &lines, container)
-        }).collect();
-    let docs = Arc::new(docs);
-    if crate::precache::enabled() { if let Some(s) = st_now { cache().lock().unwrap_or_else(|e| e.into_inner()).insert(rel.to_string(), (s, docs.clone())); } }
-    docs
+/// Every definition of a file as a search document, aligned with `defs` (at index time). None:
+/// not searched (a function's own locals, `var out`, `e := …`; anything in a config file).
+pub fn postings_for(rel: &str, role: &str, defs: &[(crate::Def, String)], lines: &[&str]) -> Vec<Option<(Vec<(String, f32)>, f32)>> {
+    if role == "config" { return defs.iter().map(|_| None).collect(); }
+    defs.iter().map(|(d, _)| {
+        let inside_fn = defs.iter().any(|(o, _)| crate::context::FUNC_KINDS.contains(&o.kind.as_str()) && o.start <= d.start && d.end <= o.end && (o.start, o.end) != (d.start, d.end));
+        if inside_fn { return None; }
+        let container = defs.iter().any(|(o, _)| o.start > d.start && o.end <= d.end && (o.start, o.end) != (d.start, d.end));
+        Some(terms(&d.name, &d.path.join("."), rel, d.start, d.end, d.head, container, lines))
+    }).collect()
 }
 
 pub struct Found {
@@ -149,50 +121,58 @@ pub fn search<S: Store>(st: &S, question: &str, limit: usize) -> Vec<Found> {
     if q.is_empty() { return vec![]; }
     let about_tests = q.iter().any(|t| matches!(t.as_str(), "test" | "spec" | "fixture" | "mock" | "fake"));
     let about_docs = q.iter().any(|t| matches!(t.as_str(), "doc" | "readme" | "guide"));
-    // every file's documents (cached per file version in the daemon)
-    let files: Vec<(String, String)> = st.text_files();
-    let all: Vec<Arc<Vec<Doc>>> = files.iter().filter(|(_, role)| role != "config").map(|(p, _)| docs_of(st, p)).collect();
-    let docs: Vec<&Doc> = all.iter().flat_map(|v| v.iter()).collect();
-    if docs.is_empty() { return vec![]; }
-    let n = docs.len() as f64;
-    let avg = docs.iter().map(|d| d.len as f64).sum::<f64>() / n;
-    let df: Vec<f64> = q.iter().map(|t| docs.iter().filter(|d| d.tf.contains_key(t)).count() as f64).collect();
-    // coupling: how many documents mention a definition's own name (its callers, users, tests)
-    let mut scored: Vec<(usize, f64, Vec<String>)> = vec![];
-    for (i, d) in docs.iter().enumerate() {
-        let mut s = 0.0;
-        let mut hit = vec![];
-        for (t, &f) in q.iter().zip(&df) {
-            let Some(&tf) = d.tf.get(t) else { continue };
+    let (n, avg) = st.search_stats();
+    if n == 0.0 { return vec![]; }
+    // BM25 over the postings of the question's words only: per definition, its sum and the words it matched
+    let mut acc: HashMap<i64, (f64, Vec<String>)> = HashMap::new();
+    for t in &q {
+        let post = st.postings(t);
+        let f = post.len() as f64;
+        if f == 0.0 { continue; }
+        let idf = ((n - f + 0.5) / (f + 0.5) + 1.0).ln();
+        for (def, tf, len) in post {
             let tf = tf as f64;
-            let idf = ((n - f + 0.5) / (f + 0.5) + 1.0).ln();
-            s += idf * tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * d.len as f64 / avg.max(1.0)));
-            hit.push(t.clone());
+            let e = acc.entry(def).or_default();
+            e.0 += idf * tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * len as f64 / avg.max(1.0)));
+            e.1.push(t.clone());
         }
-        if s <= 0.0 { continue; }
-        // a definition matching more of the question's words beats one repeating a single word
-        s *= 0.5 + 0.5 * (hit.len() as f64 / q.len() as f64);
-        // and the question's words in its name say most about what it is
-        let name_words: HashSet<String> = words(&d.def.name).into_iter().collect();
+    }
+    let qn = q.len() as f64;
+    // a definition matching more of the question's words beats one repeating a single word
+    let mut pre: Vec<(i64, f64, Vec<String>)> = acc.into_iter().filter(|(_, (s, _))| *s > 0.0)
+        .map(|(d, (s, h))| { let s = s * (0.5 + 0.5 * (h.len() as f64 / qn)); (d, s, h) }).collect();
+    // The name and role factors need the definition itself: the best by the text score get them.
+    // ponytail: a definition below this cut that the name factor (at most 1 + 0.4 per word) would
+    // lift into the top is missed; raise the cut if that ever shows up.
+    pre.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+    pre.truncate((limit * 50).max(500));
+    let ids: Vec<i64> = pre.iter().map(|x| x.0).collect();
+    let defs: HashMap<i64, DefRow> = st.defs_by_ids(&ids).into_iter().map(|d| (d.id, d)).collect();
+    let mut scored: Vec<(DefRow, f64, Vec<String>)> = vec![];
+    for (id, mut s, hit) in pre {
+        let Some(d) = defs.get(&id) else { continue };
+        // the question's words in its name say most about what it is
+        let name_words: HashSet<String> = words(&d.name).into_iter().collect();
         let in_name = q.iter().filter(|t| name_words.contains(*t)).count();
         s *= 1.0 + 0.4 * in_name as f64;
-        s *= match d.def.role.as_str() {
+        s *= match d.role.as_str() {
             "test" | "integration" if !about_tests => 0.5,
             "doc" if !about_docs => 0.35,
             _ => 1.0,
         };
-        scored.push((i, s, hit));
+        scored.push((d.clone(), s, hit));
     }
-    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(docs[a.0].def.path.cmp(&docs[b.0].def.path)).then(docs[a.0].def.start.cmp(&docs[b.0].def.start)));
+    let order = |a: &(DefRow, f64, Vec<String>), b: &(DefRow, f64, Vec<String>)| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.path.cmp(&b.0.path)).then(a.0.start.cmp(&b.0.start));
+    scored.sort_by(order);
     // the top candidates get the coupling boost (counting mentions for every document is not needed)
-    let mut top: Vec<(usize, f64, Vec<String>)> = scored.into_iter().take(limit * 4).collect();
+    let mut top: Vec<(DefRow, f64, Vec<String>)> = scored.into_iter().take(limit * 4).collect();
     for x in top.iter_mut() {
-        let last = crate::context::last_seg(&docs[x.0].def.name);
+        let last = crate::context::last_seg(&x.0.name);
         let users = st.refs(last).len() as f64;
         x.1 *= 1.0 + 0.12 * (1.0 + users).ln();
     }
-    top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(docs[a.0].def.path.cmp(&docs[b.0].def.path)).then(docs[a.0].def.start.cmp(&docs[b.0].def.start)));
-    top.into_iter().take(limit).map(|(i, s, m)| Found { def: docs[i].def.clone(), score: s, matched: m }).collect()
+    top.sort_by(order);
+    top.into_iter().take(limit).map(|(d, s, m)| Found { def: d, score: s, matched: m }).collect()
 }
 
 #[cfg(test)]

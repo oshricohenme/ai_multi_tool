@@ -22,7 +22,6 @@ mod context;
 mod events;
 mod viz;
 mod embed;
-mod graph;
 mod index;
 mod languages;
 mod query;

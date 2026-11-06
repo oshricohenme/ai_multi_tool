@@ -20,7 +20,6 @@
 //! `touch` and `apply` take the write lock. ponytail: unbounded threads; a pool if hundreds of
 //! agents ever share one daemon.
 
-use crate::graph::Graph;
 use crate::index::{Index, Store, UpdateStats};
 use crate::{context, fnv1a, query};
 use serde::{Deserialize, Serialize};
@@ -194,49 +193,27 @@ pub fn serve(root: PathBuf) -> Result<(), String> {
     .map_err(|e| format!("file watcher: {e}"))?;
     watcher.watch(&root, notify::RecursiveMode::Recursive).map_err(|e| format!("watch {}: {e}", root.display()))?;
 
+    // Requests are answered from the SQLite index through its lookup tables, not from a copy of
+    // the repo in memory: the server's memory stays small and flat however large the worktree
+    // (file text is read from disk on demand; the OS caches it, outside this process).
     let idx = Index::open(&root).map_err(|e| e.to_string())?;
-    idx.update_serving().map_err(|e| e.to_string())?;
-    crate::texts::enable();
-    let g = Graph::load(&idx).map_err(|e| e.to_string())?;
-    println!("mt serve {}: {} files in memory, loaded in {} ms, socket {}", root.display(), g.file_count(), t_load.elapsed().as_millis(), sock.display());
-    crate::events::emit(&root, serde_json::json!({"kind": "daemon", "state": "start", "files": g.file_count(), "ms": t_load.elapsed().as_millis() as u64, "pid": std::process::id()}));
-    // The graph is what requests read: they share its read lock. Only patching it takes the write
-    // lock, for microseconds. The SQLite index has its own lock and is not behind the graph's.
+    idx.update().map_err(|e| e.to_string())?;
+    let files = idx.file_count();
+    println!("mt serve {}: {} files indexed, ready in {} ms, socket {}", root.display(), files, t_load.elapsed().as_millis(), sock.display());
+    crate::events::emit(&root, serde_json::json!({"kind": "daemon", "state": "start", "files": files, "ms": t_load.elapsed().as_millis() as u64, "pid": std::process::id()}));
     // replies' numbered items and files' evidence stay in memory between requests
     crate::precache::enable();
-    let live = Arc::new(std::sync::RwLock::new(g));
     let idx = Arc::new(idx);
     // Sync barrier (the Watchman "cookie"): a request writes .mt/cookie-N and waits until the
     // watcher reports it. Events arrive in order, so by then every earlier change is in the graph.
     let cookies = Arc::new((std::sync::Mutex::new(0u64), std::sync::Condvar::new()));
     let walks = Arc::new((std::sync::Mutex::new(0u64), std::sync::Condvar::new()));
 
-    // ---- the persister: writes what the reindexer parsed to SQLite, on its own thread, after the
-    // graph is patched and waiting requests have their answer (in order; the graph is the truth)
-    let (ptx, prx) = std::sync::mpsc::channel::<(UpdateStats, Vec<crate::index::Extracted>, Vec<String>)>();
-    {
-        let idx = idx.clone();
-        std::thread::spawn(move || {
-            // the lookup tables one-shot commands use: built here, once the daemon answers, in line
-            // with the writes (so no lock contention); nothing the daemon answers needs them
-            let t = std::time::Instant::now();
-            match idx.ensure_lookups() {
-                Ok(0) => {}
-                Ok(n) => println!("lookup tables: built {n} in {} ms", t.elapsed().as_millis()),
-                Err(e) => println!("lookup tables failed (the next one-shot `mt` command builds them): {e}"),
-            }
-            while let Ok((st, ex, rm)) = prx.recv() {
-                if let Err(e) = idx.persist(&st, &ex, &rm, false) { println!("persist failed: {e}"); }
-            }
-        });
-    }
-
     // ---- the reindexer: a background thread applying each burst of file events (30 ms debounce,
     // so an editor's write+rename or a multi-file `mt apply` lands as one update). It finds and
-    // parses what changed with no lock held, patches the graph under a brief write lock, answers
-    // the waiting requests, and hands the SQLite write to the persister.
+    // parses what changed, writes it to the index, then answers the waiting requests: by then a
+    // request reads every change made before it.
     {
-        let live = live.clone();
         let idx = idx.clone();
         let cookies = cookies.clone();
         let walks = walks.clone();
@@ -264,15 +241,20 @@ pub fn serve(root: PathBuf) -> Result<(), String> {
                 rels.dedup();
                 let t = Instant::now();
                 if !rels.is_empty() || walk {
-                    let (known, total) = { let g = live.read().unwrap_or_else(|e| e.into_inner()); (if walk { g.known() } else { g.known_for(&rels) }, g.file_count()) };
-                    let hashes = |paths: &[&str]| live.read().unwrap_or_else(|e| e.into_inner()).hashes(paths);
+                    let total = idx.file_count();
+                    let known = if walk { idx.known() } else { idx.known_for(&rels) }.unwrap_or_default();
+                    let hashes = |paths: &[&str]| idx.stored_hashes(paths);
                     match idx.scan(&known, if walk { None } else { Some(&rels) }, &hashes) {
                         Ok((st, ex, rm)) => {
                             let t_scan = t.elapsed();
                             if !ex.is_empty() || !rm.is_empty() || !st.restamped.is_empty() {
-                                let mut g = live.write().unwrap_or_else(|e| e.into_inner());
-                                g.restamp(&st.restamped);
-                                g.apply(&ex, &rm);
+                                // a long write elsewhere (a one-shot command) can hold the lock: wait it
+                                // out rather than drop the change
+                                let mut tries = 0;
+                                while let Err(e) = idx.persist(&st, &ex, &rm, false) {
+                                    tries += 1;
+                                    if !crate::index::is_busy(&e) || tries > 12 { println!("persist failed: {e}"); break; }
+                                }
                             }
                             if std::env::var_os("MT_TIMING").is_some() {
                                 println!("watch: {} path(s) [{}] -> {} re-parsed, {} restamped (same content), {} removed, walked the tree: {}, known map: {}, scan {:.2} ms (no lock), graph patched at {:.2} ms",
@@ -282,7 +264,6 @@ pub fn serve(root: PathBuf) -> Result<(), String> {
                                 println!("updated {} re-parsed, {} removed in {} ms: {}", ex.len(), rm.len(), t.elapsed().as_millis(), ex.iter().map(|e| e.rel.as_str()).chain(rm.iter().map(|r| r.as_str())).take(5).collect::<Vec<_>>().join(", "));
                                 crate::events::emit(&root, serde_json::json!({"kind": "reindex", "changed": ex.iter().map(|e| e.rel.as_str()).take(200).collect::<Vec<_>>(), "removed": rm.iter().map(|r| r.as_str()).take(200).collect::<Vec<_>>(), "ms": (t.elapsed().as_secs_f64() * 1e5).round() / 100.0}));
                             }
-                            if !ex.is_empty() || !rm.is_empty() || !st.restamped.is_empty() { let _ = ptx.send((st, ex, rm)); }
                         }
                         Err(e) => println!("update failed: {e}"),
                     }
@@ -321,19 +302,18 @@ pub fn serve(root: PathBuf) -> Result<(), String> {
     for conn in listener.incoming() {
         let Ok(c) = conn else { continue };
         last.store(now_s(), Ordering::Relaxed);
-        let (live, walk_tx, cookies, walks, cookie_n, walk_n, root, sock, me) = (live.clone(), walk_tx.clone(), cookies.clone(), walks.clone(), cookie_n.clone(), walk_n.clone(), root.clone(), sock.clone(), me.clone());
-        std::thread::spawn(move || handle(c, &live, (&walk_tx, &walks, &walk_n), &cookies, &cookie_n, &root, &sock, &me));
+        let (idx, walk_tx, cookies, walks, cookie_n, walk_n, root, sock, me) = (idx.clone(), walk_tx.clone(), cookies.clone(), walks.clone(), cookie_n.clone(), walk_n.clone(), root.clone(), sock.clone(), me.clone());
+        std::thread::spawn(move || handle(c, &idx, (&walk_tx, &walks, &walk_n), &cookies, &cookie_n, &root, &sock, &me));
     }
     Ok(())
 }
 
-type Live = std::sync::RwLock<Graph>;
 type Cookies = (std::sync::Mutex<u64>, std::sync::Condvar);
 
 #[allow(clippy::too_many_arguments)]
 type Walker<'a> = (&'a std::sync::Mutex<std::sync::mpsc::Sender<PathBuf>>, &'a Cookies, &'a AtomicU64);
 
-fn handle(mut c: UnixStream, live: &Live, walker: Walker, cookies: &Cookies, cookie_n: &AtomicU64, root: &Path, sock: &Path, me: &str) {
+fn handle(mut c: UnixStream, idx: &Index, walker: Walker, cookies: &Cookies, cookie_n: &AtomicU64, root: &Path, sock: &Path, me: &str) {
     let t_accept = Instant::now();
     let mut buf = String::new();
     if c.read_to_string(&mut buf).is_err() {
@@ -398,7 +378,7 @@ fn handle(mut c: UnixStream, live: &Live, walker: Walker, cookies: &Cookies, coo
     if req.cmd == "apply" {
         let _one_at_a_time = crate::apply::APPLY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         crate::apply::set_client(Some(crate::apply::Client { cwd: PathBuf::from(&req.cwd), env: req.env.clone() }));
-        let (ok, out) = crate::apply::run_with(crate::apply::Ctx::Daemon { graph: live, root: root.to_path_buf() }, &req.input, req.dry_run);
+        let (ok, out) = crate::apply::run_with(crate::apply::Ctx::Daemon { graph: idx, root: root.to_path_buf() }, &req.input, req.dry_run);
         crate::apply::set_client(None);
         reply(&mut c, ok, out);
         if timing { println!("request apply: barrier {:.2} ms, total {:.2} ms", t_barrier.as_secs_f64() * 1e3, t0.elapsed().as_secs_f64() * 1e3); }
@@ -418,9 +398,8 @@ fn handle(mut c: UnixStream, live: &Live, walker: Walker, cookies: &Cookies, coo
         if req.cmd == "touch" { reply(&mut c, done, if done { "refreshed\n".into() } else { "refresh still running after 120 s".into() }); return; }
     }
 
-    // ---- readers: share the graph
-    let guard = live.read().unwrap_or_else(|e| e.into_inner());
-    let g: &Graph = &guard;
+    // ---- readers: the index
+    let g: &Index = idx;
     let st = UpdateStats { files: g.file_count(), ..Default::default() };
     let index_ms = t0.elapsed().as_millis();
     let out = match req.cmd.as_str() {
@@ -431,7 +410,7 @@ fn handle(mut c: UnixStream, live: &Live, walker: Walker, cookies: &Cookies, coo
             let (ok, s) = query::expand(root, &args, Some(req.session.as_str()).filter(|s| !s.is_empty()));
             if ok { Ok(s) } else { Err(s) }
         }
-        "status" => Ok(format!("mt serve {}: pid {}, {} files in memory, socket {}\n", root.display(), std::process::id(), g.file_count(), sock.display())),
+        "status" => Ok(format!("mt serve {}: pid {}, {} files indexed, socket {}\n", root.display(), std::process::id(), g.file_count(), sock.display())),
         "stop" => {
             reply(&mut c, true, "stopped\n".into());
             let _ = std::fs::remove_file(sock);
@@ -439,7 +418,6 @@ fn handle(mut c: UnixStream, live: &Live, walker: Walker, cookies: &Cookies, coo
         }
         other => Err(format!("unknown command {other:?}")),
     };
-    drop(guard);
     let t_work = t0.elapsed();
     match out {
         Ok(s) => reply(&mut c, true, s),

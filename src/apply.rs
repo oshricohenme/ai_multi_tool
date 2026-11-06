@@ -43,7 +43,6 @@
 //! finished batch is git's job; mt has no undo.
 
 use crate::fnv1a;
-use crate::graph::Graph;
 use crate::index::{Index, Store, UpdateStats};
 use regex::Regex;
 use serde::Deserialize;
@@ -281,7 +280,7 @@ fn caller_dir() -> PathBuf {
 /// the daemon's background reindexer picks them up, so no request waits on this batch.
 pub enum Ctx<'a> {
     Local(&'a mut Index),
-    Daemon { graph: &'a std::sync::RwLock<Graph>, root: PathBuf },
+    Daemon { graph: &'a Index, root: PathBuf },
 }
 
 impl Ctx<'_> {
@@ -289,11 +288,11 @@ impl Ctx<'_> {
         match self { Ctx::Local(i) => i.root.clone(), Ctx::Daemon { root, .. } => root.clone() }
     }
     fn text_files(&self) -> Vec<String> {
-        match self { Ctx::Local(i) => i.text_files(), Ctx::Daemon { graph, .. } => graph.read().unwrap_or_else(|e| e.into_inner()).text_files() }
+        match self { Ctx::Local(i) => i.text_files(), Ctx::Daemon { graph, .. } => graph.text_files() }
             .into_iter().map(|(p, _)| p).collect()
     }
     fn refs(&self, name: &str) -> Vec<(String, String, Vec<usize>)> {
-        match self { Ctx::Local(i) => i.refs(name), Ctx::Daemon { graph, .. } => graph.read().unwrap_or_else(|e| e.into_inner()).refs(name) }
+        match self { Ctx::Local(i) => i.refs(name), Ctx::Daemon { graph, .. } => graph.refs(name) }
     }
     /// After this batch touched files (only `paths` when given). One-shot: refresh the index, the
     /// written files only, against their own rows. Daemon: nothing (the watcher handles it).
@@ -663,7 +662,7 @@ pub fn run_with(mut ctx: Ctx, input: &str, force_dry: bool) -> (bool, String) {
     let dry = batch.dry_run || force_dry;
     // The index decides which files a rename touches: it must reflect the tree as it is now.
     let ustats = match &ctx {
-        Ctx::Daemon { graph, .. } => UpdateStats { files: graph.read().unwrap_or_else(|e| e.into_inner()).file_count(), ..Default::default() },
+        Ctx::Daemon { graph, .. } => UpdateStats { files: graph.file_count(), ..Default::default() },
         Ctx::Local(idx) => match idx.update() {
             Ok(s) => s,
             Err(e) => return (false, format!("mt apply: index refresh failed, nothing written: {e}")),
@@ -674,7 +673,7 @@ pub fn run_with(mut ctx: Ctx, input: &str, force_dry: bool) -> (bool, String) {
     if let Some(claims) = &batch.expect {
         let claims_in = serde_json::json!({"queries": claims, "session": false, "fresh": true, "budget": 1500}).to_string();
         let out = match &ctx {
-            Ctx::Daemon { graph, .. } => crate::query::run(&*graph.read().unwrap_or_else(|e| e.into_inner()), &claims_in, None, &ustats, 0, t0),
+            Ctx::Daemon { graph, .. } => crate::query::run(*graph, &claims_in, None, &ustats, 0, t0),
             Ctx::Local(idx) => crate::query::run(&**idx, &claims_in, None, &ustats, 0, t0),
         };
         let out = match out {
