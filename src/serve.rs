@@ -191,7 +191,7 @@ pub fn serve(root: PathBuf) -> Result<(), String> {
     watcher.watch(&root, notify::RecursiveMode::Recursive).map_err(|e| format!("watch {}: {e}", root.display()))?;
 
     let idx = Index::open(&root).map_err(|e| e.to_string())?;
-    idx.update().map_err(|e| e.to_string())?;
+    idx.update_serving().map_err(|e| e.to_string())?;
     crate::texts::enable();
     let g = Graph::load(&idx).map_err(|e| e.to_string())?;
     println!("mt serve {}: {} files in memory, loaded in {} ms, socket {}", root.display(), g.file_count(), t_load.elapsed().as_millis(), sock.display());
@@ -213,6 +213,14 @@ pub fn serve(root: PathBuf) -> Result<(), String> {
     {
         let idx = idx.clone();
         std::thread::spawn(move || {
+            // the lookup tables one-shot commands use: built here, once the daemon answers, in line
+            // with the writes (so no lock contention); nothing the daemon answers needs them
+            let t = std::time::Instant::now();
+            match idx.ensure_lookups() {
+                Ok(0) => {}
+                Ok(n) => println!("lookup tables: built {n} in {} ms", t.elapsed().as_millis()),
+                Err(e) => println!("lookup tables failed (the next one-shot `mt` command builds them): {e}"),
+            }
             while let Ok((st, ex, rm)) = prx.recv() {
                 if let Err(e) = idx.persist(&st, &ex, &rm, false) { println!("persist failed: {e}"); }
             }

@@ -54,12 +54,17 @@ fn ensure_daemon(root: &Path) -> (bool, String) {
     (false, "daemon: did not answer within 20 s (see `mt logs --source serve`)".into())
 }
 
+/// Index now. With no daemon running, the lookup tables are left to the daemon about to start
+/// (it builds them in the background); with one running, they are built here.
 fn index_now(root: &Path) -> Result<String, String> {
     let _ = std::fs::create_dir_all(root.join(".mt"));
-    let mut idx = index::Index::open(root).map_err(|e| format!("cannot open the index: {e}"))?;
+    let idx = index::Index::open(root).map_err(|e| format!("cannot open the index: {e}"))?;
     let t = Instant::now();
-    let st = idx.update().map_err(|e| format!("indexing failed: {e}"))?;
-    Ok(format!("index: {} files, {} re-parsed, {} removed in {} ms (walk {} ms, parse {} ms, write {} ms)\n{}",
+    let defer = daemon_status(root).is_none();
+    let st = if defer { idx.update_serving() } else { idx.update() }.map_err(|e| format!("indexing failed: {e}"))?;
+    let missing = idx.missing_lookups().map(|m| m.len()).unwrap_or(0);
+    let note = if missing > 0 { format!("\nlookup tables: {missing} left to build, in the background by the daemon (only one-shot commands need them)") } else { String::new() };
+    Ok(format!("index: {} files, {} re-parsed, {} removed in {} ms (walk {} ms, parse {} ms, write {} ms)\n{}{note}",
         st.files, st.changed, st.removed, t.elapsed().as_millis(), st.walk_ms, st.parse_ms, st.write_ms, idx.summary().trim_end()))
 }
 

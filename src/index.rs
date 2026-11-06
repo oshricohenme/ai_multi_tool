@@ -18,6 +18,14 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+
+/// The lookup tables one-shot commands, `mt tools` and the visualizer query through (the daemon
+/// answers from memory and needs none of them): name, and what it indexes.
+const LOOKUPS: [(&str, &str); 7] = [
+    ("defs_last", "defs(last)"), ("defs_file", "defs(file)"),
+    ("refs_name", "refs(name)"), ("refs_file", "refs(file)"), ("refs_norm", "refs(lower(replace(name,'_','')))"),
+    ("tables_name", "tables(name COLLATE NOCASE)"), ("tables_file", "tables(file)"),
+];
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 /// One live status line on stderr while indexing, so a person at a terminal sees it move (and can
@@ -323,11 +331,44 @@ impl Index {
         Ok(Index { root: root.to_path_buf(), db: std::sync::Mutex::new(db), db_path: dir.join("index.sqlite") })
     }
 
-    /// Stat the tree, re-parse what changed, drop what disappeared.
+    /// Stat the tree, re-parse what changed, drop what disappeared; then make sure the lookup
+    /// tables exist, since one-shot commands query through them.
     pub fn update(&self) -> rusqlite::Result<UpdateStats> {
+        let st = self.update_serving()?;
+        self.ensure_lookups()?;
+        Ok(st)
+    }
+
+    /// `update` without building missing lookup tables: for the daemon, which answers from memory
+    /// and builds them afterwards on its writer thread, and for `mt build`, which starts it. A first
+    /// index of a large repo is then not held up by them (on 5,073 files: 2.5 s of 4.5 s).
+    pub fn update_serving(&self) -> rusqlite::Result<UpdateStats> {
         let known = self.known()?;
         let bulk = known.is_empty();
         self.refresh(&known, None, bulk).map(|(st, _, _)| st)
+    }
+
+    /// The lookup tables not built yet: after a first index, or a build that was interrupted.
+    pub fn missing_lookups(&self) -> rusqlite::Result<Vec<(&'static str, &'static str)>> {
+        let db = self.conn();
+        let mut q = db.prepare("SELECT name FROM sqlite_master WHERE type='index'")?;
+        let have: std::collections::HashSet<String> = q.query_map([], |r| r.get::<_, String>(0))?.flatten().collect();
+        Ok(LOOKUPS.iter().filter(|(n, _)| !have.contains(*n)).copied().collect())
+    }
+
+    /// Build the missing lookup tables, one at a time (each its own short write), with progress.
+    /// Returns how many it built.
+    pub fn ensure_lookups(&self) -> rusqlite::Result<usize> {
+        let todo = self.missing_lookups()?;
+        if todo.is_empty() { return Ok(0); }
+        let db = self.conn();
+        let mut prog = Progress::new();
+        for (i, (name, on)) in todo.iter().enumerate() {
+            prog.during(&format!("index: building lookup table {}/{} ({name})", i + 1, todo.len()),
+                || db.execute(&format!("CREATE INDEX IF NOT EXISTS {name} ON {on}"), []))?;
+        }
+        prog.clear();
+        Ok(todo.len())
     }
 
     /// `known()` for these paths and everything under any of them that is a directory: what
@@ -367,8 +408,10 @@ impl Index {
             let Ok(mut q) = db.prepare_cached("SELECT hash FROM files WHERE path=?1") else { return HashMap::new() };
             paths.iter().filter_map(|p| q.query_row([p], |r| r.get::<_, Option<i64>>(0)).ok().flatten().map(|h| (p.to_string(), h))).collect()
         };
-        let (st, ex, rm) = self.scan(known, only, &stored)?;
+        let (mut st, ex, rm) = self.scan(known, only, &stored)?;
+        let t = Instant::now();
         self.persist(&st, &ex, &rm, bulk)?;
+        st.write_ms = t.elapsed().as_millis();
         Ok((st, ex, rm))
     }
 
@@ -545,8 +588,9 @@ impl Index {
         // Bulk loads are much faster without secondary indexes; rebuild them once at the end.
         let mut db = self.conn();
         let mut prog = Progress::new();
+        // Bulk loads are much faster without the lookup tables; `ensure_lookups` builds them after
         if bulk {
-            db.execute_batch("DROP INDEX IF EXISTS defs_last; DROP INDEX IF EXISTS defs_file; DROP INDEX IF EXISTS refs_name; DROP INDEX IF EXISTS refs_file; DROP INDEX IF EXISTS refs_norm; DROP INDEX IF EXISTS tables_name; DROP INDEX IF EXISTS tables_file;")?;
+            for (name, _) in LOOKUPS { db.execute(&format!("DROP INDEX IF EXISTS {name}"), [])?; }
         }
         let tx = db.transaction()?;
         {
@@ -593,12 +637,6 @@ impl Index {
             }
         }
         prog.during("index: saving", || tx.commit())?;
-        if bulk {
-            prog.during("index: building the lookup tables", || db.execute_batch("CREATE INDEX IF NOT EXISTS defs_last ON defs(last); CREATE INDEX IF NOT EXISTS defs_file ON defs(file);
-                CREATE INDEX IF NOT EXISTS refs_name ON refs(name); CREATE INDEX IF NOT EXISTS refs_file ON refs(file);
-                CREATE INDEX IF NOT EXISTS refs_norm ON refs(lower(replace(name,'_','')));
-                CREATE INDEX IF NOT EXISTS tables_name ON tables(name COLLATE NOCASE); CREATE INDEX IF NOT EXISTS tables_file ON tables(file);"))?;
-        }
         prog.clear();
         Ok(())
     }
@@ -796,8 +834,11 @@ mod reindex_tests {
         write(&root, "a.go", "package a\n\nfunc Alpha() int {\n\treturn 1\n}\n");
         write(&root, "sub/b.go", "package sub\n\nfunc Beta() int {\n\treturn 2\n}\n");
         let mut idx = Index::open(&root).unwrap();
-        assert_eq!(idx.update().unwrap().changed, 2, "first index parses both files");
+        assert_eq!(idx.update_serving().unwrap().changed, 2, "first index parses both files");
+        assert_eq!(idx.missing_lookups().unwrap().len(), 7, "a first index for the daemon leaves the lookup tables to it");
         assert_eq!(idx.update().unwrap().changed, 0, "nothing changed: nothing re-parsed");
+        assert!(idx.missing_lookups().unwrap().is_empty(), "update builds what is missing");
+        assert_eq!(idx.ensure_lookups().unwrap(), 0, "and once built, nothing to do");
 
         // same bytes, new mtime: restamped, not re-parsed, and it stays that way
         touch(&root, "a.go");

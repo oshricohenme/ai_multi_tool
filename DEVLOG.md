@@ -4987,3 +4987,41 @@ activity events), but **batching through `mt mcp call` is not being adopted**, s
 shown yet. Two levers to test next:
 1. A PreToolUse suggestion *before* the second native call to the same server, not after the first.
 2. Measuring without the 26k skill system prompt, which costs more than these tasks can save.
+
+## 2026-11-06 · 53. Indexing progress; lookup tables built in the background
+
+**Progress.** Every indexing phase redraws one stderr line (only on a terminal): walking (files
+found), parsing (done/total on N cores), writing (done/total), and single SQLite steps with a
+ticking seconds counter. On watchly (5,073 files) the line never sat still for more than 0.36 s.
+
+**Where a first index spent its time** (watchly copy, 5,073 files, 130,178 definitions, 1,319,011
+reference rows, 10,906 table facts; Apple M-series, 18 cores): walk 0.1 s, parse 0.5 s, write
+0.6 s, lookup tables 1.6-2.5 s. `write_ms` was reported as 0: it was never measured; it is now.
+
+**Lookup tables, per index** (warm Python sqlite3 3.51, same DB, 7 `CREATE INDEX` in one tx):
+
+| variant | total | refs_name | refs_norm | refs_file |
+|---|---|---|---|---|
+| as mt did it | 3.00 s | 1.10 | 1.43 | 0.31 |
+| + cache_size 256 MB | 3.11 s | 1.18 | 1.41 | 0.31 |
+| + PRAGMA threads=8 | 3.00 s | 1.17 | 1.33 | 0.29 |
+| + mmap 1 GB | 2.81 s | 1.08 | 1.24 | 0.26 |
+| + a stored `norm` column (not the expression) | 2.50 s | 1.07 | 0.97 | 0.26 |
+
+Tuning buys at most 17%; the cost is sorting 1.3M reference rows. Not taken.
+
+**Taken: the daemon builds them, after it answers.** The daemon answers from its in-memory graph
+and loads the tables by rowid, so it needs none of the 7 lookup tables; only one-shot commands,
+`mt tools` and the visualizer query through them. `Index::update_serving` indexes without
+building them; the daemon's writer thread builds what is missing (`ensure_lookups`) once it is
+serving, in line with its other writes. `Index::update` (every one-shot path, `mt index`) still
+builds them, one by one with progress; an interrupted build is redone by whichever runs next.
+
+| watchly, fresh repo | before | after |
+|---|---|---|
+| `mt build` wall time (2 runs each) | 4.75 s, 4.15 s | 1.82 s, 1.85 s |
+| daemon's background build of the 7 tables | (in the foreground) | 2,338 ms |
+| `mt context <fn> --map` during that build | | 129, 59, 58 ms |
+
+94 Rust tests pass; `reindex_touches_only_what_changed` now also checks that `update_serving`
+leaves 7 missing, `update` builds them, and `ensure_lookups` then has nothing to do.
