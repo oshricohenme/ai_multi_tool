@@ -5136,3 +5136,29 @@ looks stop words up in a set (checked equal to the char path). Parse on gym_soft
 18 cores during these runs: the walk alone varied 0.15-1.3 s, so these numbers are noisy). Index on
 disk 528 → 448 MB. The writes of 4.5M postings and the covering search index remain the cost.
 97 Rust tests pass.
+
+## 2026-11-06 · 57. Everything git keeps is indexed, at launch; git alone decides
+
+**The owner's rule:** index everything that is not in `.gitignore`, at launch. Before, the walk also
+skipped hidden files and folders (`.github/workflows` among them), 21 folder names whether ignored or
+not (`node_modules`, `vendor`, `dist`, `build`, `target`, `bin`, `out`, `obj`, `Library`, `Temp`,
+`Logs`, ...), 80 extensions (`.lock`, `.csv`, `.log`, Unity `.meta`/`.prefab`, ...), files over
+1.5 MB (not even listed), and honoured ripgrep's `.ignore` files.
+
+**Now:** one walker (`index::walk`) follows git only: `.gitignore` at every level (and in parents of
+a walked folder), `.git/info/exclude`, the global excludes; hidden files included; never `.git`,
+`.hg`, `.svn`, `.jj`, `.mt`. Every file it yields is listed: media, archives and compiled files
+(`BINARY_EXT`) and files over 1.5 MB are recorded without being read; text types are parsed like
+any other. The server checks each changed path with `Index::ignored` (each folder's `.gitignore`,
+deepest first, first decision wins, then `info/exclude` and the global excludes; rules cached per
+folder) and walks again when a `.gitignore` changes. The SessionStart hook already started the
+worktree's server, which indexes before it answers: that is "at launch".
+
+**Checked:** `git_decides_what_is_indexed` (nested `.gitignore`, `!` re-include, an anchored
+`/secret.txt`, `info/exclude`, `node_modules/` and `bin/` not ignored, a binary listed); live: a
+fresh repo's SessionStart indexed `.github/`, `bin/`, `src/` and not `build/`; a new file in `bin/`
+was picked up and one in `build/` was not; adding `bin/` to `.gitignore` removed its files.
+98 Rust tests pass.
+
+**Cost to expect:** repos that commit dependencies or generated folders (not gitignored) now index
+them too; that is the rule, and it makes the size and speed work (dedupe by content next) matter more.

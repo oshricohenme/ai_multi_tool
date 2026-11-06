@@ -81,24 +81,36 @@ const SCHEMA_VERSION: &str = "7";
 const MAX_FILE: u64 = 1_500_000;
 const MAX_DATA_FILE: u64 = 200_000;
 
-const SKIP_DIRS: &[&str] = &[
-    "node_modules", "vendor", "dist", "build", "target", "Library", "Temp", "obj", "bin", ".next", "__pycache__",
-    "Pods", "DerivedData", "coverage", ".venv", "venv", "site-packages", "Logs", "UserSettings", "out",
-];
-const SKIP_EXT: &[&str] = &[
+/// Never part of the repo: version control internals and mt's own folder. Everything else that git
+/// does not ignore is indexed (`.gitignore`, `.git/info/exclude`, the global excludes; hidden files
+/// too). There is no other skip list.
+const NEVER: &[&str] = &[".git", ".hg", ".svn", ".jj", ".mt"];
+
+/// Media, archives and compiled files: listed as binary without being read (their bytes are no
+/// use to a code index and can be large).
+const BINARY_EXT: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "webp", "ico", "icns", "bmp", "tga", "psd", "exr", "hdr", "tif", "tiff", "svgz",
     "mp3", "wav", "ogg", "flac", "mp4", "mov", "webm", "avi", "ttf", "otf", "woff", "woff2", "eot",
     "zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "jar", "war", "dll", "so", "dylib", "a", "o", "obj", "exe", "pdb", "class",
-    "pyc", "wasm", "bin", "dat", "db", "sqlite", "sqlite3", "npz", "npy", "pkl", "pt", "onnx", "glb", "gltf", "fbx", "blend",
-    "meta", "asset", "prefab", "unity", "mat", "anim", "controller", "physicmaterial", "cubemap", "lighting", "bmap", "bop",
-    "pdf", "lock", "map", "min.js", "log", "csv", "tsv", "parquet", "swiftdeps", "d", "dia", "pcm",
+    "pyc", "wasm", "bin", "dat", "db", "sqlite", "sqlite3", "npz", "npy", "pkl", "pt", "onnx", "glb", "fbx", "blend",
+    "pdf", "parquet", "bmap", "bop", "pcm",
 ];
+
+/// The tree as git sees it, from `dir`: what `.gitignore` (at every level, and in `dir`'s parents),
+/// `.git/info/exclude` and the global excludes leave in, hidden files included, never `NEVER`.
+pub fn walk(dir: &Path) -> ignore::Walk {
+    ignore::WalkBuilder::new(dir).hidden(false).ignore(false).require_git(false)
+        .filter_entry(|e| !e.file_name().to_str().is_some_and(|n| NEVER.contains(&n)))
+        .build()
+}
 
 pub struct Index {
     pub root: PathBuf,
     /// behind a mutex so the index is a `Sync` store: query threads share it, lookups serialize
     pub db: std::sync::Mutex<Connection>,
     pub db_path: PathBuf,
+    /// each folder's `.gitignore`, parsed once (folder relative to the root -> its rules)
+    ignores: std::sync::Mutex<HashMap<String, Option<std::sync::Arc<ignore::gitignore::Gitignore>>>>,
 }
 
 #[derive(Default, Debug)]
@@ -147,21 +159,19 @@ pub fn mirrors(paths: &std::collections::HashSet<String>) -> std::collections::H
     by_dir.into_values().filter(|(twins, all)| twins.len() >= 20 && twins.len() * 5 >= all * 4).flat_map(|(t, _)| t.into_iter().cloned()).collect()
 }
 
-/// Worth a look when the watcher reports it: not under a hidden or skipped directory (`.git`,
-/// `.mt`, `node_modules`, ...) and not mt's own temp file. Directories pass (their files may be).
+/// Worth a look when the watcher reports it: not under `NEVER` and not mt's own temp file.
+/// Directories pass (their files may be). Whether git ignores it is `Index::ignored`.
 pub fn watch_relevant(rel: &str) -> bool {
-    !rel.split('/').any(|s| s.starts_with('.') || SKIP_DIRS.contains(&s)) && !rel.contains(".mt-tmp-")
+    !rel.split('/').any(|s| NEVER.contains(&s)) && !rel.contains(".mt-tmp-")
 }
 
 pub fn indexable(rel: &str) -> bool {
+    !rel.split('/').any(|s| NEVER.contains(&s))
+}
+
+fn binary_by_ext(rel: &str) -> bool {
     let lower = rel.to_lowercase();
-    let mut segs = rel.split('/').peekable();
-    while let Some(seg) = segs.next() {
-        if seg.starts_with('.') || (segs.peek().is_some() && SKIP_DIRS.contains(&seg)) {
-            return false;
-        }
-    }
-    !SKIP_EXT.iter().any(|x| lower.ends_with(&format!(".{x}")))
+    lower.rsplit_once('.').is_some_and(|(_, x)| BINARY_EXT.contains(&x))
 }
 
 pub fn find_root(start: &Path) -> PathBuf {
@@ -262,6 +272,9 @@ fn content_hash(bytes: &[u8]) -> i64 {
 pub fn extract(root: &Path, rel: &str, mtime: i64, size: i64) -> Extracted {
     let role = role_of(rel);
     let mut ex = Extracted { rel: rel.to_string(), mtime, size, lang: "skipped".into(), role, lines: 0, defs: vec![], refs: vec![], tables: vec![], hash: 0, search: vec![] };
+    // listed, not read: too large to index, or a media, archive or compiled file
+    if size as u64 > MAX_FILE { ex.lang = "(too large to index)".into(); return ex; }
+    if binary_by_ext(rel) { ex.lang = "binary".into(); return ex; }
     let Ok(bytes) = fs::read(root.join(rel)) else { return ex };
     ex.hash = content_hash(&bytes);
     if bytes.iter().take(8000).any(|&b| b == 0) {
@@ -348,7 +361,43 @@ impl Index {
         // index): a file whose mtime changed but whose bytes did not is restamped, not re-parsed
         let has_hash = db.prepare("SELECT hash FROM files LIMIT 0").is_ok();
         if !has_hash { db.execute_batch("ALTER TABLE files ADD COLUMN hash INTEGER;")?; }
-        Ok(Index { root: root.to_path_buf(), db: std::sync::Mutex::new(db), db_path: dir.join("index.sqlite") })
+        Ok(Index { root: root.to_path_buf(), db: std::sync::Mutex::new(db), db_path: dir.join("index.sqlite"), ignores: Default::default() })
+    }
+
+    /// Whether git ignores `rel`: the `.gitignore` of each folder from its own up to the root,
+    /// deepest first (the first that decides wins, as in git), then `.git/info/exclude` and the
+    /// global excludes. The watcher's paths are checked here; a full walk applies the same rules.
+    pub fn ignored(&self, rel: &str, is_dir: bool) -> bool {
+        let abs = self.root.join(rel);
+        let mut dirs: Vec<&str> = vec![""];
+        dirs.extend(rel.char_indices().filter(|(_, c)| *c == '/').map(|(i, _)| &rel[..i]));
+        for d in dirs.iter().rev() {
+            if let Some(g) = self.ignore_rules(d) {
+                let m = g.matched_path_or_any_parents(&abs, is_dir);
+                if m.is_ignore() { return true; }
+                if m.is_whitelist() { return false; }
+            }
+        }
+        static GLOBAL: OnceLock<ignore::gitignore::Gitignore> = OnceLock::new();
+        let g = GLOBAL.get_or_init(|| ignore::gitignore::Gitignore::global().0);
+        !g.is_empty() && g.matched_path_or_any_parents(rel, is_dir).is_ignore()
+    }
+
+    /// A `.gitignore` changed: read the rules again.
+    pub fn forget_ignores(&self) {
+        self.ignores.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+
+    fn ignore_rules(&self, dir: &str) -> Option<std::sync::Arc<ignore::gitignore::Gitignore>> {
+        let mut c = self.ignores.lock().unwrap_or_else(|e| e.into_inner());
+        c.entry(dir.to_string()).or_insert_with(|| {
+            let base = self.root.join(dir);
+            let mut b = ignore::gitignore::GitignoreBuilder::new(&base);
+            let mut any = base.join(".gitignore").is_file() && b.add(base.join(".gitignore")).is_none();
+            if dir.is_empty() && self.root.join(".git/info/exclude").is_file() { any |= b.add(self.root.join(".git/info/exclude")).is_none(); }
+            if !any { return None; }
+            b.build().ok().map(std::sync::Arc::new)
+        }).clone()
     }
 
     /// Stat the tree, re-parse what changed, drop what disappeared; then make sure the lookup
@@ -510,18 +559,16 @@ impl Index {
                 let abs = self.root.join(rel);
                 let dir = format!("{rel}/");
                 if abs.is_dir() {
-                    // a directory appeared or changed: walk that directory only. `known` must hold
-                    // the entries under it (Graph::known_for and Index::known_for do)
+                    // a directory appeared or changed: walk that directory only (as git sees it). `known`
+                    // must hold the entries under it (Index::known_for does)
                     let mut seen = std::collections::HashSet::new();
-                    let walker = ignore::WalkBuilder::new(&abs).hidden(true)
-                        .filter_entry(|e| !(e.file_type().map(|t| t.is_dir()).unwrap_or(false) && SKIP_DIRS.contains(&e.file_name().to_str().unwrap_or(""))))
-                        .build();
-                    for e in walker.flatten() {
+                    let walker = if self.ignored(rel, true) { None } else { Some(walk(&abs)) };
+                    for e in walker.into_iter().flatten().flatten() {
                         if !e.file_type().map(|t| t.is_file()).unwrap_or(false) { continue; }
                         let Ok(r) = e.path().strip_prefix(&self.root) else { continue };
                         let r = r.to_string_lossy().replace('\\', "/");
                         let Ok(md) = e.metadata() else { continue };
-                        if !indexable(&r) || md.len() > MAX_FILE { continue; }
+                        if !indexable(&r) { continue; }
                         let (m, z) = stamp(&md);
                         seen.insert(r.clone());
                         if known.get(&r) != Some(&(m, z)) { todo.push((r, m, z)); }
@@ -529,7 +576,8 @@ impl Index {
                     removed.extend(known.keys().filter(|k| k.starts_with(&dir) && !seen.contains(*k)).cloned());
                     continue;
                 }
-                let md = fs::metadata(&abs).ok().filter(|m| m.is_file() && m.len() <= MAX_FILE);
+                // a file git ignores is not the repo's: treated as gone (dropped if it was indexed)
+                let md = fs::metadata(&abs).ok().filter(|m| m.is_file() && !self.ignored(rel, false));
                 match (md, known.get(rel)) {
                     (Some(md), Some(k)) if indexable(rel) => {
                         let (m, z) = stamp(&md);
@@ -562,11 +610,7 @@ impl Index {
         } else {
             st.walked = true;
             let mut seen = std::collections::HashSet::new();
-            let walker = ignore::WalkBuilder::new(&self.root)
-                .hidden(true)
-                .filter_entry(|e| !(e.file_type().map(|t| t.is_dir()).unwrap_or(false) && SKIP_DIRS.contains(&e.file_name().to_str().unwrap_or(""))))
-                .build();
-            for e in walker.flatten() {
+            for e in walk(&self.root).flatten() {
                 if !e.file_type().map(|t| t.is_file()).unwrap_or(false) {
                     continue;
                 }
@@ -576,9 +620,6 @@ impl Index {
                     continue;
                 }
                 let Ok(md) = e.metadata() else { continue };
-                if md.len() > MAX_FILE {
-                    continue;
-                }
                 let (mtime, size) = stamp(&md);
                 seen.insert(rel.clone());
                 prog.show(|| format!("index: walking the tree, {} files found", seen.len()));
@@ -901,7 +942,7 @@ impl Store for Index {
 /// `go test` and friends print paths relative to the package: find the repo file ending in `suffix`.
 pub fn find_by_suffix(root: &Path, suffix: &str) -> Option<PathBuf> {
     let name = suffix.rsplit('/').next()?;
-    for e in ignore::WalkBuilder::new(root).hidden(true).build().flatten() {
+    for e in walk(root).flatten() {
         if e.file_name().to_str() == Some(name) {
             let p = e.path().to_string_lossy();
             if p.ends_with(suffix) { return Some(e.path().to_path_buf()); }
@@ -913,9 +954,7 @@ pub fn find_by_suffix(root: &Path, suffix: &str) -> Option<PathBuf> {
 /// The definition of a test function `name`, searched in test files only (fresh from disk).
 pub fn find_def_in_tests(root: &Path, name: &str) -> Option<(String, String, Def)> {
     let rx = Regex::new(&format!(r"\b{}\b", regex::escape(name))).ok()?;
-    for e in ignore::WalkBuilder::new(root).hidden(true)
-        .filter_entry(|e| !(e.file_type().map(|t| t.is_dir()).unwrap_or(false) && SKIP_DIRS.contains(&e.file_name().to_str().unwrap_or(""))))
-        .build().flatten() {
+    for e in walk(root).flatten() {
         let Ok(rel) = e.path().strip_prefix(root) else { continue };
         let rel = rel.to_string_lossy().into_owned();
         if !matches!(role_of(&rel), "test" | "integration") { continue; }
@@ -950,6 +989,34 @@ mod reindex_tests {
         let rels: Vec<String> = rels.iter().map(|s| s.to_string()).collect();
         let known = idx.known_for(&rels).unwrap();
         idx.refresh(&known, Some(&rels), false).unwrap()
+    }
+
+    #[test]
+    fn git_decides_what_is_indexed() {
+        let root = std::env::temp_dir().join(format!("mt-gitignore-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        write(&root, ".gitignore", "build/\n*.tmp\n!keep.tmp\n/secret.txt\n");
+        write(&root, "sub/.gitignore", "local.go\n!build/\n");
+        write(&root, ".git/info/exclude", "scratch/\n");
+        for f in ["a.go", "build/out.go", "x.tmp", "keep.tmp", "secret.txt", "sub/secret.txt", "sub/local.go", "sub/build/b.go",
+                  "node_modules/m/i.js", "bin/tool.sh", ".github/workflows/ci.yml", "scratch/s.go", "logo.png"] {
+            write(&root, f, "package a\n");
+        }
+        let idx = Index::open(&root).unwrap();
+        idx.update().unwrap();
+        let mut got: Vec<String> = idx.known().unwrap().into_keys().collect();
+        got.sort();
+        // everything git keeps, hidden files and folders like node_modules/ and bin/ included; a
+        // binary is listed (not read); nothing of .git or .mt
+        assert_eq!(got, [".github/workflows/ci.yml", ".gitignore", "a.go", "bin/tool.sh", "keep.tmp", "logo.png", "node_modules/m/i.js",
+                         "sub/.gitignore", "sub/build/b.go", "sub/secret.txt"], "{got:?}");
+        // the watcher's single paths get the same answers
+        for (p, dir, want) in [("build/out.go", false, true), ("build", true, true), ("x.tmp", false, true), ("keep.tmp", false, false),
+                               ("secret.txt", false, true), ("sub/secret.txt", false, false), ("sub/local.go", false, true),
+                               ("sub/build/b.go", false, false), ("scratch/s.go", false, true), ("node_modules/m/i.js", false, false)] {
+            assert_eq!(idx.ignored(p, dir), want, "{p}");
+        }
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -993,8 +1060,9 @@ mod reindex_tests {
         let (st, ex, rm) = only(&mut idx, &["d"]);
         assert_eq!((ex.len(), rm.len(), st.walked), (0, 2, false));
 
-        // the watcher ignores mt's own files and VCS internals
-        assert!(!watch_relevant(".mt/index.sqlite-wal") && !watch_relevant(".git/index") && !watch_relevant("node_modules/x/y.js"));
+        // the watcher skips mt's own files and VCS internals; anything else is git's call (`ignored`)
+        assert!(!watch_relevant(".mt/index.sqlite-wal") && !watch_relevant(".git/index"));
+        assert!(watch_relevant("node_modules/x/y.js") && watch_relevant(".github/workflows/ci.yml"));
         // generated per-file cards mirror the tree: dropped; a docs folder of its own is not
         let mut ps: std::collections::HashSet<String> = (0..30).flat_map(|i| [format!("internal/m{i}.go"), format!("cards/internal/m{i}.md")]).collect();
         ps.extend((0..30).map(|i| format!("docs/guide-{i}.md")));
