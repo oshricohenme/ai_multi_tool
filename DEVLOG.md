@@ -5108,3 +5108,31 @@ files from disk). **Found, not fixed:** `context --map` output is not determinis
 (the order of table items, from a HashMap): 24 lines differed between two runs of the old build.
 95 Rust tests pass (twice). One run of the suite had `hook_reads_and_mcp` fail; it passed alone
 3/3 and in two later full runs: a flake under parallel tests, not yet explained.
+
+## 2026-11-06 · 56. Indexing in batches; fewer lookup tables; faster word splitting
+
+**Indexing memory.** A full index held every parsed file until it wrote (`mt index` on
+gym_software peaked at 732 MB physical). It now parses and writes `BATCH` = 2,000 files at a time
+(`scan_batched` with a sink; `refresh` of the whole tree returns no parsed files). Peak: gym_software
+732 → **378-389 MB**, watchly 340 → **179-181 MB**. It no longer grows with the repo, only with the
+largest 2,000 files.
+
+**Lookup tables** (gym_software, each `CREATE INDEX` timed): search_term 3.81 s, refs_norm 2.76,
+refs_name 2.39, search_def 1.12, refs_file 0.71, the rest 0.44; 11.2 s in all.
+- `refs_norm` (an expression over 2.4M rows) is replaced by a `names(name, norm)` table, one row
+  per distinct identifier, written with the refs; `spellings` reads it. Its norm is `index::norm`
+  on both sides (the old SQL dropped `_` only, `norm` also `-`, so a dashed name never matched).
+- `search_def` is gone: a file's postings are one block of rows, recorded as `files.post_lo..
+  post_hi` and deleted by rowid range (the range is cleared on delete, so reused rowids are never
+  taken for it). Schema 7.
+
+**Parse time.** `search::postings_for` compared every pair of definitions (nesting) and `words`
+allocated per character and scanned ~90 stop words linearly. Nesting is now one sort and two passes
+(`nesting`, checked against every pair on 400 random layouts); `words` splits ASCII on bytes and
+looks stop words up in a set (checked equal to the char path). Parse on gym_software 3.3-3.8 s →
+2.4-2.7 s. Overlap of tokenized lines is only 1.23x, so a per-line cache was not worth it.
+
+**Not better yet:** a fresh `mt index` of gym_software is still 14-16 s (machine load average 14 on
+18 cores during these runs: the walk alone varied 0.15-1.3 s, so these numbers are noisy). Index on
+disk 528 → 448 MB. The writes of 4.5M postings and the covering search index remain the cost.
+97 Rust tests pass.

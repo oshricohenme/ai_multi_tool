@@ -26,13 +26,18 @@ pub fn is_busy(e: &rusqlite::Error) -> bool {
 
 /// The lookup tables one-shot commands, `mt tools` and the visualizer query through (the daemon
 /// answers from memory and needs none of them): name, and what it indexes.
-const LOOKUPS: [(&str, &str); 9] = [
+const LOOKUPS: [(&str, &str); 7] = [
     ("defs_last", "defs(last)"), ("defs_file", "defs(file)"),
-    ("refs_name", "refs(name)"), ("refs_file", "refs(file)"), ("refs_norm", "refs(lower(replace(name,'_','')))"),
+    ("refs_name", "refs(name)"), ("refs_file", "refs(file)"),
     ("tables_name", "tables(name COLLATE NOCASE)"), ("tables_file", "tables(file)"),
-    // plain-word search: a word's postings, covering (one index read per word); a definition's, to delete them
-    ("search_term", "search_post(term, def, tf, len)"), ("search_def", "search_post(def)"),
+    // plain-word search: a word's postings, covering (one index read per word). A file's postings are
+    // one block of rows (files.post_lo..post_hi), so deleting them needs no index of its own.
+    ("search_term", "search_post(term, def, tf, len)"),
 ];
+
+/// A full index parses and writes this many files at a time, so its memory stays flat however
+/// large the repo.
+const BATCH: usize = 2000;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 /// One live status line on stderr while indexing, so a person at a terminal sees it move (and can
@@ -72,7 +77,7 @@ impl Progress {
     pub fn clear(&mut self) { if self.on && self.last.take().is_some() { eprint!("\r\x1b[2K"); } }
 }
 
-const SCHEMA_VERSION: &str = "6";
+const SCHEMA_VERSION: &str = "7";
 const MAX_FILE: u64 = 1_500_000;
 const MAX_DATA_FILE: u64 = 200_000;
 
@@ -323,16 +328,17 @@ impl Index {
         if v.as_deref() != Some(SCHEMA_VERSION) {
             db.execute_batch(
                 "DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS defs; DROP TABLE IF EXISTS refs; DROP TABLE IF EXISTS tables;
-                 DROP TABLE IF EXISTS search_post; DROP TABLE IF EXISTS search_doc;
+                 DROP TABLE IF EXISTS search_post; DROP TABLE IF EXISTS search_doc; DROP TABLE IF EXISTS names;
                  CREATE TABLE search_post(term TEXT NOT NULL, def INTEGER NOT NULL, tf REAL NOT NULL, len REAL NOT NULL);
-                 CREATE INDEX search_term ON search_post(term, def, tf, len); CREATE INDEX search_def ON search_post(def);
+                 CREATE INDEX search_term ON search_post(term, def, tf, len);
                  CREATE TABLE search_doc(def INTEGER PRIMARY KEY, len REAL NOT NULL);
-                 CREATE TABLE files(id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL, mtime INTEGER, size INTEGER, lang TEXT, role TEXT, lines INTEGER);
+                 CREATE TABLE names(name TEXT PRIMARY KEY, norm TEXT NOT NULL) WITHOUT ROWID;
+                 CREATE INDEX names_norm ON names(norm);
+                 CREATE TABLE files(id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL, mtime INTEGER, size INTEGER, lang TEXT, role TEXT, lines INTEGER, post_lo INTEGER, post_hi INTEGER);
                  CREATE TABLE defs(id INTEGER PRIMARY KEY, file INTEGER NOT NULL, kind TEXT, name TEXT, last TEXT, scope TEXT, start INTEGER, end INTEGER, head INTEGER, sig TEXT);
                  CREATE INDEX defs_last ON defs(last); CREATE INDEX defs_file ON defs(file);
                  CREATE TABLE refs(file INTEGER NOT NULL, name TEXT NOT NULL, lines TEXT NOT NULL);
                  CREATE INDEX refs_name ON refs(name); CREATE INDEX refs_file ON refs(file);
-                 CREATE INDEX refs_norm ON refs(lower(replace(name,'_','')));
                  CREATE TABLE tables(file INTEGER NOT NULL, name TEXT NOT NULL, line INTEGER, kind TEXT);
                  CREATE INDEX tables_name ON tables(name COLLATE NOCASE); CREATE INDEX tables_file ON tables(file);",
             )?;
@@ -438,6 +444,23 @@ impl Index {
             let Ok(mut q) = db.prepare_cached("SELECT hash FROM files WHERE path=?1") else { return HashMap::new() };
             paths.iter().filter_map(|p| q.query_row([p], |r| r.get::<_, Option<i64>>(0)).ok().flatten().map(|h| (p.to_string(), h))).collect()
         };
+        if only.is_none() {
+            // the whole tree: parsed and written in batches, so memory stays flat; the parsed files
+            // are not returned (nobody holds the whole repo)
+            let mut write_ms = 0u128;
+            let mut sink = |ex: Vec<Extracted>, base: usize, total: usize| -> rusqlite::Result<()> {
+                let t = Instant::now();
+                self.write(&ex, &[], bulk, Some((base, total)))?;
+                write_ms += t.elapsed().as_millis();
+                Ok(())
+            };
+            let (mut st, _, rm) = self.scan_batched(known, None, &stored, Some(&mut sink))?;
+            let t = Instant::now();
+            self.persist(&st, &[], &rm, false)?;
+            st.write_ms = write_ms + t.elapsed().as_millis();
+            st.parse_ms = st.parse_ms.saturating_sub(write_ms);
+            return Ok((st, vec![], rm));
+        }
         let (mut st, ex, rm) = self.scan(known, only, &stored)?;
         let t = Instant::now();
         self.persist(&st, &ex, &rm, bulk)?;
@@ -458,7 +481,7 @@ impl Index {
             tx.commit()?;
         }
         if !extracted.is_empty() || !removed.is_empty() {
-            self.write(extracted, removed, bulk && !extracted.is_empty())?;
+            self.write(extracted, removed, bulk && !extracted.is_empty(), None)?;
         }
         Ok(())
     }
@@ -467,6 +490,14 @@ impl Index {
     /// hash we hold for a path (the daemon: its graph, the in-memory truth; one-shot: the index),
     /// so a file whose stamp moved but whose bytes did not is only restamped.
     pub fn scan(&self, known: &HashMap<String, (i64, i64)>, only: Option<&[String]>, stored: &dyn Fn(&[&str]) -> HashMap<String, i64>) -> rusqlite::Result<(UpdateStats, Vec<Extracted>, Vec<String>)> {
+        self.scan_batched(known, only, stored, None)
+    }
+
+    /// `scan`; with a `sink`, the parsed files go to it `BATCH` at a time (with how many came
+    /// before and the total) instead of being returned.
+    #[allow(clippy::type_complexity)]
+    fn scan_batched(&self, known: &HashMap<String, (i64, i64)>, only: Option<&[String]>, stored: &dyn Fn(&[&str]) -> HashMap<String, i64>,
+        mut sink: Option<&mut dyn FnMut(Vec<Extracted>, usize, usize) -> rusqlite::Result<()>>) -> rusqlite::Result<(UpdateStats, Vec<Extracted>, Vec<String>)> {
         let mut st = UpdateStats::default();
         let mut prog = Progress::new();
         let t0 = Instant::now();
@@ -587,34 +618,43 @@ impl Index {
 
         let t1 = Instant::now();
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-        let chunk = todo.len().div_ceil(threads).max(1);
         let root = self.root.clone();
         let done = std::sync::atomic::AtomicUsize::new(0);
         let total = todo.len();
-        let extracted: Vec<Extracted> = std::thread::scope(|s| {
-            let hs: Vec<_> = todo.chunks(chunk).map(|c| {
-                let (root, done) = (&root, &done);
-                s.spawn(move || c.iter().map(|(r, m, z)| {
-                    let e = extract(root, r, *m, *z);
-                    done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    e
-                }).collect::<Vec<_>>())
-            }).collect();
-            // the workers parse; this thread only reports, while anyone is watching
-            while prog.on && total > 0 && !hs.iter().all(|h| h.is_finished()) {
-                prog.show(|| format!("index: parsing {}/{} files on {threads} cores", done.load(std::sync::atomic::Ordering::Relaxed), total));
-                std::thread::sleep(Duration::from_millis(50));
+        let batch = if sink.is_some() { BATCH } else { total.max(1) };
+        let mut extracted: Vec<Extracted> = vec![];
+        for part in todo.chunks(batch) {
+            let chunk = part.len().div_ceil(threads).max(1);
+            let ex: Vec<Extracted> = std::thread::scope(|s| {
+                let hs: Vec<_> = part.chunks(chunk).map(|c| {
+                    let (root, done) = (&root, &done);
+                    s.spawn(move || c.iter().map(|(r, m, z)| {
+                        let e = extract(root, r, *m, *z);
+                        done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        e
+                    }).collect::<Vec<_>>())
+                }).collect();
+                // the workers parse; this thread only reports, while anyone is watching
+                while prog.on && total > 0 && !hs.iter().all(|h| h.is_finished()) {
+                    prog.show(|| format!("index: parsing {}/{} files on {threads} cores", done.load(std::sync::atomic::Ordering::Relaxed), total));
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                hs.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+            });
+            st.changed += ex.len();
+            match sink.as_mut() {
+                Some(f) => { prog.clear(); f(ex, st.changed - part.len(), total)?; }
+                None => extracted = ex,
             }
-            hs.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
-        });
+        }
         prog.clear();
         st.parse_ms = t1.elapsed().as_millis();
-        st.changed = extracted.len();
 
         Ok((st, extracted, removed))
     }
 
-    fn write(&self, extracted: &[Extracted], removed: &[String], bulk: bool) -> rusqlite::Result<()> {
+    /// `of`: (files written before this call, total) when this is one batch of a larger write.
+    fn write(&self, extracted: &[Extracted], removed: &[String], bulk: bool, of: Option<(usize, usize)>) -> rusqlite::Result<()> {
         // Bulk loads are much faster without secondary indexes; rebuild them once at the end.
         let mut db = self.conn();
         let mut prog = Progress::new();
@@ -626,7 +666,13 @@ impl Index {
         {
             let mut id_of = tx.prepare("SELECT id FROM files WHERE path=?1")?;
             let del = |id: i64, all: bool| -> rusqlite::Result<()> {
-                tx.execute("DELETE FROM search_post WHERE def IN (SELECT id FROM defs WHERE file=?1)", [id])?;
+                // the file's postings are one block of rows: deleted by their rowid range
+                let range = tx.query_row("SELECT post_lo, post_hi FROM files WHERE id=?1", [id], |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, Option<i64>>(1)?)));
+                if let Ok((Some(lo), Some(hi))) = range {
+                    tx.execute("DELETE FROM search_post WHERE rowid BETWEEN ?1 AND ?2", [lo, hi])?;
+                }
+                // and the range forgotten, so a later block reusing those rowids is never taken for it
+                tx.execute("UPDATE files SET post_lo=NULL, post_hi=NULL WHERE id=?1", [id])?;
                 tx.execute("DELETE FROM search_doc WHERE def IN (SELECT id FROM defs WHERE file=?1)", [id])?;
                 tx.execute("DELETE FROM defs WHERE file=?1", [id])?;
                 tx.execute("DELETE FROM refs WHERE file=?1", [id])?;
@@ -655,17 +701,32 @@ impl Index {
             let mut ins_tab = tx.prepare("INSERT INTO tables(file, name, line, kind) VALUES(?1,?2,?3,?4)")?;
             let mut ins_post = tx.prepare("INSERT INTO search_post(term, def, tf, len) VALUES(?1,?2,?3,?4)")?;
             let mut ins_doc = tx.prepare("INSERT INTO search_doc(def, len) VALUES(?1,?2)")?;
+            let mut set_posts = tx.prepare("UPDATE files SET post_lo=?1, post_hi=?2 WHERE id=?3")?;
+            // every spelling of every identifier, once (`spellings` looks names up by their norm)
+            let mut ins_name = tx.prepare("INSERT OR IGNORE INTO names(name, norm) VALUES(?1,?2)")?;
+            let mut named: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            let (base, total) = of.unwrap_or((0, extracted.len()));
             for (i, e) in extracted.iter().enumerate() {
-                prog.show(|| format!("index: writing {}/{} files", i + 1, extracted.len()));
+                prog.show(|| format!("index: writing {}/{} files", base + i + 1, total));
                 let id: i64 = up.query_row(params![e.rel, e.mtime, e.size, e.lang, e.role, e.lines as i64, e.hash], |r| r.get(0))?;
+                let (mut lo, mut hi) = (None::<i64>, 0i64);
                 for (i, (d, sig)) in e.defs.iter().enumerate() {
                     let last = d.name.rsplit_once('.').map(|(_, l)| l).unwrap_or(&d.name);
                     ins_def.execute(params![id, d.kind, d.name, last, d.path.join("."), d.start as i64, d.end as i64, d.head as i64, sig])?;
                     if let Some(Some((terms, len))) = e.search.get(i) {
                         let did = tx.last_insert_rowid();
                         ins_doc.execute(params![did, len])?;
-                        for (t, tf) in terms { ins_post.execute(params![t, did, tf, len])?; }
+                        for (t, tf) in terms {
+                            ins_post.execute(params![t, did, tf, len])?;
+                            let r = tx.last_insert_rowid();
+                            lo.get_or_insert(r);
+                            hi = r;
+                        }
                     }
+                }
+                if let Some(lo) = lo { set_posts.execute(params![lo, hi, id])?; }
+                for (n, _) in &e.refs {
+                    if named.insert(n.as_str()) { ins_name.execute(params![n, norm(n)])?; }
                 }
                 for (n, l) in &e.refs {
                     ins_ref.execute(params![id, n, l.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")])?;
@@ -759,7 +820,7 @@ impl Store for Index {
 
     fn spellings(&self, name: &str) -> Vec<String> {
         let db = self.conn();
-        let Ok(mut q) = db.prepare_cached("SELECT DISTINCT name FROM refs WHERE lower(replace(name,'_',''))=?1") else { return vec![] };
+        let Ok(mut q) = db.prepare_cached("SELECT name FROM names WHERE norm=?1") else { return vec![] };
         let mut v: Vec<String> = q.query_map([norm(name)], |r| r.get::<_, String>(0)).map(|it| it.flatten().collect()).unwrap_or_default();
         v.sort();
         v

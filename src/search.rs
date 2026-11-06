@@ -51,6 +51,38 @@ pub fn words(text: &str) -> Vec<String> {
     let mut out = vec![];
     for raw in text.split(|c: char| !c.is_alphanumeric()) {
         if raw.is_empty() { continue; }
+        // code is almost all ASCII: split on bytes, no allocation per character (the same words)
+        if raw.is_ascii() { ascii_words(raw.as_bytes(), &mut out); continue; }
+        char_words(raw, &mut out);
+    }
+    out
+}
+
+fn is_stop(w: &str) -> bool {
+    static S: std::sync::OnceLock<HashSet<&'static str>> = std::sync::OnceLock::new();
+    S.get_or_init(|| STOP.iter().copied().collect()).contains(w)
+}
+
+fn ascii_words(b: &[u8], out: &mut Vec<String>) {
+    let mut start = 0;
+    for i in 1..=b.len() {
+        let split = i == b.len()
+            || (b[i].is_ascii_uppercase() && b[i - 1].is_ascii_lowercase())
+            || (b[i].is_ascii_uppercase() && i + 1 < b.len() && b[i + 1].is_ascii_lowercase() && b[i - 1].is_ascii_uppercase())
+            || (b[i].is_ascii_digit() != b[i - 1].is_ascii_digit());
+        if split {
+            let part = &b[start..i];
+            start = i;
+            if part.len() < 2 || part.iter().all(u8::is_ascii_digit) { continue; }
+            let w = String::from_utf8_lossy(part).to_ascii_lowercase();
+            if is_stop(&w) { continue; }
+            out.push(stem(&w));
+        }
+    }
+}
+
+fn char_words(raw: &str, out: &mut Vec<String>) {
+    {
         let cs: Vec<char> = raw.chars().collect();
         let mut start = 0;
         for i in 1..=cs.len() {
@@ -61,12 +93,11 @@ pub fn words(text: &str) -> Vec<String> {
             if split {
                 let w: String = cs[start..i].iter().collect::<String>().to_lowercase();
                 start = i;
-                if w.len() < 2 || w.chars().all(|c| c.is_ascii_digit()) || STOP.contains(&w.as_str()) { continue; }
+                if w.len() < 2 || w.chars().all(|c| c.is_ascii_digit()) || is_stop(&w) { continue; }
                 out.push(stem(&w));
             }
         }
     }
-    out
 }
 
 /// A definition's searchable words, each with its weight (name words weigh most), and the
@@ -95,12 +126,41 @@ pub fn terms(name: &str, scope: &str, path: &str, start: usize, end: usize, head
 /// not searched (a function's own locals, `var out`, `e := …`; anything in a config file).
 pub fn postings_for(rel: &str, role: &str, defs: &[(crate::Def, String)], lines: &[&str]) -> Vec<Option<(Vec<(String, f32)>, f32)>> {
     if role == "config" { return defs.iter().map(|_| None).collect(); }
-    defs.iter().map(|(d, _)| {
-        let inside_fn = defs.iter().any(|(o, _)| crate::context::FUNC_KINDS.contains(&o.kind.as_str()) && o.start <= d.start && d.end <= o.end && (o.start, o.end) != (d.start, d.end));
-        if inside_fn { return None; }
-        let container = defs.iter().any(|(o, _)| o.start > d.start && o.end <= d.end && (o.start, o.end) != (d.start, d.end));
-        Some(terms(&d.name, &d.path.join("."), rel, d.start, d.end, d.head, container, lines))
+    let (inside, container) = nesting(defs);
+    defs.iter().enumerate().map(|(i, (d, _))| {
+        if inside[i] { return None; }
+        Some(terms(&d.name, &d.path.join("."), rel, d.start, d.end, d.head, container[i], lines))
     }).collect()
+}
+
+/// For each definition: is it inside a function (a function's local: some function's range holds
+/// it and is not its own), and is it a container (another definition starts after it and ends
+/// within it). One sort and two passes, not every pair: a generated file holds thousands.
+fn nesting(defs: &[(crate::Def, String)]) -> (Vec<bool>, Vec<bool>) {
+    let n = defs.len();
+    let (start, end) = (|i: usize| defs[i].0.start, |i: usize| defs[i].0.end);
+    let is_fn = |i: usize| crate::context::FUNC_KINDS.contains(&defs[i].0.kind.as_str());
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by_key(|&i| start(i));
+    // the definitions in groups of equal start, in start order
+    let mut groups: Vec<&[usize]> = vec![];
+    let mut a = 0;
+    while a < n { let mut b = a; while b < n && start(order[b]) == start(order[a]) { b += 1; } groups.push(&order[a..b]); a = b; }
+    let (mut inside, mut container) = (vec![false; n], vec![false; n]);
+    // inside: a function that starts earlier and ends at or after it, or starts with it and ends after
+    let mut reach: Option<usize> = None;
+    for g in &groups {
+        let same = g.iter().filter(|&&i| is_fn(i)).map(|&i| end(i)).max();
+        for &i in g.iter() { inside[i] = reach.is_some_and(|m| m >= end(i)) || same.is_some_and(|m| m > end(i)); }
+        if let Some(m) = same { reach = Some(reach.map_or(m, |r| r.max(m))); }
+    }
+    // container: of the definitions starting after it, the one ending first ends within it
+    let mut first_end = usize::MAX;
+    for g in groups.iter().rev() {
+        for &i in g.iter() { container[i] = first_end <= end(i); }
+        for &i in g.iter() { first_end = first_end.min(end(i)); }
+    }
+    (inside, container)
 }
 
 pub struct Found {
@@ -178,6 +238,37 @@ pub fn search<S: Store>(st: &S, question: &str, limit: usize) -> Vec<Found> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nesting_matches_every_pair() {
+        // the sorted passes give exactly what comparing every pair gives, on random layouts
+        let mut seed = 7u64;
+        let mut rnd = |m: usize| { seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); (seed >> 33) as usize % m };
+        for _ in 0..400 {
+            let n = 1 + rnd(40);
+            let defs: Vec<(crate::Def, String)> = (0..n).map(|_| {
+                let s = rnd(60);
+                let kind = ["function", "class", "method", "variable", "field"][rnd(5)].to_string();
+                (crate::Def { kind, name: "x".into(), start: s, end: s + rnd(30), path: vec![], head: s }, String::new())
+            }).collect();
+            let (inside, container) = nesting(&defs);
+            for (i, (d, _)) in defs.iter().enumerate() {
+                let want_in = defs.iter().any(|(o, _)| crate::context::FUNC_KINDS.contains(&o.kind.as_str()) && o.start <= d.start && d.end <= o.end && (o.start, o.end) != (d.start, d.end));
+                let want_c = defs.iter().any(|(o, _)| o.start > d.start && o.end <= d.end && (o.start, o.end) != (d.start, d.end));
+                assert_eq!((inside[i], container[i]), (want_in, want_c), "def {i} of {defs:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn ascii_path_splits_like_the_char_path() {
+        for s in ["WriteAudit", "HTTPServer", "user_id2x", "parseJSON5Body", "ABCDef", "a1b2", "XMLHttpRequest", "getHTTPResponseCode", "OK", "x", "ID", "IDs", "v2API", "Écrire"] {
+            let (mut a, mut c) = (vec![], vec![]);
+            if s.is_ascii() { ascii_words(s.as_bytes(), &mut a) } else { a = words(s) }
+            char_words(s, &mut c);
+            assert_eq!(a, c, "{s}");
+        }
+    }
 
     #[test]
     fn code_words() {
