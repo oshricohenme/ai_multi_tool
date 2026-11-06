@@ -34,7 +34,9 @@ pub fn is_busy(e: &rusqlite::Error) -> bool {
 /// answers from memory and needs none of them): name, and what it indexes.
 const LOOKUPS: [(&str, &str); 8] = [
     ("defs_last", "defs(last)"), ("defs_file", "defs(file)"),
-    ("refs_name", "refs(name)"),
+    // a reference stores its name as a number (`names.id`): sorting numbers, not 2.4M strings;
+    // the `refs` view shows the names
+    ("refs_name", "refs_ids(name_id)"),
     ("tables_name", "tables(name COLLATE NOCASE)"), ("tables_file", "tables(file)"),
     // plain-word search: a word's rows (one per file, its postings packed). A file's postings and its
     // references are each one block of rows (files.post_lo..post_hi, refs_lo..refs_hi): read and
@@ -136,7 +138,7 @@ impl Progress {
     }
 }
 
-const SCHEMA_VERSION: &str = "9";
+const SCHEMA_VERSION: &str = "10";
 const MAX_FILE: u64 = 1_500_000;
 const MAX_DATA_FILE: u64 = 200_000;
 
@@ -425,20 +427,21 @@ impl Index {
         let v: Option<String> = db.query_row("SELECT value FROM meta WHERE key='schema'", [], |r| r.get(0)).ok();
         if v.as_deref() != Some(SCHEMA_VERSION) {
             db.execute_batch(
-                "DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS defs; DROP TABLE IF EXISTS refs; DROP TABLE IF EXISTS tables;
+                "DROP VIEW IF EXISTS refs; DROP TABLE IF EXISTS refs; DROP TABLE IF EXISTS refs_ids; DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS defs; DROP TABLE IF EXISTS tables;
                  DROP TABLE IF EXISTS search_post; DROP TABLE IF EXISTS search_doc; DROP TABLE IF EXISTS names; DROP TABLE IF EXISTS lits;
                  CREATE TABLE lits(file INTEGER NOT NULL, line INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL);
                  CREATE INDEX lits_at ON lits(file, line); CREATE INDEX lits_text ON lits(kind, text);
                  CREATE TABLE search_post(term TEXT NOT NULL, file INTEGER NOT NULL, posts BLOB NOT NULL);
                  CREATE INDEX search_term ON search_post(term);
                  CREATE TABLE search_doc(def INTEGER PRIMARY KEY, len REAL NOT NULL);
-                 CREATE TABLE names(name TEXT PRIMARY KEY, norm TEXT NOT NULL) WITHOUT ROWID;
+                 CREATE TABLE names(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, norm TEXT NOT NULL);
                  CREATE INDEX names_norm ON names(norm);
                  CREATE TABLE files(id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL, mtime INTEGER, size INTEGER, lang TEXT, role TEXT, lines INTEGER, post_lo INTEGER, post_hi INTEGER, refs_lo INTEGER, refs_hi INTEGER);
                  CREATE TABLE defs(id INTEGER PRIMARY KEY, file INTEGER NOT NULL, kind TEXT, name TEXT, last TEXT, scope TEXT, start INTEGER, end INTEGER, head INTEGER, sig TEXT);
                  CREATE INDEX defs_last ON defs(last); CREATE INDEX defs_file ON defs(file);
-                 CREATE TABLE refs(file INTEGER NOT NULL, name TEXT NOT NULL, lines TEXT NOT NULL);
-                 CREATE INDEX refs_name ON refs(name);
+                 CREATE TABLE refs_ids(file INTEGER NOT NULL, name_id INTEGER NOT NULL, lines TEXT NOT NULL);
+                 CREATE INDEX refs_name ON refs_ids(name_id);
+                 CREATE VIEW refs AS SELECT r.file AS file, n.name AS name, r.lines AS lines FROM refs_ids r JOIN names n ON n.id = r.name_id;
                  CREATE TABLE tables(file INTEGER NOT NULL, name TEXT NOT NULL, line INTEGER, kind TEXT);
                  CREATE INDEX tables_name ON tables(name COLLATE NOCASE); CREATE INDEX tables_file ON tables(file);",
             )?;
@@ -859,7 +862,7 @@ impl Index {
                     |r| Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, Option<i64>>(2)?, r.get::<_, Option<i64>>(3)?)));
                 if let Ok((pl, ph, rl, rh)) = ranges {
                     if let (Some(lo), Some(hi)) = (pl, ph) { tx.execute("DELETE FROM search_post WHERE rowid BETWEEN ?1 AND ?2", [lo, hi])?; }
-                    if let (Some(lo), Some(hi)) = (rl, rh) { tx.execute("DELETE FROM refs WHERE rowid BETWEEN ?1 AND ?2", [lo, hi])?; }
+                    if let (Some(lo), Some(hi)) = (rl, rh) { tx.execute("DELETE FROM refs_ids WHERE rowid BETWEEN ?1 AND ?2", [lo, hi])?; }
                 }
                 // and the ranges forgotten, so a later block reusing those rowids is never taken for them
                 tx.execute("UPDATE files SET post_lo=NULL, post_hi=NULL, refs_lo=NULL, refs_hi=NULL WHERE id=?1", [id])?;
@@ -887,15 +890,16 @@ impl Index {
                  ON CONFLICT(path) DO UPDATE SET mtime=excluded.mtime, size=excluded.size, lang=excluded.lang, role=excluded.role, lines=excluded.lines, hash=excluded.hash RETURNING id",
             )?;
             let mut ins_def = tx.prepare("INSERT INTO defs(file, kind, name, last, scope, start, end, head, sig) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)")?;
-            let mut ins_ref = tx.prepare("INSERT INTO refs(file, name, lines) VALUES(?1,?2,?3)")?;
+            let mut ins_ref = tx.prepare("INSERT INTO refs_ids(file, name_id, lines) VALUES(?1,?2,?3)")?;
             let mut ins_tab = tx.prepare("INSERT INTO tables(file, name, line, kind) VALUES(?1,?2,?3,?4)")?;
             let mut ins_lit = tx.prepare("INSERT INTO lits(file, line, kind, text) VALUES(?1,?2,?3,?4)")?;
             let mut ins_post = tx.prepare("INSERT INTO search_post(term, file, posts) VALUES(?1,?2,?3)")?;
             let mut ins_doc = tx.prepare("INSERT INTO search_doc(def, len) VALUES(?1,?2)")?;
             let mut set_ranges = tx.prepare("UPDATE files SET post_lo=?1, post_hi=?2, refs_lo=?3, refs_hi=?4 WHERE id=?5")?;
             // every spelling of every identifier, once (`spellings` looks names up by their norm)
-            let mut ins_name = tx.prepare("INSERT OR IGNORE INTO names(name, norm) VALUES(?1,?2)")?;
-            let mut named: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            // a name's number: the existing one, or a new one (one statement either way)
+            let mut ins_name = tx.prepare("INSERT INTO names(name, norm) VALUES(?1,?2) ON CONFLICT(name) DO UPDATE SET norm=excluded.norm RETURNING id")?;
+            let mut named: HashMap<&str, i64> = HashMap::new();
             for (i, e) in extracted.iter().enumerate() {
                 prog.show(|| format!("{} {}/{} files", bar(base + i + 1, total), base + i + 1, total));
                 let id: i64 = up.query_row(params![e.rel, e.mtime, e.size, e.lang, e.role, e.lines as i64, e.hash], |r| r.get(0))?;
@@ -922,12 +926,13 @@ impl Index {
                     plo.get_or_insert(r);
                     phi = r;
                 }
-                for (n, _) in &e.refs {
-                    if named.insert(n.as_str()) { ins_name.execute(params![n, norm(n)])?; }
-                }
                 let (mut rlo, mut rhi) = (None::<i64>, 0i64);
                 for (n, l) in &e.refs {
-                    ins_ref.execute(params![id, n, l.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")])?;
+                    let nid = match named.get(n.as_str()) {
+                        Some(&x) => x,
+                        None => { let x: i64 = ins_name.query_row(params![n, norm(n)], |r| r.get(0))?; named.insert(n.as_str(), x); x }
+                    };
+                    ins_ref.execute(params![id, nid, l.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")])?;
                     let r = tx.last_insert_rowid();
                     rlo.get_or_insert(r);
                     rhi = r;
@@ -965,7 +970,7 @@ impl Index {
         let n = |sql: &str| self.conn().query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap_or(0);
         let mut s = format!(
             "{} files, {} definitions, {} identifier rows, {} table facts\n",
-            n("SELECT COUNT(*) FROM files"), n("SELECT COUNT(*) FROM defs"), n("SELECT COUNT(*) FROM refs"), n("SELECT COUNT(*) FROM tables")
+            n("SELECT COUNT(*) FROM files"), n("SELECT COUNT(*) FROM defs"), n("SELECT COUNT(*) FROM refs_ids"), n("SELECT COUNT(*) FROM tables")
         );
         let db = self.conn();
         if let Ok(mut q) = db.prepare("SELECT role, COUNT(*) FROM files GROUP BY role ORDER BY 2 DESC") {
@@ -1097,7 +1102,7 @@ impl Store for Index {
 
     fn refs(&self, name: &str) -> Vec<(String, String, Vec<usize>)> {
         let db = self.conn();
-        let Ok(mut q) = db.prepare_cached("SELECT f.path, f.role, r.lines FROM refs r JOIN files f ON f.id=r.file WHERE r.name=?1") else { return vec![] };
+        let Ok(mut q) = db.prepare_cached("SELECT f.path, f.role, r.lines FROM refs_ids r JOIN files f ON f.id=r.file WHERE r.name_id=(SELECT id FROM names WHERE name=?1)") else { return vec![] };
         q.query_map([name], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))
             .map(|it| counted(it.flatten().map(|(p, ro, l)| (p, ro, l.split(',').filter_map(|x| x.parse().ok()).collect())).collect()))
             .unwrap_or_default()

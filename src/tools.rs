@@ -1314,7 +1314,7 @@ pub fn code_cards_with(g: &Graph, root: &Path, query: &str, o: &CodeOpts) -> Vec
     let by_name: HashMap<String, Vec<usize>> = scored.iter().enumerate().fold(HashMap::new(), |mut m, (si, x)| { m.entry(defs[x.1].name.rsplit('.').next().unwrap_or(&defs[x.1].name).to_string()).or_default().push(si); m });
     for (si, (_, i, _)) in scored.iter().enumerate() {
         let d = &defs[*i];
-        for (name, lines, _) in rows("SELECT name, lines, 0 FROM refs WHERE rowid BETWEEN (SELECT refs_lo FROM files WHERE id = ?1) AND (SELECT refs_hi FROM files WHERE id = ?1)", &[&d.file]) {
+        for (name, lines, _) in rows("SELECT n.name, r.lines, 0 FROM refs_ids r JOIN names n ON n.id = r.name_id WHERE r.rowid BETWEEN (SELECT refs_lo FROM files WHERE id = ?1) AND (SELECT refs_hi FROM files WHERE id = ?1)", &[&d.file]) {
             let Some(targets) = by_name.get(&name) else { continue };
             let inside = lines.split(',').filter_map(|l| l.trim().parse::<i64>().ok()).any(|l| l - 1 >= d.start && l - 1 <= d.end);
             // a body that calls another seed links them; two seeds that merely share a name don't
@@ -1561,7 +1561,7 @@ pub fn code_cards_with(g: &Graph, root: &Path, query: &str, o: &CodeOpts) -> Vec
         let docs = rows("SELECT f.path, r.lines, 0 FROM refs r JOIN files f ON f.id = r.file WHERE r.name = ?1 AND f.role = 'doc' GROUP BY f.path LIMIT 4", &[&d.name]);
         if !docs.is_empty() { c += &format!("\n  docs: {}", docs.iter().map(|t| format!("{}:{}", t.0, lines_of(&t.1))).collect::<Vec<_>>().join(", ")); }
         // technology this file uses that a skill or MCP server covers
-        let fw: BTreeSet<String> = rows("SELECT name, '', 0 FROM refs WHERE rowid BETWEEN (SELECT refs_lo FROM files WHERE id = ?1) AND (SELECT refs_hi FROM files WHERE id = ?1)", &[&d.file]).into_iter().flat_map(|r| split_words(&r.0)).collect();
+        let fw: BTreeSet<String> = rows("SELECT n.name, '', 0 FROM refs_ids r JOIN names n ON n.id = r.name_id WHERE r.rowid BETWEEN (SELECT refs_lo FROM files WHERE id = ?1) AND (SELECT refs_hi FROM files WHERE id = ?1)", &[&d.file]).into_iter().flat_map(|r| split_words(&r.0)).collect();
         let tech: Vec<String> = anchor_items.iter().filter(|(a, _)| fw.contains(*a)).map(|(a, items)| format!("{a} → {}", items.iter().take(2).cloned().collect::<Vec<_>>().join(", "))).take(3).collect();
         if !tech.is_empty() { c += &format!("\n  tech: {}", tech.join("; ")); }
         if first && task == "debug" {

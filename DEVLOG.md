@@ -5252,3 +5252,15 @@ searches and 6 of 6 `context` answers identical. 99 Rust tests pass.
 
 **Measured:** index 448 → 336 MB; write 4.0 → 3.0 s; a fresh index 6.2 s in one run, 9.5 s in
 another (load 13). The lookup tables (~6 s) are the largest step left.
+
+## 2026-11-06 · 62. References store their name as a number
+
+`refs_name` sorted 2.45M name strings (2.1-2.3 s, the largest lookup table left). A reference now
+stores `names.id` (`refs_ids(file, name_id, lines)`, an integer index); a `refs` view joins the
+names back, so the SQL in `tools.rs` and `viz.rs` is unchanged, and SQLite answers `name = ?`
+through the unique name index and the integer one. Names get their number in the same write
+(one upsert `RETURNING id`, cached per batch). Schema 10.
+
+**Checked** against `07ac27f`: 6 of 6 searches, 6 of 6 `context` answers and a `mt tools find`
+identical. 99 Rust tests pass. gym_software fresh index **5.4 s** (from 17-29 s this morning,
+9.3 s after section 60, 6.2 s after section 61); index 304 MB (from 448).
