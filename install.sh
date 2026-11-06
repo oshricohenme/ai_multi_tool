@@ -75,7 +75,10 @@ echo "$tag" > "$stamp"
 echo "$v ($(short "$tag"))"
 # older versions of the plugin keep their 80 MB binaries: drop them (a session still on one
 # downloads again on its next call)
-for d in "$(dirname "$P")"/*; do [ "$d" = "$P" ] || rm -f "$d"/bin/mt-*; done
+for d in "$(dirname "$P")"/*/; do d=${d%/}; [ -L "$d" ] && continue; [ "$d" = "$P" ] || rm -f "$d"/bin/mt-*; done
+# a path that survives updates, for anything outside Claude that should run this mt
+CUR="$(dirname "$P")/current"
+ln -sfn "$P" "$CUR"
 
 step "5. index this repo and warm the mt server"
 MT_BIN= PATH=/usr/bin:/bin "$P/bin/mt" build
@@ -83,10 +86,11 @@ MT_BIN= PATH=/usr/bin:/bin "$P/bin/mt" build
 step "6. which mt Claude's own commands will run"
 # Claude Code puts the plugin's bin/ on PATH, but after your shell profile's own entries
 found=$(${SHELL:-/bin/sh} -lc 'command -v mt' 2>/dev/null || true)
-case "$found" in
-  "" | "$P"/*) echo "the plugin's (good)" ;;
+real=$([ -n "$found" ] && python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$found" || true)
+case "$real" in
+  "" | "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$P")"/*) echo "the plugin's (good)" ;;
   *) echo "WARN: your shell finds $found first, so Claude's mt commands would run that build, not this one."
-     echo "      Remove it or point it here for the eval: ln -sf \"$P/bin/mt\" \"$found\"" ;;
+     echo "      Remove it, or point it at this install (follows every update): ln -sf \"$CUR/bin/mt\" \"$found\"" ;;
 esac
 
 step "ready: mt $(short "$main"), binary $(short "$tag"), in $REPO"
