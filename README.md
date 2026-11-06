@@ -82,13 +82,14 @@ mt --version
 To use it with Claude Code, point the plugin's `bin/mt` at your build and load the plugin:
 
 ```bash
-ln -sf "$PWD/target/release/mt" plugin/bin/mt
+ln -sf "$PWD/target/release/mt" plugin/bin/mt-$(rustc -vV | sed -n "s/host: //p")
 claude --plugin-dir "$PWD/plugin"
 ```
 
 This repo is also a Claude Code marketplace with two plugins: `mt` (the hooks, the skill, a status
 line and an `/mt-activity` pane) and `coach` (Claude coach: every model and tool call in a pane and a
-local web app, `/coach`). Install either or both; `mt` finds the binary at `plugin/bin/mt`, else on PATH:
+local web app, `/coach`). Install either or both; `mt` downloads its binary on first use
+(the `latest` release, rebuilt by CI on every push to main), else uses `mt` on PATH:
 
 ```
 /plugin install mt --marketplace oshricohenme/ai_multi_tool

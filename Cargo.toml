@@ -5,6 +5,7 @@ edition = "2024"
 description = "A context engine for coding agents: one call to read everything related to a symbol, one checked call to change it"
 license = "MIT"
 readme = "README.md"
+repository = "https://github.com/oshricohenme/ai_multi_tool"
 
 [dependencies]
 # pure-Rust BERT embeddings for `mt tools` (CPU only, no C/C++); off unless built with --features bert

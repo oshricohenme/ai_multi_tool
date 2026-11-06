@@ -25,8 +25,8 @@
 # the coord bench copies a target repo here (private data): never committed
 /bench/coord/repo/
 /bench/coord/plugin/bin/
-# the plugin's binary is built (cargo build --release), not committed
-/plugin/bin/
+# plugin/bin/mt is the launcher (committed); the binaries beside it are downloaded or linked
+/plugin/bin/mt-*
 .mt/
 node_modules/
 **/.claude-plugin/types/

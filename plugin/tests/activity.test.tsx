@@ -29,7 +29,8 @@ test('the status line and the pane show what mt did, on every surface', async ($
   on('process.run', (_, e) => { asked.push([...(e as { argv: string[] }).argv]); return { value: { exitCode: 0, stdout: JSON.stringify(ACTIVITY), stderr: '' } } })
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  expect(asked[0]).toEqual(['mt', 'activity', '--json', '--limit', '60', '--session', 'abcdef12-3456'])
+  expect(asked[0]![0]).toMatch(/\/bin\/mt$/)
+  expect(asked[0]!.slice(1)).toEqual(['activity', '--json', '--limit', '60', '--session', 'abcdef12-3456'])
   expect(statuses.at(-1)).toBe(ACTIVITY.line)
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {

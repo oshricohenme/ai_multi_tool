@@ -54,7 +54,7 @@ The plugin in `plugin/` does four things:
 - **SessionEnd** stops the daemon.
 
 ```bash
-ln -sf "$(command -v mt)" plugin/bin/mt     # the plugin runs bin/mt; point it at your build
+ln -sf "$(command -v mt)" plugin/bin/mt-$(rustc -vV | sed -n "s/host: //p")  # optional: bin/mt uses this build instead of downloading
 claude --plugin-dir /path/to/mt/plugin      # one session
 ```
 

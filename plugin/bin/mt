@@ -1,0 +1,32 @@
+#!/bin/sh
+# mt launcher for the plugin. Runs, in order: $MT_BIN; bin/mt-<target> (a local build linked here,
+# or the "latest" GitHub release, downloaded once on first use); mt on PATH.
+dir=$(cd "$(dirname "$0")" && pwd)
+[ -n "$MT_BIN" ] && exec "$MT_BIN" "$@"
+
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) t=aarch64-apple-darwin ;;
+  Darwin-x86_64) t=x86_64-apple-darwin ;;
+  Linux-x86_64) t=x86_64-unknown-linux-gnu ;;
+  Linux-aarch64 | Linux-arm64) t=aarch64-unknown-linux-gnu ;;
+  *) t= ;;
+esac
+
+bin="$dir/mt-$t"
+if [ -n "$t" ] && [ ! -x "$bin" ]; then
+  # a temp file per process, then mv: concurrent hooks never run a half-written binary,
+  # and nothing is copied over a binary that already ran (macOS kills those, see HANDOFF.md)
+  tmp="$bin.$$"
+  if curl -fsL --connect-timeout 5 --max-time 120 "https://github.com/oshricohenme/ai_multi_tool/releases/download/latest/mt-$t.gz" | gunzip > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+    chmod +x "$tmp" && mv -f "$tmp" "$bin"
+  else
+    rm -f "$tmp"
+  fi
+fi
+[ -x "$bin" ] && exec "$bin" "$@"
+
+if [ -z "$MT_LAUNCHER" ] && command -v mt >/dev/null 2>&1; then
+  MT_LAUNCHER=1 exec mt "$@"
+fi
+echo "mt: no mt binary for $(uname -s)-$(uname -m), and the download from github.com/oshricohenme/ai_multi_tool/releases failed. Build it (cargo build --release) and put it on PATH, or set MT_BIN." >&2
+exit 1

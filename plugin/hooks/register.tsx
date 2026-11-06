@@ -9,10 +9,10 @@ const view = atom({ plugin: 'mt', key: 'view' } as const, { activity: null, erro
 })
 
 // mt keeps its own record (`.mt/events.jsonl`, per repo); `mt activity --json` sums it up, so
-// this mod only asks and draws. `mt` is the binary on PATH, as for every agent.
+// this mod only asks and draws. `bin/mt` is the plugin's launcher (a local build, the release, or PATH).
 async function refresh($: EngineInterface): Promise<void> {
   const { scope } = await read($, view)
-  const argv = ['mt', 'activity', '--json', '--limit', '60']
+  const argv = [`${$.plugin.root}/bin/mt`, 'activity', '--json', '--limit', '60']
   if (scope === 'session') argv.push('--session', await $.session.id())
   try {
     const r = await $.process.run(argv, { timeoutMs: 5000 })

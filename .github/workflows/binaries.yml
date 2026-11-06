@@ -1,0 +1,68 @@
+# Every push to main that touches the binary rebuilds it for each platform and replaces the assets
+# of the rolling "latest" release. plugin/bin/mt downloads mt-<target>.gz from there on first use.
+name: binaries
+
+on:
+  push:
+    branches: [main]
+    paths: [src/**, skills/mt/SKILL.md, Cargo.toml, Cargo.lock, .github/workflows/binaries.yml]
+  workflow_dispatch:
+
+concurrency:
+  group: binaries
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin, os: macos-14 }
+          - { target: x86_64-apple-darwin, os: macos-14 }
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+        env:
+          CARGO_PROFILE_RELEASE_STRIP: "true"
+      - run: |
+          b=target/${{ matrix.target }}/release/mt
+          file "$b"
+          gzip -9c "$b" > mt-${{ matrix.target }}.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mt-${{ matrix.target }}
+          path: mt-${{ matrix.target }}.gz
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ls -l dist
+          notes="Rolling build of ${GITHUB_SHA}. Replaced on every push to main that changes mt."
+          if gh release view latest >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
+            gh release edit latest --notes "$notes"
+          else
+            gh release create latest --target "$GITHUB_SHA" --title "mt (latest build)" --notes "$notes"
+          fi
+          gh release upload latest dist/*.gz --clobber

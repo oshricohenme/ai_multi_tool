@@ -39,7 +39,7 @@ logs, JSON, MCP results) is compressed and kept out of context, then queried (`m
   - `dev-tools`: `~/Library/Application Support/orca/claude-profiles/<profile>/home/dev-mods/0c226e3e-.../dev-tools`.
   - Compare before deleting anything: `diff -rq ~/orca/mt ai_multi_tool -x 'target*' -x .mt -x .git`.
 - **Left out, as build, test or runtime artifacts:**
-  - every `target*` dir (about 9.6 GB) and `plugin/bin/mt`;
+  - every `target*` dir (about 9.6 GB) and the binaries in `plugin/bin/` (`plugin/bin/mt` itself is the launcher: `$MT_BIN`, then `bin/mt-<target>`, downloaded once from the `latest` release that `.github/workflows/binaries.yml` rebuilds on every push to main, then `mt` on PATH);
   - `.mt/` (the index);
   - `bench/coord/repo/` (a copy of the Relay repo used as a fixture: private data);
   - eval results and the generated shop DB;
@@ -58,7 +58,7 @@ logs, JSON, MCP results) is compressed and kept out of context, then queried (`m
 
 ```bash
 cargo build --release                          # Rust 1.85+, edition 2024; --features bert for BERT embeddings
-ln -sf "$PWD/target/release/mt" plugin/bin/mt  # a symlink, or rm + cp (never cp over an existing binary: see Gotchas)
+ln -sf "$PWD/target/release/mt" plugin/bin/mt-$(rustc -vV | sed -n "s/host: //p")  # a symlink, or rm + cp (never cp over an existing binary: see Gotchas)
 ln -sf "$PWD/target/release/mt" ~/.local/bin/mt
 claude --plugin-dir "$PWD/plugin"              # mt plugin
 claude --plugin-dir "$PWD/plugin" --plugin-dir "$PWD/mods/coach"
