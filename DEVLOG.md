@@ -5189,3 +5189,25 @@ the refs index). `context listValueAccounts`: 1,289 → ~390 ms. It still reads 
 counted: the next thing to cut. Outputs compared on 13 names against the build before: identical
 but for database-table items, which differ between two runs of the old build too (known
 nondeterminism, section 55). 100 Rust tests pass; the plugin's 2 tests pass.
+
+## 2026-11-06 · 59. Routes from the index: `context` reads only what it shows; answers deterministic
+
+**Routes without reading files.** `context` found route registrations by reading every file that
+references each of up to 40 caller names, and route tests by reading test files: ~1,800 files
+(36 MB) per call on gym_software. The parser now records, per line, in `lits(file, line, kind,
+text)`: `route` (what `route_rx` captures, as `context` reads it) and `path` (each quote followed by
+`/`, with the longest run of path characters after it). A test line holds `"<route>` (or `'`, `` ` ``)
+exactly when one of its runs starts with the route, since a route is path characters only: a
+prefix range on `lits_text`. `Store::routes_at`, `Store::quoted_paths`. Schema 8. gym_software has
+13,346 route rows and 35,247 path rows.
+
+`context listValueAccounts`: 53 lookups, 1,800 files read, ~1,060 ms → 257 lookups, **20 files read
+(the ones it shows), 10 ms**.
+
+**Determinism.** Comparing builds first failed: neither build answered the same twice (3 and 4
+distinct outputs in 4 runs). Two HashMap iterations: the callers' `groups` (pushed in random order,
+so ties broke differently) and `touched.iter().take(6)` (which 6 tables were shown). Both ordered
+now (`BTreeMap`, `BTreeSet`); 1 distinct output in 4 runs on 5 names.
+
+**Checked:** `47f8cce` with the same two ordering fixes against this build, 13 names on gym_software:
+13 of 13 answers byte-identical. 99 Rust tests pass (section 58 said 100: a miscount, it was 99).

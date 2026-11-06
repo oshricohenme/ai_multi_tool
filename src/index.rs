@@ -32,14 +32,20 @@ pub fn is_busy(e: &rusqlite::Error) -> bool {
 
 /// The lookup tables one-shot commands, `mt tools` and the visualizer query through (the daemon
 /// answers from memory and needs none of them): name, and what it indexes.
-const LOOKUPS: [(&str, &str); 7] = [
+const LOOKUPS: [(&str, &str); 9] = [
     ("defs_last", "defs(last)"), ("defs_file", "defs(file)"),
     ("refs_name", "refs(name)"), ("refs_file", "refs(file)"),
     ("tables_name", "tables(name COLLATE NOCASE)"), ("tables_file", "tables(file)"),
     // plain-word search: a word's postings, covering (one index read per word). A file's postings are
     // one block of rows (files.post_lo..post_hi), so deleting them needs no index of its own.
     ("search_term", "search_post(term, def, tf, len)"),
+    // quoted paths and routes: by place (a file's lines; deletes), and by text (a route's prefix)
+    ("lits_at", "lits(file, line)"), ("lits_text", "lits(kind, text)"),
 ];
+
+/// Quoted paths and routes kept per file. ponytail: a file with more (a generated route table, a
+/// minified bundle) has the rest unmatched by `context`'s route tests; raise it if that shows up.
+const MAX_LITS: usize = 5000;
 
 /// A full index parses and writes this many files at a time, so its memory stays flat however
 /// large the repo.
@@ -83,7 +89,7 @@ impl Progress {
     pub fn clear(&mut self) { if self.on && self.last.take().is_some() { eprint!("\r\x1b[2K"); } }
 }
 
-const SCHEMA_VERSION: &str = "7";
+const SCHEMA_VERSION: &str = "8";
 const MAX_FILE: u64 = 1_500_000;
 const MAX_DATA_FILE: u64 = 200_000;
 
@@ -269,6 +275,9 @@ pub struct Extracted {
     pub hash: i64,
     /// each definition as a plain-word search document (weighted words, length), aligned with `defs`
     pub search: Vec<Option<(Vec<(String, f32)>, f32)>>,
+    /// (1-based line, kind, text): `route` (a URL route the line registers, as `context` reads it),
+    /// `path` (a quoted string starting with `/`: the run of path characters after the quote)
+    pub lits: Vec<(usize, &'static str, String)>,
 }
 
 fn content_hash(bytes: &[u8]) -> i64 {
@@ -277,7 +286,7 @@ fn content_hash(bytes: &[u8]) -> i64 {
 
 pub fn extract(root: &Path, rel: &str, mtime: i64, size: i64) -> Extracted {
     let role = role_of(rel);
-    let mut ex = Extracted { rel: rel.to_string(), mtime, size, lang: "skipped".into(), role, lines: 0, defs: vec![], refs: vec![], tables: vec![], hash: 0, search: vec![] };
+    let mut ex = Extracted { rel: rel.to_string(), mtime, size, lang: "skipped".into(), role, lines: 0, defs: vec![], refs: vec![], tables: vec![], hash: 0, search: vec![], lits: vec![] };
     // listed, not read: too large to index, or a media, archive or compiled file
     if size as u64 > MAX_FILE { ex.lang = "(too large to index)".into(); return ex; }
     if binary_by_ext(rel) { ex.lang = "binary".into(); return ex; }
@@ -323,6 +332,21 @@ pub fn extract(root: &Path, rel: &str, mtime: i64, size: i64) -> Extracted {
                 ex.tables.push((c[1].to_string(), i, "use"));
             }
         }
+        if line.contains('/') && ex.lits.len() < MAX_LITS {
+            for c in crate::context::route_rx().captures_iter(line) {
+                ex.lits.push((i + 1, "route", crate::context::route_of(&c[1])));
+            }
+            // a quote, then `/`, then the longest run of path characters: a test line holds `"<route>`
+            // exactly when one of its runs starts with the route (a route is path characters only)
+            let b = line.as_bytes();
+            for j in 0..b.len().saturating_sub(1) {
+                if matches!(b[j], b'"' | b'\'' | b'`') && b[j + 1] == b'/' {
+                    let mut k = j + 1;
+                    while k < b.len() && (b[k].is_ascii_alphanumeric() || b"_-./{}:".contains(&b[k])) { k += 1; }
+                    ex.lits.push((i + 1, "path", line[j + 1..k].to_string()));
+                }
+            }
+        }
     }
     ex.refs = refs.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
     ex
@@ -348,7 +372,9 @@ impl Index {
         if v.as_deref() != Some(SCHEMA_VERSION) {
             db.execute_batch(
                 "DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS defs; DROP TABLE IF EXISTS refs; DROP TABLE IF EXISTS tables;
-                 DROP TABLE IF EXISTS search_post; DROP TABLE IF EXISTS search_doc; DROP TABLE IF EXISTS names;
+                 DROP TABLE IF EXISTS search_post; DROP TABLE IF EXISTS search_doc; DROP TABLE IF EXISTS names; DROP TABLE IF EXISTS lits;
+                 CREATE TABLE lits(file INTEGER NOT NULL, line INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL);
+                 CREATE INDEX lits_at ON lits(file, line); CREATE INDEX lits_text ON lits(kind, text);
                  CREATE TABLE search_post(term TEXT NOT NULL, def INTEGER NOT NULL, tf REAL NOT NULL, len REAL NOT NULL);
                  CREATE INDEX search_term ON search_post(term, def, tf, len);
                  CREATE TABLE search_doc(def INTEGER PRIMARY KEY, len REAL NOT NULL);
@@ -725,6 +751,7 @@ impl Index {
                 tx.execute("DELETE FROM defs WHERE file=?1", [id])?;
                 tx.execute("DELETE FROM refs WHERE file=?1", [id])?;
                 tx.execute("DELETE FROM tables WHERE file=?1", [id])?;
+                tx.execute("DELETE FROM lits WHERE file=?1", [id])?;
                 if all {
                     tx.execute("DELETE FROM files WHERE id=?1", [id])?;
                 }
@@ -747,6 +774,7 @@ impl Index {
             let mut ins_def = tx.prepare("INSERT INTO defs(file, kind, name, last, scope, start, end, head, sig) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)")?;
             let mut ins_ref = tx.prepare("INSERT INTO refs(file, name, lines) VALUES(?1,?2,?3)")?;
             let mut ins_tab = tx.prepare("INSERT INTO tables(file, name, line, kind) VALUES(?1,?2,?3,?4)")?;
+            let mut ins_lit = tx.prepare("INSERT INTO lits(file, line, kind, text) VALUES(?1,?2,?3,?4)")?;
             let mut ins_post = tx.prepare("INSERT INTO search_post(term, def, tf, len) VALUES(?1,?2,?3,?4)")?;
             let mut ins_doc = tx.prepare("INSERT INTO search_doc(def, len) VALUES(?1,?2)")?;
             let mut set_posts = tx.prepare("UPDATE files SET post_lo=?1, post_hi=?2 WHERE id=?3")?;
@@ -781,6 +809,9 @@ impl Index {
                 }
                 for (n, l, k) in &e.tables {
                     ins_tab.execute(params![id, n, *l as i64, k])?;
+                }
+                for (l, k, t) in &e.lits {
+                    ins_lit.execute(params![id, *l as i64, k, t])?;
                 }
             }
         }
@@ -850,6 +881,12 @@ pub trait Store: Sync {
     fn search_stats(&self) -> (f64, f64);
     /// These definitions, by id.
     fn defs_by_ids(&self, ids: &[i64]) -> Vec<DefRow>;
+    /// The routes registered on these 1-based lines of `path` (as `context` reads them), in the
+    /// order of `lines`, then along each line.
+    fn routes_at(&self, path: &str, lines: &[usize]) -> Vec<String>;
+    /// (path, 1-based line) of every line, in files of these roles, holding a quoted path that
+    /// starts with `prefix`.
+    fn quoted_paths(&self, prefix: &str, roles: &[&str]) -> Vec<(String, usize)>;
 }
 
 /// The key two spellings of one name share: lowercase, underscores and dashes dropped.
@@ -882,6 +919,22 @@ impl Store for Index {
 
     fn search_stats(&self) -> (f64, f64) {
         self.conn().query_row("SELECT count(*), coalesce(avg(len), 0) FROM search_doc", [], |r| Ok((r.get::<_, i64>(0)? as f64, r.get::<_, f64>(1)?))).unwrap_or((0.0, 0.0))
+    }
+
+    fn routes_at(&self, path: &str, lines: &[usize]) -> Vec<String> {
+        let db = self.conn();
+        let Ok(mut q) = db.prepare_cached("SELECT l.line, l.text FROM lits l JOIN files f ON f.id=l.file WHERE f.path=?1 AND l.kind='route' ORDER BY l.line, l.rowid") else { return vec![] };
+        let all: Vec<(usize, String)> = q.query_map([path], |r| Ok((r.get::<_, i64>(0)? as usize, r.get::<_, String>(1)?))).map(|it| counted(it.flatten().collect())).unwrap_or_default();
+        lines.iter().flat_map(|l| all.iter().filter(move |(x, _)| x == l).map(|(_, t)| t.clone())).collect()
+    }
+
+    fn quoted_paths(&self, prefix: &str, roles: &[&str]) -> Vec<(String, usize)> {
+        let q = format!("SELECT DISTINCT f.path, l.line FROM lits l JOIN files f ON f.id=l.file WHERE l.kind='path' AND l.text >= ?1 AND l.text < ?2 AND f.role IN ({})",
+            roles.iter().map(|r| format!("'{r}'")).collect::<Vec<_>>().join(","));
+        let db = self.conn();
+        let Ok(mut st) = db.prepare_cached(&q) else { return vec![] };
+        let hi = format!("{prefix}\u{10FFFF}");
+        st.query_map(params![prefix, hi], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize))).map(|it| counted(it.flatten().collect())).unwrap_or_default()
     }
 
     fn defs_by_ids(&self, ids: &[i64]) -> Vec<DefRow> {
