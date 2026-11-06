@@ -18,7 +18,44 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use std::time::{Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
+
+/// One live status line on stderr while indexing, so a person at a terminal sees it move (and can
+/// tell slow from stalled). Off when stderr is not a terminal: hooks, the daemon's log, pipes, CI.
+pub struct Progress { pub on: bool, last: Option<Instant> }
+
+impl Progress {
+    pub fn new() -> Self {
+        use std::io::IsTerminal;
+        Progress { on: std::io::stderr().is_terminal(), last: None }
+    }
+    /// Redraw the line, at most 10 times a second (`msg` is only built when it is drawn).
+    pub fn show(&mut self, msg: impl FnOnce() -> String) {
+        if !self.on || self.last.is_some_and(|t| t.elapsed() < Duration::from_millis(100)) { return; }
+        self.last = Some(Instant::now());
+        eprint!("\r\x1b[2K{}", msg());
+    }
+    /// Run one long step that cannot count its own progress (a SQLite commit, an index build),
+    /// with a seconds counter ticking beside `msg`, so the line never sits still.
+    pub fn during<T>(&mut self, msg: &str, f: impl FnOnce() -> T) -> T {
+        if !self.on { return f(); }
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let t = Instant::now();
+        let out = std::thread::scope(|s| {
+            s.spawn(|| while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                eprint!("\r\x1b[2K{msg} ({:.1} s)", t.elapsed().as_secs_f64());
+                std::thread::sleep(Duration::from_millis(100));
+            });
+            let out = f();
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            out
+        });
+        self.last = Some(Instant::now());
+        out
+    }
+    /// Erase the line, so what is printed next starts clean.
+    pub fn clear(&mut self) { if self.on && self.last.take().is_some() { eprint!("\r\x1b[2K"); } }
+}
 
 const SCHEMA_VERSION: &str = "5";
 const MAX_FILE: u64 = 1_500_000;
@@ -358,6 +395,7 @@ impl Index {
     /// so a file whose stamp moved but whose bytes did not is only restamped.
     pub fn scan(&self, known: &HashMap<String, (i64, i64)>, only: Option<&[String]>, stored: &dyn Fn(&[&str]) -> HashMap<String, i64>) -> rusqlite::Result<(UpdateStats, Vec<Extracted>, Vec<String>)> {
         let mut st = UpdateStats::default();
+        let mut prog = Progress::new();
         let t0 = Instant::now();
         let mut todo: Vec<(String, i64, i64)> = vec![];
         let mut removed: Vec<String> = vec![];
@@ -439,6 +477,7 @@ impl Index {
                 }
                 let (mtime, size) = stamp(&md);
                 seen.insert(rel.clone());
+                prog.show(|| format!("index: walking the tree, {} files found", seen.len()));
                 if known.get(&rel) != Some(&(mtime, size)) {
                     todo.push((rel, mtime, size));
                 }
@@ -477,10 +516,25 @@ impl Index {
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
         let chunk = todo.len().div_ceil(threads).max(1);
         let root = self.root.clone();
+        let done = std::sync::atomic::AtomicUsize::new(0);
+        let total = todo.len();
         let extracted: Vec<Extracted> = std::thread::scope(|s| {
-            let hs: Vec<_> = todo.chunks(chunk).map(|c| { let root = &root; s.spawn(move || c.iter().map(|(r, m, z)| extract(root, r, *m, *z)).collect::<Vec<_>>()) }).collect();
+            let hs: Vec<_> = todo.chunks(chunk).map(|c| {
+                let (root, done) = (&root, &done);
+                s.spawn(move || c.iter().map(|(r, m, z)| {
+                    let e = extract(root, r, *m, *z);
+                    done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    e
+                }).collect::<Vec<_>>())
+            }).collect();
+            // the workers parse; this thread only reports, while anyone is watching
+            while prog.on && total > 0 && !hs.iter().all(|h| h.is_finished()) {
+                prog.show(|| format!("index: parsing {}/{} files on {threads} cores", done.load(std::sync::atomic::Ordering::Relaxed), total));
+                std::thread::sleep(Duration::from_millis(50));
+            }
             hs.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
         });
+        prog.clear();
         st.parse_ms = t1.elapsed().as_millis();
         st.changed = extracted.len();
 
@@ -490,6 +544,7 @@ impl Index {
     fn write(&self, extracted: &[Extracted], removed: &[String], bulk: bool) -> rusqlite::Result<()> {
         // Bulk loads are much faster without secondary indexes; rebuild them once at the end.
         let mut db = self.conn();
+        let mut prog = Progress::new();
         if bulk {
             db.execute_batch("DROP INDEX IF EXISTS defs_last; DROP INDEX IF EXISTS defs_file; DROP INDEX IF EXISTS refs_name; DROP INDEX IF EXISTS refs_file; DROP INDEX IF EXISTS refs_norm; DROP INDEX IF EXISTS tables_name; DROP INDEX IF EXISTS tables_file;")?;
         }
@@ -522,7 +577,8 @@ impl Index {
             let mut ins_def = tx.prepare("INSERT INTO defs(file, kind, name, last, scope, start, end, head, sig) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)")?;
             let mut ins_ref = tx.prepare("INSERT INTO refs(file, name, lines) VALUES(?1,?2,?3)")?;
             let mut ins_tab = tx.prepare("INSERT INTO tables(file, name, line, kind) VALUES(?1,?2,?3,?4)")?;
-            for e in extracted {
+            for (i, e) in extracted.iter().enumerate() {
+                prog.show(|| format!("index: writing {}/{} files", i + 1, extracted.len()));
                 let id: i64 = up.query_row(params![e.rel, e.mtime, e.size, e.lang, e.role, e.lines as i64, e.hash], |r| r.get(0))?;
                 for (d, sig) in &e.defs {
                     let last = d.name.rsplit_once('.').map(|(_, l)| l).unwrap_or(&d.name);
@@ -536,13 +592,14 @@ impl Index {
                 }
             }
         }
-        tx.commit()?;
+        prog.during("index: saving", || tx.commit())?;
         if bulk {
-            db.execute_batch("CREATE INDEX IF NOT EXISTS defs_last ON defs(last); CREATE INDEX IF NOT EXISTS defs_file ON defs(file);
+            prog.during("index: building the lookup tables", || db.execute_batch("CREATE INDEX IF NOT EXISTS defs_last ON defs(last); CREATE INDEX IF NOT EXISTS defs_file ON defs(file);
                 CREATE INDEX IF NOT EXISTS refs_name ON refs(name); CREATE INDEX IF NOT EXISTS refs_file ON refs(file);
                 CREATE INDEX IF NOT EXISTS refs_norm ON refs(lower(replace(name,'_','')));
-                CREATE INDEX IF NOT EXISTS tables_name ON tables(name COLLATE NOCASE); CREATE INDEX IF NOT EXISTS tables_file ON tables(file);")?;
+                CREATE INDEX IF NOT EXISTS tables_name ON tables(name COLLATE NOCASE); CREATE INDEX IF NOT EXISTS tables_file ON tables(file);"))?;
         }
+        prog.clear();
         Ok(())
     }
 

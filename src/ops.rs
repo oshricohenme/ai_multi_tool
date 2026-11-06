@@ -44,10 +44,13 @@ fn ensure_daemon(root: &Path) -> (bool, String) {
     if let Some(s) = daemon_status(root) { return (true, format!("daemon: already running: {s}")); }
     serve::spawn(root);
     let t = Instant::now();
+    let mut prog = index::Progress::new();
     while t.elapsed() < Duration::from_secs(20) {
-        if let Some(s) = daemon_status(root) { return (true, format!("daemon: started in {} ms: {s}", t.elapsed().as_millis())); }
+        if let Some(s) = daemon_status(root) { prog.clear(); return (true, format!("daemon: started in {} ms: {s}", t.elapsed().as_millis())); }
+        prog.show(|| format!("daemon: starting, loading the repo into memory ({:.1} s)", t.elapsed().as_secs_f64()));
         std::thread::sleep(Duration::from_millis(50));
     }
+    prog.clear();
     (false, "daemon: did not answer within 20 s (see `mt logs --source serve`)".into())
 }
 
