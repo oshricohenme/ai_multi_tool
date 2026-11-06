@@ -5264,3 +5264,22 @@ through the unique name index and the integer one. Names get their number in the
 **Checked** against `07ac27f`: 6 of 6 searches, 6 of 6 `context` answers and a `mt tools find`
 identical. 99 Rust tests pass. gym_software fresh index **5.4 s** (from 17-29 s this morning,
 9.3 s after section 60, 6.2 s after section 61); index 304 MB (from 448).
+
+## 2026-11-06 · 63. Fix: an index from before schema 10 would not open; `mt index add/remove/list`
+
+**Bug** (reported from `install.sh` on gym_software): `cannot open the index: use DROP TABLE to delete
+table refs`. Schema 10 made `refs` a view; the upgrade ran `DROP VIEW IF EXISTS refs` first, and
+SQLite refuses that when `refs` is a table, IF EXISTS or not. Every index made before schema 10 failed
+to open. The tests only ever built fresh indexes. Now `refs` is dropped as what `sqlite_master` says
+it is. Reproduced with a copy of the real gym_software index (schema 5): `70c586e` fails with that
+error, the fix rebuilds it (8.5 s) and starts the server. New test:
+`an_index_of_an_older_schema_opens_and_is_rebuilt` (a schema-9 index with `refs` a table opens, is
+rebuilt from the tree, and opens again).
+
+**`mt index add <dir>...` / `remove <dir>...` / `list`:** folders indexed although git ignores them,
+kept in `.mt/include` (per worktree). The full walk adds every file in them (ignore rules off);
+`Index::ignored` says no for anything under one, so the server's per-path checks agree; the server
+re-reads the list on every walk, and `add`/`remove` ask it to walk (`touch`), or index in-process
+when no server runs. Checked live, with and without a server: a gitignored `build/` comes in and goes
+out, and `context` finds a function in it. New test: `an_added_folder_is_indexed_although_git_ignores_it`.
+101 Rust tests pass.

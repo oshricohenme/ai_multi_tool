@@ -83,10 +83,14 @@ enum Cmd {
     /// Print every definition in FILE as `kind name Lstart-Lend`, no bodies.
     Skeleton { file: PathBuf },
     /// Build or refresh the repo index (.mt/index.sqlite). Incremental: only changed files re-parse.
+    /// Everything git does not ignore is indexed; `mt index add <dir>` brings in a folder git
+    /// ignores (every file in it), `mt index remove <dir>` takes it out again, `mt index list` shows them.
     Index {
         /// Drop the index and rebuild from scratch.
         #[arg(long)]
         rebuild: bool,
+        /// `add <dir>...`, `remove <dir>...` or `list`
+        action: Vec<String>,
     },
     /// Everything related to a symbol in one shot: target, callers with call sites, types,
     /// callees, unit and integration tests, tables/models/migrations, docs. Filled to a budget.
@@ -588,8 +592,44 @@ fn main() -> ExitCode {
             print!("{out}");
             return if ok { ExitCode::SUCCESS } else { ExitCode::from(1) };
         }
-        Cmd::Index { rebuild } => {
+        Cmd::Index { rebuild, action } => {
             let mut idx = match open_index(rebuild) { Ok(i) => i, Err(c) => return c };
+            if let Some(verb) = action.first() {
+                let mut list = idx.included();
+                let cwd = std::env::current_dir().unwrap_or_default();
+                // each folder relative to the repo root, as given (relative to here) or absolute
+                let rel = |d: &str| -> Result<String, String> {
+                    let abs = std::fs::canonicalize(cwd.join(d)).map_err(|e| format!("{d}: {e}"))?;
+                    let root = std::fs::canonicalize(&idx.root).unwrap_or(idx.root.clone());
+                    if !abs.is_dir() { return Err(format!("{d}: not a folder")); }
+                    abs.strip_prefix(&root).map(|p| p.to_string_lossy().replace('\\', "/")).map_err(|_| format!("{d}: outside this repo ({})", root.display()))
+                };
+                match verb.as_str() {
+                    "list" => {
+                        if list.is_empty() { println!("no folders added: the index holds everything git does not ignore"); }
+                        for d in &list { println!("{d}"); }
+                        return ExitCode::SUCCESS;
+                    }
+                    "add" | "remove" if action.len() > 1 => {
+                        for d in &action[1..] {
+                            let r = if verb == "add" { rel(d) } else { rel(d).or_else(|_| Ok::<_, String>(d.trim_end_matches('/').to_string())) };
+                            match r {
+                                Ok(r) if verb == "add" => { if !list.contains(&r) { list.push(r.clone()); } println!("added {r}"); }
+                                Ok(r) => { let n = list.len(); list.retain(|x| *x != r); println!("{} {r}", if list.len() < n { "removed" } else { "was not added:" }); }
+                                Err(e) => { eprintln!("mt index {verb}: {e}"); return ExitCode::from(2); }
+                            }
+                        }
+                        if let Err(e) = idx.set_included(&list) { eprintln!("mt index {verb}: {e}"); return ExitCode::from(2); }
+                        // the worktree's server walks again now; without one, this process indexes
+                        #[cfg(unix)]
+                        if serve::request(&idx.root, &serve::Req { cmd: "touch".into(), exe: serve::exe_id(), ..Default::default() }).is_some() {
+                            println!("the worktree's server re-indexed");
+                            return ExitCode::SUCCESS;
+                        }
+                    }
+                    other => { eprintln!("mt index: unknown action {other:?} (add <dir>..., remove <dir>..., list)"); return ExitCode::from(2); }
+                }
+            }
             let t = std::time::Instant::now();
             match idx.update() {
                 Ok(st) => {

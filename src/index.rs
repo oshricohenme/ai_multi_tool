@@ -157,6 +157,13 @@ const BINARY_EXT: &[&str] = &[
     "pdf", "parquet", "bmap", "bop", "pcm",
 ];
 
+/// Every file under `dir`, ignore rules off (a folder added with `mt index add`), never `NEVER`.
+fn walk_all(dir: &Path) -> ignore::Walk {
+    ignore::WalkBuilder::new(dir).hidden(false).ignore(false).git_ignore(false).git_exclude(false).git_global(false).parents(false)
+        .filter_entry(|e| !e.file_name().to_str().is_some_and(|n| NEVER.contains(&n)))
+        .build()
+}
+
 /// The tree as git sees it, from `dir`: what `.gitignore` (at every level, and in `dir`'s parents),
 /// `.git/info/exclude` and the global excludes leave in, hidden files included, never `NEVER`.
 pub fn walk(dir: &Path) -> ignore::Walk {
@@ -172,6 +179,8 @@ pub struct Index {
     pub db_path: PathBuf,
     /// each folder's `.gitignore`, parsed once (folder relative to the root -> its rules)
     ignores: std::sync::Mutex<HashMap<String, Option<std::sync::Arc<ignore::gitignore::Gitignore>>>>,
+    /// the folders `mt index add` brought in although git ignores them (`.mt/include`)
+    included: std::sync::Mutex<Option<Vec<String>>>,
 }
 
 #[derive(Default, Debug)]
@@ -417,7 +426,7 @@ impl Index {
         db.busy_timeout(std::time::Duration::from_secs(5))?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY;")?;
         Self::schema(&db)?;
-        Ok(Index { root: root.to_path_buf(), db: std::sync::Mutex::new(db), db_path: dir.join("index.sqlite"), ignores: Default::default() })
+        Ok(Index { root: root.to_path_buf(), db: std::sync::Mutex::new(db), db_path: dir.join("index.sqlite"), ignores: Default::default(), included: Default::default() })
     }
 
     /// The tables, created when missing or when they are another schema version's (the index is
@@ -426,8 +435,15 @@ impl Index {
         db.execute_batch("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);")?;
         let v: Option<String> = db.query_row("SELECT value FROM meta WHERE key='schema'", [], |r| r.get(0)).ok();
         if v.as_deref() != Some(SCHEMA_VERSION) {
+            // `refs` is a table up to schema 9 and a view since 10: dropped as what it is (SQLite
+            // refuses `DROP VIEW IF EXISTS` on a table, even with IF EXISTS)
+            match db.query_row("SELECT type FROM sqlite_master WHERE name='refs'", [], |r| r.get::<_, String>(0)).ok().as_deref() {
+                Some("view") => db.execute_batch("DROP VIEW refs;")?,
+                Some("table") => db.execute_batch("DROP TABLE refs;")?,
+                _ => {}
+            }
             db.execute_batch(
-                "DROP VIEW IF EXISTS refs; DROP TABLE IF EXISTS refs; DROP TABLE IF EXISTS refs_ids; DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS defs; DROP TABLE IF EXISTS tables;
+                "DROP TABLE IF EXISTS refs_ids; DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS defs; DROP TABLE IF EXISTS tables;
                  DROP TABLE IF EXISTS search_post; DROP TABLE IF EXISTS search_doc; DROP TABLE IF EXISTS names; DROP TABLE IF EXISTS lits;
                  CREATE TABLE lits(file INTEGER NOT NULL, line INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL);
                  CREATE INDEX lits_at ON lits(file, line); CREATE INDEX lits_text ON lits(kind, text);
@@ -493,6 +509,8 @@ impl Index {
     /// deepest first (the first that decides wins, as in git), then `.git/info/exclude` and the
     /// global excludes. The watcher's paths are checked here; a full walk applies the same rules.
     pub fn ignored(&self, rel: &str, is_dir: bool) -> bool {
+        // a folder added with `mt index add` is indexed whatever git says
+        if self.included().iter().any(|d| rel == d || rel.starts_with(&format!("{d}/"))) { return false; }
         let abs = self.root.join(rel);
         let mut dirs: Vec<&str> = vec![""];
         dirs.extend(rel.char_indices().filter(|(_, c)| *c == '/').map(|(i, _)| &rel[..i]));
@@ -511,6 +529,26 @@ impl Index {
     /// A `.gitignore` changed: read the rules again.
     pub fn forget_ignores(&self) {
         self.ignores.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        *self.included.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// The folders added with `mt index add` (relative to the root), as `.mt/include` lists them.
+    pub fn included(&self) -> Vec<String> {
+        self.included.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(|| {
+            fs::read_to_string(self.root.join(".mt/include")).unwrap_or_default().lines()
+                .map(|l| l.trim().trim_end_matches('/').to_string()).filter(|l| !l.is_empty() && !l.starts_with('#')).collect()
+        }).clone()
+    }
+
+    /// `mt index add` / `remove`: change the list, keep it sorted and once each.
+    pub fn set_included(&self, dirs: &[String]) -> std::io::Result<()> {
+        let mut v: Vec<String> = dirs.to_vec();
+        v.sort();
+        v.dedup();
+        let text = format!("# folders indexed although git ignores them (mt index add / remove)\n{}", v.iter().map(|d| format!("{d}\n")).collect::<String>());
+        fs::write(self.root.join(".mt/include"), text)?;
+        *self.included.lock().unwrap_or_else(|e| e.into_inner()) = Some(v);
+        Ok(())
     }
 
     fn ignore_rules(&self, dir: &str) -> Option<std::sync::Arc<ignore::gitignore::Gitignore>> {
@@ -739,7 +777,9 @@ impl Index {
         } else {
             st.walked = true;
             let mut seen = std::collections::HashSet::new();
-            for e in walk(&self.root).flatten() {
+            // the tree as git sees it, then the folders added with `mt index add` (every file in them)
+            let extra: Vec<ignore::Walk> = self.included().iter().map(|d| walk_all(&self.root.join(d))).collect();
+            for e in walk(&self.root).chain(extra.into_iter().flatten()).flatten() {
                 if !e.file_type().map(|t| t.is_file()).unwrap_or(false) {
                     continue;
                 }
@@ -750,7 +790,8 @@ impl Index {
                 }
                 let Ok(md) = e.metadata() else { continue };
                 let (mtime, size) = stamp(&md);
-                seen.insert(rel.clone());
+                // a folder both in git's tree and added: once
+                if !seen.insert(rel.clone()) { continue; }
                 walk_prog.show(|| format!("{} files found", seen.len()));
                 if known.get(&rel) != Some(&(mtime, size)) {
                     todo.push((rel, mtime, size));
@@ -1186,6 +1227,47 @@ mod reindex_tests {
         let rels: Vec<String> = rels.iter().map(|s| s.to_string()).collect();
         let known = idx.known_for(&rels).unwrap();
         idx.refresh(&known, Some(&rels), false).unwrap()
+    }
+
+    #[test]
+    fn an_index_of_an_older_schema_opens_and_is_rebuilt() {
+        // an index made before schema 10, where `refs` was a table, not a view
+        let root = std::env::temp_dir().join(format!("mt-oldschema-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        write(&root, "a.go", "package a\n\nfunc Alpha() int {\n\treturn 1\n}\n");
+        fs::create_dir_all(root.join(".mt")).unwrap();
+        {
+            let c = Connection::open(root.join(".mt/index.sqlite")).unwrap();
+            c.execute_batch("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT); INSERT INTO meta VALUES('schema','9');
+                CREATE TABLE files(id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL); CREATE TABLE refs(file INTEGER NOT NULL, name TEXT NOT NULL, lines TEXT NOT NULL);
+                CREATE INDEX refs_name ON refs(name); INSERT INTO files(path) VALUES('old.go');").unwrap();
+        }
+        let idx = Index::open(&root).expect("an older index opens");
+        idx.update().unwrap();
+        assert_eq!(idx.known().unwrap().into_keys().collect::<Vec<_>>(), vec!["a.go".to_string()], "rebuilt from the tree");
+        drop(idx);
+        // and opening it again (refs is now a view) works too
+        Index::open(&root).expect("the new index opens again").update().unwrap();
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_added_folder_is_indexed_although_git_ignores_it() {
+        let root = std::env::temp_dir().join(format!("mt-include-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        write(&root, ".gitignore", "build/\n");
+        write(&root, "a.go", "package a\n");
+        write(&root, "build/gen.go", "package build\n");
+        let idx = Index::open(&root).unwrap();
+        idx.update().unwrap();
+        assert!(!idx.known().unwrap().contains_key("build/gen.go") && idx.ignored("build/gen.go", false));
+        idx.set_included(&["build".into()]).unwrap();
+        idx.update().unwrap();
+        assert!(idx.known().unwrap().contains_key("build/gen.go") && !idx.ignored("build/gen.go", false), "added: indexed");
+        idx.set_included(&[]).unwrap();
+        idx.update().unwrap();
+        assert!(!idx.known().unwrap().contains_key("build/gen.go"), "removed: dropped again");
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

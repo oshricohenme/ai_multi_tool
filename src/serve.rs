@@ -236,7 +236,8 @@ pub fn serve(root: PathBuf) -> Result<(), String> {
                 let seen_walk = batch.iter().filter_map(|p| walk_of(p)).max();
                 // a `.gitignore` changed: what the repo is changed with it; read the rules again and walk
                 let rules_changed = batch.iter().any(|p| p.file_name().is_some_and(|n| n == ".gitignore"));
-                if rules_changed { idx.forget_ignores(); }
+                // rules changed, or a walk asked for (`mt index add` among others): read them again
+                if rules_changed || seen_walk.is_some() { idx.forget_ignores(); }
                 let walk = seen_walk.is_some() || rules_changed;
                 // mt's own files (.mt/), VCS internals and skipped directories are not the repo
                 let mut rels: Vec<String> = batch.iter().filter_map(|p| p.strip_prefix(&root).ok().map(|r| r.to_string_lossy().replace('\\', "/"))).filter(|r| crate::index::watch_relevant(r)).collect();
