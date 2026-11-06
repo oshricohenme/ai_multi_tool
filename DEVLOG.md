@@ -5283,3 +5283,21 @@ re-reads the list on every walk, and `add`/`remove` ask it to walk (`touch`), or
 when no server runs. Checked live, with and without a server: a gitignored `build/` comes in and goes
 out, and `context` finds a function in it. New test: `an_added_folder_is_indexed_although_git_ignores_it`.
 101 Rust tests pass.
+
+## 2026-11-06 · 64. `MT_DEBUG=1`: a trace of everything indexing does, for analysis
+
+**Asked:** a debug argument that dumps everything mt does to a file, to send back for analysis.
+
+`MT_DEBUG=1` on `mt build`, `mt index`, `mt rebuild` or `install.sh` (or `mt index --debug`) writes
+`.mt/debug/<command>-<pid>.jsonl`, and the server it starts writes its own (`serve-<pid>.jsonl`; it
+inherits the variable). One JSON event per line (`trace.rs`): `start` (cores, load average, mt build,
+OS), `span` (walk; each parse batch; each write batch with its parts in ms: files, defs+docs,
+postings, names, refs, tables+lits, commit, and row counts; each lookup table; the fresh build; the
+server's start), `note` (rows per table, index file sizes), `summary` (files parsed, the 40 slowest
+files with language, bytes, ms and definitions, totals per language). Off, each call is one relaxed
+load. 101 Rust tests pass.
+
+**What the first trace shows** (gym2, 6,974 files, 6.35 s fresh index): write batches 0.25-1.57 s,
+of which refs (with names) 0.17-1.02 s and new names alone 0.08-0.50 s; lookup tables 2.15 s, of
+which `refs_name` 1.54 s (2.45M rows, integers now) and `search_term` 0.40 s; one file,
+`leads_scripts/raw/crossfit_ca.html`, takes 700 ms to parse and holds its batch to 1.2 s.

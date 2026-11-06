@@ -44,6 +44,7 @@ fn ensure_daemon(root: &Path) -> (bool, String) {
     if let Some(s) = daemon_status(root) { return (true, format!("daemon: already running: {s}")); }
     serve::spawn(root);
     let t = Instant::now();
+    let _span = crate::trace::span("server.start", serde_json::json!({"note": "the server indexes what changed since, then answers"}));
     let mut prog = index::Progress::row("server");
     while t.elapsed() < Duration::from_secs(20) {
         if let Some(s) = daemon_status(root) { prog.done(|| "up".into()); return (true, format!("daemon: started in {} ms: {s}", t.elapsed().as_millis())); }
@@ -59,7 +60,8 @@ fn index_now(root: &Path) -> Result<String, String> {
     let _ = std::fs::create_dir_all(root.join(".mt"));
     let idx = index::Index::open(root).map_err(|e| format!("cannot open the index: {e}"))?;
     let t = Instant::now();
-    let st = idx.update().map_err(|e| format!("indexing failed: {e}"))?;
+    let st = { let _s = crate::trace::span("index", serde_json::json!({})); idx.update().map_err(|e| format!("indexing failed: {e}"))? };
+    if crate::trace::on() { crate::trace::event("note", idx.trace_summary(t.elapsed().as_millis())); }
     let missing = idx.missing_lookups().map(|m| m.len()).unwrap_or(0);
     let note = if missing > 0 { format!("\nlookup tables: {missing} left to build, in the background by the daemon (only one-shot commands need them)") } else { String::new() };
     Ok(format!("index: {} files, {} re-parsed, {} removed in {} ms (walk {} ms, parse {} ms, write {} ms)\n{}{note}",

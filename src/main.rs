@@ -39,6 +39,7 @@ mod coord;
 #[cfg(unix)]
 mod serve;
 mod work;
+mod trace;
 #[cfg(unix)]
 mod hook;
 
@@ -91,6 +92,9 @@ enum Cmd {
         rebuild: bool,
         /// `add <dir>...`, `remove <dir>...` or `list`
         action: Vec<String>,
+        /// Write everything indexing does, with timings, to .mt/debug/index-<pid>.jsonl (as MT_DEBUG=1)
+        #[arg(long)]
+        debug: bool,
     },
     /// Everything related to a symbol in one shot: target, callers with call sites, types,
     /// callees, unit and integration tests, tables/models/migrations, docs. Filled to a budget.
@@ -592,7 +596,8 @@ fn main() -> ExitCode {
             print!("{out}");
             return if ok { ExitCode::SUCCESS } else { ExitCode::from(1) };
         }
-        Cmd::Index { rebuild, action } => {
+        Cmd::Index { rebuild, action, debug } => {
+            trace::start(&root_of_cwd(), "index", debug);
             let mut idx = match open_index(rebuild) { Ok(i) => i, Err(c) => return c };
             if let Some(verb) = action.first() {
                 let mut list = idx.included();
@@ -635,6 +640,7 @@ fn main() -> ExitCode {
                 Ok(st) => {
                     println!("{}: {} files, {} re-parsed, {} removed in {} ms (walk {} ms, parse {} ms, write {} ms)", idx.root.display(), st.files, st.changed, st.removed, t.elapsed().as_millis(), st.walk_ms, st.parse_ms, st.write_ms);
                     print!("{}", idx.summary());
+                    if trace::on() { if let Some(p) = trace::finish(idx.trace_summary(t.elapsed().as_millis())) { eprintln!("mt: debug trace written to {}", p.display()); } }
                     ExitCode::SUCCESS
                 }
                 Err(e) => { eprintln!("mt index: {e}"); ExitCode::from(2) }
@@ -770,9 +776,9 @@ fn main() -> ExitCode {
         #[cfg(not(unix))]
         Cmd::Serve { .. } => { eprintln!("mt serve: the daemon needs Unix sockets; on this OS every command runs in-process"); ExitCode::from(1) }
         #[cfg(unix)]
-        Cmd::Build { dir } => { let (ok, s) = ops::build(&dir.map(|d| index::find_root(&d)).unwrap_or_else(root_of_cwd)); print!("{s}"); if ok { ExitCode::SUCCESS } else { ExitCode::from(1) } }
+        Cmd::Build { dir } => { let r = dir.map(|d| index::find_root(&d)).unwrap_or_else(root_of_cwd); trace::start(&r, "build", false); let (ok, s) = ops::build(&r); print!("{s}"); if let Some(p) = trace::finish(serde_json::json!({})) { eprintln!("mt: debug trace written to {}", p.display()); } if ok { ExitCode::SUCCESS } else { ExitCode::from(1) } }
         #[cfg(unix)]
-        Cmd::Rebuild { dir } => { let (ok, s) = ops::rebuild(&dir.map(|d| index::find_root(&d)).unwrap_or_else(root_of_cwd)); print!("{s}"); if ok { ExitCode::SUCCESS } else { ExitCode::from(1) } }
+        Cmd::Rebuild { dir } => { let r = dir.map(|d| index::find_root(&d)).unwrap_or_else(root_of_cwd); trace::start(&r, "rebuild", false); let (ok, s) = ops::rebuild(&r); print!("{s}"); if let Some(p) = trace::finish(serde_json::json!({})) { eprintln!("mt: debug trace written to {}", p.display()); } if ok { ExitCode::SUCCESS } else { ExitCode::from(1) } }
         #[cfg(unix)]
         Cmd::Logs { lines, source, session, follow } => {
             let o = ops::LogsOpts { n: lines, source, session };

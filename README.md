@@ -103,6 +103,12 @@ starts `claude` there; re-run after each push, `/reload-plugins` in an open sess
 cd your-repo && sh ~/orca/ai_multi_tool/install.sh   # or: curl -fsSL https://raw.githubusercontent.com/oshricohenme/ai_multi_tool/main/install.sh | sh
 ```
 
+**Too slow somewhere?** `MT_DEBUG=1 mt build` (or `mt index --debug`, or `MT_DEBUG=1 sh install.sh`)
+writes everything indexing and the server's start do, with timings, to `.mt/debug/*.jsonl` in the
+repo: the machine and load, each step and batch, the write split into its parts with row counts,
+each lookup table, every file's parse time (the 40 slowest, totals per language), rows and sizes.
+Send those files back for analysis.
+
 **Status line.** The plugin shows mt's line in Claude Code's status area from the start of each
 session (`◤ mt · 12 calls · ~48.2k tok saved · last context 38 ms`). For the two-line bar graft
 draws, set it as the `statusLine` command (or call it from your own status line script):

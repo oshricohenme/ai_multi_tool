@@ -196,8 +196,10 @@ pub fn serve(root: PathBuf) -> Result<(), String> {
     // Requests are answered from the SQLite index through its lookup tables, not from a copy of
     // the repo in memory: the server's memory stays small and flat however large the worktree
     // (file text is read from disk on demand; the OS caches it, outside this process).
+    crate::trace::start(&root, "serve", false);
     let idx = Index::open(&root).map_err(|e| e.to_string())?;
-    idx.update().map_err(|e| e.to_string())?;
+    { let _s = crate::trace::span("serve.update", serde_json::json!({})); idx.update().map_err(|e| e.to_string())?; }
+    if crate::trace::on() { crate::trace::finish(idx.trace_summary(t_load.elapsed().as_millis())); }
     let files = idx.file_count();
     println!("mt serve {}: {} files indexed, ready in {} ms, socket {}", root.display(), files, t_load.elapsed().as_millis(), sock.display());
     crate::events::emit(&root, serde_json::json!({"kind": "daemon", "state": "start", "files": files, "ms": t_load.elapsed().as_millis() as u64, "pid": std::process::id()}));

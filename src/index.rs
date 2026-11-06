@@ -475,6 +475,7 @@ impl Index {
     /// (nothing written to a write-ahead log and copied back), and an interrupted build leaves only
     /// that file, which the next build removes: never a half-written index.
     fn fresh<T>(&self, build: impl FnOnce() -> rusqlite::Result<T>) -> rusqlite::Result<T> {
+        let _span = crate::trace::span("fresh.build", serde_json::json!({"note": "a new index, built journal-free in its own file, then renamed into place"}));
         let lock = || self.db.lock().unwrap_or_else(|e| e.into_inner());
         let dir = self.db_path.parent().map(Path::to_path_buf).unwrap_or_default();
         // builds of other processes, interrupted
@@ -615,6 +616,7 @@ impl Index {
         let db = self.conn();
         let mut prog = Progress::row("lookups");
         for (i, (name, on)) in todo.iter().enumerate() {
+            let _span = crate::trace::span("lookup", serde_json::json!({"table": name, "on": on}));
             prog.during(&format!("{} {}/{} lookup tables ({name})", bar(i, todo.len()), i, todo.len()),
                 || db.execute(&format!("CREATE INDEX IF NOT EXISTS {name} ON {on}"), []))?;
         }
@@ -777,6 +779,7 @@ impl Index {
         } else {
             st.walked = true;
             let mut seen = std::collections::HashSet::new();
+            let _span = crate::trace::span("walk", serde_json::json!({"included": self.included()}));
             // the tree as git sees it, then the folders added with `mt index add` (every file in them)
             let extra: Vec<ignore::Walk> = self.included().iter().map(|d| walk_all(&self.root.join(d))).collect();
             for e in walk(&self.root).chain(extra.into_iter().flatten()).flatten() {
@@ -846,12 +849,15 @@ impl Index {
             }));
         for part in todo.chunks(batch) {
             let tp = Instant::now();
+            let _span = crate::trace::span("parse.batch", serde_json::json!({"files": part.len(), "of": total, "threads": threads}));
             let chunk = part.len().div_ceil(threads).max(1);
             let ex: Vec<Extracted> = std::thread::scope(|s| {
                 let hs: Vec<_> = part.chunks(chunk).map(|c| {
                     let (root, done) = (&root, &done);
                     s.spawn(move || c.iter().map(|(r, m, z)| {
+                        let tf = Instant::now();
                         let e = extract(root, r, *m, *z);
+                        crate::trace::file(r, &e.lang, *z as u64, tf.elapsed().as_secs_f64() * 1e3, e.defs.len());
                         done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         e
                     }).collect::<Vec<_>>())
@@ -890,6 +896,10 @@ impl Index {
         let mut db = self.conn();
         let mut prog = Progress::row("write");
         let (base, total) = of.unwrap_or((0, extracted.len()));
+        let t_write = Instant::now();
+        // time spent in each part of the write, for MT_DEBUG
+        let mut parts = [std::time::Duration::ZERO; 7];
+        let mut counts = [0usize; 6];
         // Bulk loads are much faster without the lookup tables; `ensure_lookups` builds them after
         if bulk {
             for (name, _) in LOOKUPS { db.execute(&format!("DROP INDEX IF EXISTS {name}"), [])?; }
@@ -943,7 +953,10 @@ impl Index {
             let mut named: HashMap<&str, i64> = HashMap::new();
             for (i, e) in extracted.iter().enumerate() {
                 prog.show(|| format!("{} {}/{} files", bar(base + i + 1, total), base + i + 1, total));
+                let ta = Instant::now();
                 let id: i64 = up.query_row(params![e.rel, e.mtime, e.size, e.lang, e.role, e.lines as i64, e.hash], |r| r.get(0))?;
+                parts[0] += ta.elapsed();
+                let ta = Instant::now();
                 // each word's postings in this file, packed (def, tf, len), so one row per word and file
                 let mut packed: std::collections::BTreeMap<&str, Vec<u8>> = Default::default();
                 for (i, (d, sig)) in e.defs.iter().enumerate() {
@@ -960,18 +973,32 @@ impl Index {
                         }
                     }
                 }
+                parts[1] += ta.elapsed();
+                counts[0] += e.defs.len();
+                let ta = Instant::now();
                 let (mut plo, mut phi) = (None::<i64>, 0i64);
+                counts[1] += packed.len();
                 for (t, b) in &packed {
                     ins_post.execute(params![t, id, b])?;
                     let r = tx.last_insert_rowid();
                     plo.get_or_insert(r);
                     phi = r;
                 }
+                parts[2] += ta.elapsed();
+                let ta = Instant::now();
                 let (mut rlo, mut rhi) = (None::<i64>, 0i64);
+                counts[2] += e.refs.len();
                 for (n, l) in &e.refs {
                     let nid = match named.get(n.as_str()) {
                         Some(&x) => x,
-                        None => { let x: i64 = ins_name.query_row(params![n, norm(n)], |r| r.get(0))?; named.insert(n.as_str(), x); x }
+                        None => {
+                            let tn = Instant::now();
+                            let x: i64 = ins_name.query_row(params![n, norm(n)], |r| r.get(0))?;
+                            parts[3] += tn.elapsed();
+                            counts[3] += 1;
+                            named.insert(n.as_str(), x);
+                            x
+                        }
                     };
                     ins_ref.execute(params![id, nid, l.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")])?;
                     let r = tx.last_insert_rowid();
@@ -979,15 +1006,28 @@ impl Index {
                     rhi = r;
                 }
                 if plo.is_some() || rlo.is_some() { set_ranges.execute(params![plo, plo.map(|_| phi), rlo, rlo.map(|_| rhi), id])?; }
+                parts[4] += ta.elapsed();
+                let ta = Instant::now();
+                counts[4] += e.tables.len();
+                counts[5] += e.lits.len();
                 for (n, l, k) in &e.tables {
                     ins_tab.execute(params![id, n, *l as i64, k])?;
                 }
                 for (l, k, t) in &e.lits {
                     ins_lit.execute(params![id, *l as i64, k, t])?;
                 }
+                parts[5] += ta.elapsed();
             }
         }
+        let tc = Instant::now();
         prog.during(&format!("{} {}/{} files · saving", bar(base + extracted.len(), total), base + extracted.len(), total), || tx.commit())?;
+        parts[6] = tc.elapsed();
+        let ms = |d: std::time::Duration| (d.as_secs_f64() * 1e5).round() / 100.0;
+        crate::trace::event("span", serde_json::json!({
+            "name": "write.batch", "ms": ms(t_write.elapsed()), "files": extracted.len(), "removed": removed.len(), "done": base + extracted.len(), "of": total, "bulk": bulk,
+            "parts_ms": {"files": ms(parts[0]), "defs+docs": ms(parts[1]), "postings": ms(parts[2]), "names": ms(parts[3]), "refs (incl. names)": ms(parts[4]), "tables+lits": ms(parts[5]), "commit": ms(parts[6])},
+            "rows": {"defs": counts[0], "postings": counts[1], "refs": counts[2], "new names": counts[3], "tables": counts[4], "lits": counts[5]},
+        }));
         if base + extracted.len() >= total && total > 0 { prog.done(|| format!("{} {total}/{total} files", bar(1, 1))); }
         Ok(())
     }
@@ -1006,6 +1046,19 @@ impl Index {
     }
 
     const DEF_COLS: &'static str = "d.id, f.path, f.role, d.kind, d.name, d.scope, d.start, d.end, d.head, d.sig FROM defs d JOIN files f ON f.id=d.file";
+
+    /// For MT_DEBUG's summary: rows per table and the size of each index file.
+    pub fn trace_summary(&self, total_ms: u128) -> serde_json::Value {
+        let db = self.conn();
+        let n = |t: &str| db.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get::<_, i64>(0)).unwrap_or(-1);
+        let rows: serde_json::Map<String, serde_json::Value> = ["files", "defs", "refs_ids", "names", "search_post", "search_doc", "tables", "lits"].iter().map(|t| (t.to_string(), serde_json::json!(n(t)))).collect();
+        drop(db);
+        let dir = self.db_path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let sizes: serde_json::Map<String, serde_json::Value> = fs::read_dir(&dir).into_iter().flatten().flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with("index.sqlite"))
+            .map(|e| (e.file_name().to_string_lossy().into_owned(), serde_json::json!(e.metadata().map(|m| m.len()).unwrap_or(0)))).collect();
+        serde_json::json!({"total_ms": total_ms, "rows": rows, "bytes": sizes, "lookups_missing": self.missing_lookups().map(|m| m.len()).unwrap_or(0)})
+    }
 
     pub fn summary(&self) -> String {
         let n = |sql: &str| self.conn().query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap_or(0);

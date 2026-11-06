@@ -14,6 +14,8 @@
 #
 #   NO_START=1   do not start claude at the end
 #   NO_WAIT=1    do not wait for CI to finish building the binary of the last push
+#   MT_DEBUG=1   trace everything indexing and the server's start do, with timings, to
+#                .mt/debug/*.jsonl in the repo (send those files back for analysis)
 set -eu
 GH=oshricohenme/ai_multi_tool
 URL=https://github.com/$GH
@@ -100,6 +102,12 @@ case "$real" in
   *) echo "WARN: your shell finds $found first, so Claude's mt commands would run that build, not this one."
      echo "      Remove it, or point it at this install (follows every update): ln -sf \"$CUR/bin/mt\" \"$found\"" ;;
 esac
+
+if [ -n "${MT_DEBUG:-}" ] && [ -d "$REPO/.mt/debug" ]; then
+  sleep 1
+  step "debug traces (send these back for analysis)"
+  ls -t "$REPO"/.mt/debug/*.jsonl 2>/dev/null | head -4
+fi
 
 step "ready: mt $(short "$main"), binary $(short "$tag"), in $REPO"
 echo "next time: push, run this again, then /reload-plugins in an open session"
