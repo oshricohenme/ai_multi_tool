@@ -44,13 +44,12 @@ fn ensure_daemon(root: &Path) -> (bool, String) {
     if let Some(s) = daemon_status(root) { return (true, format!("daemon: already running: {s}")); }
     serve::spawn(root);
     let t = Instant::now();
-    let mut prog = index::Progress::new();
+    let mut prog = index::Progress::row("server");
     while t.elapsed() < Duration::from_secs(20) {
-        if let Some(s) = daemon_status(root) { prog.clear(); return (true, format!("daemon: started in {} ms: {s}", t.elapsed().as_millis())); }
-        prog.show(|| format!("daemon: starting, loading the repo into memory ({:.1} s)", t.elapsed().as_secs_f64()));
+        if let Some(s) = daemon_status(root) { prog.done(|| "up".into()); return (true, format!("daemon: started in {} ms: {s}", t.elapsed().as_millis())); }
+        prog.show(|| "starting (it indexes what changed, then answers)".into());
         std::thread::sleep(Duration::from_millis(50));
     }
-    prog.clear();
     (false, "daemon: did not answer within 20 s (see `mt logs --source serve`)".into())
 }
 
@@ -60,8 +59,7 @@ fn index_now(root: &Path) -> Result<String, String> {
     let _ = std::fs::create_dir_all(root.join(".mt"));
     let idx = index::Index::open(root).map_err(|e| format!("cannot open the index: {e}"))?;
     let t = Instant::now();
-    let defer = daemon_status(root).is_none();
-    let st = if defer { idx.update_serving() } else { idx.update() }.map_err(|e| format!("indexing failed: {e}"))?;
+    let st = idx.update().map_err(|e| format!("indexing failed: {e}"))?;
     let missing = idx.missing_lookups().map(|m| m.len()).unwrap_or(0);
     let note = if missing > 0 { format!("\nlookup tables: {missing} left to build, in the background by the daemon (only one-shot commands need them)") } else { String::new() };
     Ok(format!("index: {} files, {} re-parsed, {} removed in {} ms (walk {} ms, parse {} ms, write {} ms)\n{}{note}",

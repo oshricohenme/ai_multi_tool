@@ -5211,3 +5211,30 @@ now (`BTreeMap`, `BTreeSet`); 1 distinct output in 4 runs on 5 names.
 
 **Checked:** `47f8cce` with the same two ordering fixes against this build, 13 names on gym_software:
 13 of 13 answers byte-identical. 99 Rust tests pass (section 58 said 100: a miscount, it was 99).
+
+## 2026-11-06 · 60. Indexing: every step shown at once; parse and write overlap; fresh builds journal-free
+
+**Asked:** indexing far faster, with every step and its progress shown at once.
+
+**Shown:** one board on stderr (a terminal only), a line per step with a bar and its time, redrawn in
+place at most 10 times a second; finished steps stay:
+```
+✓ walk     6974 files, 6974 to parse  0.0 s
+✓ parse    ████████████████████████ 6974/6974 files · 18 cores  2.2 s
+✓ write    ████████████████████████ 6974/6974 files  4.0 s
+✓ lookups  ████████████████████████ 9/9 lookup tables  5.6 s
+```
+**Overlap:** a full index parses batch k+1 on every core while a writer thread writes batch k (a
+channel of one batch, so memory stays ~2 batches).
+
+**Fresh builds:** an empty index (first run, new schema) is built in `index.sqlite.new-<pid>` with no
+journal, `synchronous=OFF` and an exclusive lock, then the old file's `-wal`/`-shm` are removed and
+the new one is renamed into place and reopened in WAL mode. An interrupted build is only that file
+(removed by a later build): never a half-written index. `mt build` now always builds the lookup
+tables before the server starts (it answers through them).
+
+**Measured** (gym_software, 6,974 files; the machine at load 8-15 from other sessions, so wall
+times swing; CPU time is steadier): before, three runs 17.0 / 20.6 / 28.6 s wall (CPU ~24-26 s);
+after, **9.3 / 9.3 / 9.4 s** wall (CPU ~22-23 s). The saving is waiting on the write-ahead log, not
+computation. What remains is SQLite on one thread: write 4.0 s, lookup tables 5.6 s.
+99 Rust tests pass.
