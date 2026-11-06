@@ -1,0 +1,135 @@
+{
+ "deniedMcpServers": [
+  {
+   "serverName": "blender"
+  },
+  {
+   "serverName": "graft"
+  },
+  {
+   "serverName": "graphify"
+  },
+  {
+   "serverName": "gsc"
+  },
+  {
+   "serverName": "headroom"
+  },
+  {
+   "serverName": "lift"
+  },
+  {
+   "serverName": "meshy"
+  },
+  {
+   "serverName": "mixar"
+  },
+  {
+   "serverName": "node_repl"
+  },
+  {
+   "serverName": "posthog"
+  },
+  {
+   "serverName": "sentry"
+  },
+  {
+   "serverName": "graft"
+  }
+ ],
+ "enabledPlugins": {
+  "aicost@aicost": false,
+  "arcads@arcads": false,
+  "claude-seo@agricidaniel-claude-seo": false,
+  "posthog@claude-plugins-official": false,
+  "stripe@claude-plugins-official": false,
+  "swift-lsp@claude-plugins-official": false,
+  "vercel-plugin@vercel-vercel-plugin": false
+ },
+ "permissions": {
+  "deny": [
+   "Agent(ciso-devsecops-reviewer)",
+   "Agent(cto-orchestrator)",
+   "Agent(cypress-qa-engineer)",
+   "Agent(prisma-query-optimizer)"
+  ]
+ },
+ "skillListingBudgetFraction": 0.002,
+ "skillOverrides": {
+  "ai-behavior-trees-utility-ai": "off",
+  "arcads-external-api": "off",
+  "audio-design": "off",
+  "boss-design": "off",
+  "camera-systems": "off",
+  "card-game": "off",
+  "character-rig": "off",
+  "chatgpt-image-ad": "off",
+  "combo-design": "off",
+  "create-game-assets": "off",
+  "deck-build": "off",
+  "deja-history": "off",
+  "design-taste-frontend": "off",
+  "dialogue-systems": "off",
+  "difficulty-design": "off",
+  "enemy-kit-balance": "off",
+  "fighting-design": "off",
+  "fps-shooter": "off",
+  "game-ai": "off",
+  "game-feel": "off",
+  "game-jam": "off",
+  "game-planning": "off",
+  "game-ui-ux": "off",
+  "gameplay-validation": "off",
+  "generate-youtube-thumbnail": "off",
+  "graft": "off",
+  "graphify": "off",
+  "humanizer": "off",
+  "image-ad-clone": "off",
+  "input-systems": "off",
+  "langfuse": "off",
+  "level-design": "off",
+  "lift": "off",
+  "meta-ad-builder": "off",
+  "nano-banana-image-ad": "off",
+  "orca-cli": "off",
+  "orchestration": "off",
+  "performance-optimization": "off",
+  "physics-tuning": "off",
+  "platformer": "off",
+  "procedural-gen": "off",
+  "puzzle": "off",
+  "racing-feel": "off",
+  "rhythm-judge": "off",
+  "roguelike": "off",
+  "rpg": "off",
+  "save-systems": "off",
+  "scenario-unity-2d": "off",
+  "scenario-unity-animation": "off",
+  "scenario-unity-expert": "off",
+  "scenario-unity-gameplay": "off",
+  "scenario-unity-mobile": "off",
+  "scenario-unity-performance": "off",
+  "scenario-unity-pipeline-automation": "off",
+  "scenario-unity-rendering-lighting": "off",
+  "scenario-unity-shaders": "off",
+  "scenario-unity-ui": "off",
+  "scenario-unity-vfx": "off",
+  "scenario-unity-web": "off",
+  "scenario-unity-world-building": "off",
+  "scene-assembly": "off",
+  "shader-programming": "off",
+  "survival-crafting": "off",
+  "tiered-dev-loop": "off",
+  "tower-defense": "off",
+  "unity": "off",
+  "unity-animation": "off",
+  "unity-build-pipeline": "off",
+  "unity-csharp-scripting": "off",
+  "unity-input-system": "off",
+  "unity-navmesh": "off",
+  "unity-physics": "off",
+  "unity-scriptableobjects": "off",
+  "unity-tilemap-2d": "off",
+  "visual-novel": "off"
+ }
+}

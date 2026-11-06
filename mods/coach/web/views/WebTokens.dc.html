@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Where your tokens go</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+.tk-row:hover{background:#16161b}
+</style>
+</helmet>
+<div style="height: 100%; min-height: 844px; display: flex; flex-direction: column; background: #0b0b0d; color: #e4e4e8; font-family: Inter, system-ui, sans-serif; font-size: 13px">
+
+<div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 16px 20px 12px; border-bottom: 1px solid #1f1f23; background: linear-gradient(#111114, #0d0d10)">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 18px; font-weight: 600">Where your tokens go</h1>
+<p style="margin: 0; color: #9a9aa3">Every call re-sends the whole conversation, so each piece is charged for every call that carried it. Dollars first: that is the lever.</p>
+</div>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8b8b94">{{scopeLine}}</span>
+</div>
+
+<div style="flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 26px; padding: 18px 20px 28px">
+
+<section aria-label="Answer" style="display: flex; flex-wrap: wrap; align-items: center; gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 200px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 34px; font-weight: 700; letter-spacing: -0.02em">{{bigTokens}}</span>
+<span style="color: #8b8b94">{{bigSub}}</span>
+</div>
+<p style="flex: 1 1 420px; margin: 0; font-size: 15px; line-height: 1.55; color: #e4e4e8">{{answer}}</p>
+</section>
+
+<section aria-label="By cause" style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600">Where the money went</h2>
+<span style="font-size: 12px; color: #8b8b94">whole session · sorted by dollars · the bar is each cause's share of the bill</span>
+</div>
+<div style="display: flex; height: 26px; border-radius: 6px; overflow: hidden; background: #1a1a1e"><sc-for list="{{causes}}" as="c" hint-placeholder-count="8"><span title="{{c.title}}" style="{{c.bar}}"></span></sc-for></div>
+<div style="display: flex; flex-direction: column; border-top: 1px solid #1f1f23">
+<div style="display: grid; grid-template-columns: 12px 170px 72px 46px 72px minmax(0, 1fr); column-gap: 12px; padding: 6px 6px 4px; font-size: 11px; color: #6e6e78; text-transform: uppercase; letter-spacing: 0.06em">
+<span></span><span>cause</span><span style="text-align: right">cost</span><span style="text-align: right">share</span><span style="text-align: right">tokens</span><span>what it is</span>
+</div>
+<sc-for list="{{causes}}" as="c" hint-placeholder-count="8">
+<div class="tk-row" style="display: grid; grid-template-columns: 12px 170px 72px 46px 72px minmax(0, 1fr); column-gap: 12px; align-items: baseline; padding: 8px 6px; border-bottom: 1px solid #17171b">
+<span style="{{c.dot}}"></span>
+<span style="font-weight: 600">{{c.name}}</span>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 700">{{c.usd}}</span>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; color: #8b8b94">{{c.share}}</span>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; color: #c4c4cb">{{c.tok}}</span>
+<span style="color: #9a9aa3; line-height: 1.45">{{c.note}}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section aria-label="Context per call" style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600">What each call carried</h2>
+<span style="font-size: 12px; color: #8b8b94">one column per model call · the area is everything re-sent · hover for the split, click to open in the Trace</span>
+</div>
+<canvas ref="{{chartRef}}" onMouseMove="{{onMove}}" onMouseLeave="{{onLeave}}" onClick="{{onClick}}" aria-label="Stacked area: tokens each model call carried, by cause" style="display: block; width: 100%; height: 240px; cursor: crosshair"></canvas>
+</section>
+
+<section aria-label="Biggest single items" style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600">The biggest single items</h2>
+<span style="font-size: 12px; color: #8b8b94">size · × calls that re-sent it · = tokens carried · cost</span>
+</div>
+<div style="display: flex; flex-direction: column; border: 1px solid #1f1f23; border-radius: 8px; overflow: hidden">
+<sc-for list="{{top}}" as="t" hint-placeholder-count="8">
+<button type="button" class="tk-row" onClick="{{t.open}}" title="Open in the Trace" style="display: grid; grid-template-columns: 10px minmax(0, 1fr) 64px 54px 76px 60px 16px; column-gap: 12px; align-items: center; padding: 9px 12px; border: 0; border-bottom: 1px solid #17171b; background: transparent; color: inherit; cursor: pointer; text-align: left; font-size: 12px">
+<span style="{{t.dot}}"></span>
+<span style="min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis">{{t.label}}</span>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; color: #c4c4cb">{{t.size}}</span>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; color: #8b8b94">{{t.times}}</span>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 700">{{t.total}}</span>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; color: #c4c4cb">{{t.usd}}</span>
+<span style="color: #6e6e78">→</span>
+</button>
+</sc-for>
+</div>
+</section>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px">
+<section aria-label="Tool results by tool" style="display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600">Tool results, by tool</h2>
+<sc-for list="{{tools}}" as="b" hint-placeholder-count="5">
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 70px; gap: 10px; align-items: center; font-size: 12px">
+<div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis">{{b.label}}</span>
+<span style="height: 5px; border-radius: 3px; background: #1f1f24; overflow: hidden"><span style="{{b.fill}}"></span></span>
+</div>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; color: #c4c4cb">{{b.val}}</span>
+</div>
+</sc-for>
+<sc-if value="{{noTools}}" hint-placeholder-val="{{ false }}"><span style="color: #8b8b94">No tool results yet.</span></sc-if>
+</section>
+<section aria-label="Subagents" style="display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600">Subagents</h2>
+<sc-for list="{{agents}}" as="a" hint-placeholder-count="3">
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 64px 64px 64px; gap: 10px; align-items: baseline; font-size: 12px">
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis">{{a.name}}</span>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; color: #c4c4cb" title="tokens it read in its own context">{{a.read}}</span>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; color: #8b8b94" title="{{a.retTitle}}">{{a.ret}}</span>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 700" title="what it cost">{{a.usd}}</span>
+</div>
+</sc-for>
+<span style="font-size: 11px; color: #6e6e78">{{agentNote}}</span>
+</section>
+</div>
+
+<section aria-label="Biggest lever" style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 10px; background: #121a16; border: 1px solid #1f3a30">
+<span style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #6fd3b4">Biggest lever</span>
+<span style="flex: 1 1 360px; color: #d4d4da; line-height: 1.5">{{lever}}</span>
+<button type="button" onClick="{{toCoach}}" style="height: 30px; padding: 0 12px; border: 1px solid #23463c; border-radius: 7px; background: transparent; color: #6fd3b4; cursor: pointer">Run the Coach →</button>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1376,"height":844}}'>
+var KC = { 'Setup': '#5f7da0', 'Tool results': '#e2a557', 'Subagent reports': '#4fc3a1', 'Your prompts': '#93a9c8', "Claude's replies": '#b39ddb', 'Compaction summaries': '#6fd3b4', 'Hidden attachments': '#7aa2c8', 'Unattributed': '#4a4a52', "Subagents' own work": '#2f8f78', 'Output': '#d68fb0', 'Compacting': '#c9b06b' };
+function fk(n) { return DT.fmt.tok(n); }
+function usd(n) { return DT.fmt.usd(n); }
+function short(s, n) { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = {}; this.hover = null; }
+  componentDidMount() { var self = this; var loop = function () { self.draw(); self.raf = requestAnimationFrame(loop); }; this.raf = requestAnimationFrame(loop); }
+  componentWillUnmount() { cancelAnimationFrame(this.raf); }
+  canvasSize(cv) {
+    var dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); return { g: g, w: w, h: h };
+  }
+  geom(w, h, T) {
+    var L = 54, R = 12, top = 10, bot = 22, n = T.perCall.length;
+    var max = Math.max.apply(null, [1].concat(T.perCall.map(function (c) { return c.real; })));
+    return { L: L, top: top, W: w - L - R, H: h - top - bot, n: n, max: max, x: function (i) { return L + (n <= 1 ? 0.5 : i / (n - 1)) * (w - L - R); }, y: function (v) { return top + (h - top - bot) * (1 - v / max); } };
+  }
+  draw() {
+    var cv = this.chart, T = DT.tokens(); if (!cv || !cv.clientWidth || !T) return;
+    var s = this.canvasSize(cv), g = s.g, w = s.w, h = s.h, G = this.geom(w, h, T), kinds = T.kinds;
+    g.clearRect(0, 0, w, h);
+    // grid
+    g.strokeStyle = '#1c1c21'; g.lineWidth = 1; g.fillStyle = '#6e6e78'; g.font = "10px 'JetBrains Mono', monospace"; g.textAlign = 'right'; g.textBaseline = 'middle';
+    [0, 0.5, 1].forEach(function (f) { var y = G.y(G.max * f); g.beginPath(); g.moveTo(G.L, y); g.lineTo(G.L + G.W, y); g.stroke(); g.fillText(fk(G.max * f), G.L - 6, y); });
+    // stacked areas, bottom (Setup) up
+    var base = T.perCall.map(function () { return 0; });
+    kinds.forEach(function (k) {
+      var top = T.perCall.map(function (c, i) { return base[i] + c.parts[k]; });
+      if (!top.some(function (v, i) { return v > base[i]; })) { return; }
+      g.fillStyle = KC[k]; g.globalAlpha = k === 'Unattributed' ? 0.55 : 0.85; g.beginPath();
+      if (G.n === 1) { var x0 = G.L + G.W / 2 - 8; g.rect(x0, G.y(top[0]), 16, G.y(base[0]) - G.y(top[0])); }
+      else {
+        top.forEach(function (v, i) { if (i) g.lineTo(G.x(i), G.y(v)); else g.moveTo(G.x(i), G.y(v)); });
+        for (var i = base.length - 1; i >= 0; i--) g.lineTo(G.x(i), G.y(base[i]));
+        g.closePath();
+      }
+      g.fill(); g.globalAlpha = 1; base = top;
+    });
+    // compaction markers: the cliffs are compactions, say so
+    (T.marks || []).forEach(function (i) {
+      var x = G.x(i); g.setLineDash([3, 3]); g.strokeStyle = '#6fd3b4'; g.lineWidth = 1; g.beginPath(); g.moveTo(x, G.top); g.lineTo(x, G.top + G.H); g.stroke(); g.setLineDash([]);
+      g.fillStyle = '#6fd3b4'; g.font = "600 10px 'JetBrains Mono', monospace"; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText('compaction', x + 4, G.top + 2);
+    });
+    // turn ticks
+    g.fillStyle = '#6e6e78'; g.textAlign = 'center'; g.textBaseline = 'top'; g.font = "10px 'JetBrains Mono', monospace"; var lastX = -99, lastTurn = null;
+    T.perCall.forEach(function (c, i) { if (c.turn !== lastTurn) { lastTurn = c.turn; var x = G.x(i); if (x - lastX > 34) { g.fillText('T' + c.turn, x, h - 16); lastX = x; } } });
+    // hover
+    var hv = this.hover;
+    if (hv !== null && T.perCall[hv]) {
+      var c = T.perCall[hv], x = G.x(hv);
+      g.strokeStyle = '#f4f4f6'; g.globalAlpha = 0.6; g.beginPath(); g.moveTo(x, G.top); g.lineTo(x, G.top + G.H); g.stroke(); g.globalAlpha = 1;
+      var lines = ['Turn ' + (c.turn || '?') + ' · call ' + (hv + 1) + ' · ' + fk(c.real) + ' tokens · ' + usd(c.usd)].concat(kinds.filter(function (k) { return c.parts[k] >= 1; }).map(function (k) { return k + '  ' + fk(c.parts[k]); }));
+      g.font = '12px Inter, system-ui, sans-serif';
+      var bw = Math.max.apply(null, lines.map(function (l) { return g.measureText(l).width; })) + 28, bh = lines.length * 17 + 10;
+      var bx = x + 12 + bw > w ? x - 12 - bw : x + 12, by = G.top + 4;
+      g.fillStyle = '#1d1d23'; g.strokeStyle = '#34343c'; g.fillRect(bx, by, bw, bh); g.strokeRect(bx, by, bw, bh);
+      lines.forEach(function (l, i) {
+        var k = i ? kinds.filter(function (k) { return c.parts[k] >= 1; })[i - 1] : null;
+        if (k) { g.fillStyle = KC[k]; g.fillRect(bx + 9, by + 9 + i * 17, 8, 8); }
+        g.fillStyle = i ? '#c4c4cb' : '#f4f4f6'; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText(l, bx + (k ? 22 : 9), by + 6 + i * 17);
+      });
+    }
+  }
+  idxAt(ev) {
+    var T = DT.tokens(); if (!T) return null;
+    var r = ev.currentTarget.getBoundingClientRect(), G = this.geom(r.width, r.height, T), x = ev.clientX - r.left;
+    if (G.n === 1) return 0;
+    var i = Math.round((x - G.L) / G.W * (G.n - 1)); return i >= 0 && i < G.n ? i : null;
+  }
+  renderVals() {
+    var self = this, T = DT.tokens();
+    var open = function (id) { if (!id) return; DT.focus = id; if (DT.goto) DT.goto('timeline'); };
+    if (!T) return { scopeLine: '', bigTokens: '—', bigSub: 'no model calls yet', answer: 'Send Claude a prompt: this page fills in as calls complete.', causes: [], top: [], tools: [], noTools: true, agents: [], agentNote: '', lever: '', toCoach: function () {}, chartRef: function (el) { self.chart = el; }, onMove: function () {}, onLeave: function () {}, onClick: function () {} };
+    var rows = T.kinds.map(function (k) { return { name: k, tok: T.sumKinds[k], usd: T.sumKinds[k] * T.perTok }; });
+    rows.push({ name: "Subagents' own work", tok: T.subIn, usd: T.subUsd });
+    rows.push({ name: 'Output', tok: T.out, usd: T.out * 5 * T.perTok });
+    if (T.compactUsd > 0) rows.push({ name: 'Compacting', tok: T.compactTok, usd: T.compactUsd });
+    rows = rows.filter(function (r) { return r.tok >= 1 || r.usd >= 0.005; });
+    var tokAll = rows.reduce(function (a, r) { return a + r.tok; }, 0) || 1, usdAll = rows.reduce(function (a, r) { return a + r.usd; }, 0) || 1e-9;
+    var mainRate = T.mainUsd / Math.max(1, T.mainIn) * 1e6, subRate = T.subUsd / Math.max(1, T.subIn) * 1e6;
+    var NOTE = {
+      'Setup': 'System prompt, tools, MCP, CLAUDE.md and skills (' + fk(T.fixed) + ') sent with every one of ' + T.calls + ' calls.',
+      'Tool results': 'File reads, searches and command output, re-sent on every later call until a compaction.',
+      'Subagent reports': 'What subagents handed back to this conversation, re-sent like any tool result.',
+      'Your prompts': 'What you typed, re-sent on every later call.',
+      "Claude's replies": 'What Claude wrote earlier, re-sent as part of the conversation.',
+      'Compaction summaries': 'The summary each compaction left behind, carried from then on.',
+      'Hidden attachments': 'Text Claude Code adds to your prompts (reminders, hook output, listings), re-sent like anything else.' + (T.attachmentsSince ? ' Recorded since ' + new Date(T.attachmentsSince).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '; earlier ones sit in Unattributed.' : ''),
+      'Unattributed': 'Context no recorded piece explains: attachments before the log window, thinking re-sent within a turn, chars÷4 estimate error. Shown, not hidden.',
+      "Subagents' own work": 'Tokens subagents read in their own contexts. Not in yours, but billed at ≈' + usd(subRate) + '/M vs ≈' + usd(mainRate) + '/M on the main thread: each one starts with an empty cache, so more of its input is written than read.',
+      'Output': 'What Claude wrote, thinking included. Billed at 5× input.',
+      'Compacting': 'The compaction calls themselves: the model reads the whole conversation once to write the summary.'
+    };
+    var share = function (r) { return Math.round(r.usd / usdAll * 100) + '%'; };
+    var sorted = rows.slice().sort(function (a, b) { return b.usd - a.usd; });
+    var lead = sorted[0], topItem = T.top[0];
+    var answer = lead.name + ' cost the most: ' + usd(lead.usd) + ', ' + share(lead) + ' of ' + usd(usdAll) + ' for ' + fk(lead.tok) + ' tokens.' +
+      (topItem ? ' The single biggest item re-sent: ' + short(topItem.label, 60) + ' (' + fk(topItem.size) + ') × ' + topItem.times + ' calls = ' + fk(topItem.total) + ' tokens, ' + usd(topItem.total * T.perTok) + '.' : '');
+    // advice for the largest cause you can act on
+    var ADVICE = {
+      'Tool results': 'Tool output is re-sent on every later call. Ask for narrower reads (offset/limit, head_limit, | tail -50), hand broad searches to a subagent, and /compact after a big exploration.',
+      'Subagent reports': 'Ask subagents for short reports: "reply in ≤15 lines, file:line only".',
+      "Subagents' own work": 'Subagents did most of the reading. Worth it for broad or parallel work; for a single lookup, inline is cheaper. Read-only ones can run on Haiku (model: haiku).',
+      'Setup': 'Your fixed setup rides on every call. Disable MCP servers you do not use (/mcp) and trim CLAUDE.md; skills load only when used.',
+      "Claude's replies": 'Long replies are re-sent on every call. Ask for shorter answers, or lower /effort for routine turns.',
+      'Output': 'Output is billed at 5×. Lower /effort for routine turns and ask for concise answers.',
+      'Your prompts': 'Large pasted text is re-sent on every call: point Claude at a file (@path) instead of pasting it.',
+      'Compaction summaries': 'Compaction summaries carry forward; /clear between unrelated tasks starts from zero.'
+    };
+    var act = sorted.filter(function (r) { return ADVICE[r.name]; })[0];
+    var lever = act ? act.name + ' (' + share(act) + ' of the bill): ' + ADVICE[act.name] + (act.name === 'Tool results' && topItem ? ' Biggest one: ' + short(topItem.label, 50) + '.' : '') : 'Long sessions re-send more on every call: /clear between unrelated tasks is free.';
+    var maxTool = T.byTool.length ? T.byTool[0][1].total : 1;
+    return {
+      scopeLine: 'whole session · ' + T.calls + ' main-thread calls' + (T.compactions ? ' · ' + T.compactions + ' compaction' + (T.compactions > 1 ? 's' : '') : '') + (T.agents.length ? ' · ' + T.agents.length + ' subagent' + (T.agents.length > 1 ? 's' : '') : ''),
+      bigTokens: usd(usdAll), bigSub: fk(tokAll) + ' tokens processed',
+      answer: answer,
+      causes: sorted.map(function (r) {
+        return {
+          name: r.name, tok: fk(r.tok), share: share(r), usd: usd(r.usd), note: NOTE[r.name] || '',
+          title: r.name + ': ' + usd(r.usd) + ' (' + share(r) + ') · ' + fk(r.tok) + ' tokens',
+          bar: 'display: block; height: 100%; width: ' + (r.usd / usdAll * 100) + '%; background: ' + KC[r.name] + '; border-right: 1px solid #0b0b0d',
+          dot: 'display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: ' + KC[r.name]
+        };
+      }),
+      chartRef: function (el) { self.chart = el; },
+      onMove: function (ev) { self.hover = self.idxAt(ev); },
+      onLeave: function () { self.hover = null; },
+      onClick: function (ev) { var i = self.idxAt(ev); if (i !== null) open(T.perCall[i].id); },
+      top: T.top.map(function (t) {
+        return { label: t.label, size: fk(t.size), times: '×' + t.times, total: fk(t.total), usd: usd(t.total * T.perTok), open: function () { open(t.id); },
+          dot: 'display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ' + KC[t.kind] };
+      }),
+      tools: T.byTool.slice(0, 8).map(function (e) { return { label: e[0] + ' · ' + e[1].n + ' result' + (e[1].n > 1 ? 's' : '') + ' · ' + fk(e[1].size) + ' added', val: fk(e[1].total), fill: 'display: block; height: 100%; width: ' + (e[1].total / maxTool * 100) + '%; background: ' + (e[0] === 'Agent' ? KC['Subagent reports'] : KC['Tool results']) }; }),
+      noTools: !T.byTool.length,
+      agents: T.agents.slice(0, 8).map(function (a) { return { name: a.name, read: fk(a.read), ret: fk(a.ret), usd: usd(a.usd), retTitle: a.retVia === 'message' ? 'its report, delivered as a message to this conversation' : 'what its tool call returned' }; }),
+      agentNote: T.agents.length ? 'read in its own context · returned to this conversation · cost' : 'No subagents this session.',
+      lever: lever,
+      toCoach: function () { if (DT.goto) DT.goto('coach'); }
+    };
+  }
+}
+</script>
+</body>
+</html>

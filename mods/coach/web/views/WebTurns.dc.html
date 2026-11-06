@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Turns view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+.tn-row:hover{background:#16161b}
+.tn-chip{cursor:pointer}
+.tn-chip:hover{filter:brightness(1.25)}
+.tn-seg:hover{filter:brightness(1.3)}
+</style>
+</helmet>
+<div style="height: 100%; min-height: 844px; display: flex; flex-direction: column; background: #0b0b0d; color: #e4e4e8; font-family: Inter, system-ui, sans-serif; font-size: 13px">
+
+<div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 16px 20px 12px; border-bottom: 1px solid #1f1f23; background: linear-gradient(#111114, #0d0d10)">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 18px; font-weight: 600">Turns</h1>
+<p style="margin: 0; color: #9a9aa3">Every prompt and response, classified, with the words that decided each label.</p>
+</div>
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8b8b94">{{statusLine}}</span>
+<sc-if value="{{canRefresh}}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{refresh}}" style="height: 28px; padding: 0 10px; border: 1px solid #2c2c33; border-radius: 7px; background: transparent; color: #9a9aa3; cursor: pointer; font-size: 12px">Re-read transcripts</button></sc-if>
+<div role="tablist" style="display: flex; gap: 4px; padding: 3px; border-radius: 9px; background: #151518; border: 1px solid #222227">
+<sc-for list="{{scopes}}" as="t" hint-placeholder-count="2"><button type="button" role="tab" onClick="{{t.pick}}" aria-selected="{{t.on}}" style="{{t.style}}">{{t.label}}</button></sc-for>
+</div>
+</div>
+</div>
+
+<sc-if value="{{loading}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 420px; color: #9a9aa3; text-align: center; padding: 24px">
+<span style="color: #e4e4e8; font-weight: 600">{{loadTitle}}</span>
+<span style="max-width: 460px; line-height: 1.5">{{loadText}}</span>
+<span style="width: 260px; height: 6px; border-radius: 3px; background: #1f1f24; overflow: hidden"><span style="{{loadBar}}"></span></span>
+</div>
+</sc-if>
+
+<sc-if value="{{ready}}" hint-placeholder-val="{{ true }}">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px 22px; padding: 14px 20px 10px; border-bottom: 1px solid #1f1f23">
+<sc-for list="{{dims}}" as="d" hint-placeholder-count="4">
+<section style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><h2 style="margin: 0; font-size: 12px; font-weight: 600">{{d.title}}</h2><span style="font-size: 11px; color: #8b8b94">{{d.note}}</span></div>
+<div style="display: flex; height: 12px; border-radius: 3px; overflow: hidden; background: #1a1a1e"><sc-for list="{{d.segs}}" as="s" hint-placeholder-count="6"><span class="tn-seg" title="{{s.title}}" onClick="{{s.pick}}" style="{{s.style}}"></span></sc-for></div>
+<div style="display: flex; flex-wrap: wrap; gap: 4px">
+<sc-for list="{{d.chips}}" as="c" hint-placeholder-count="8"><button type="button" class="tn-chip" onClick="{{c.pick}}" title="{{c.title}}" style="{{c.style}}">{{c.label}} <span style="opacity: 0.7; font-family: 'JetBrains Mono', monospace">{{c.n}}</span></button></sc-for>
+</div>
+</section>
+</sc-for>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 20px; border-bottom: 1px solid #1f1f23">
+<label style="display: flex; align-items: center; gap: 8px; flex: 1 1 240px; height: 30px; box-sizing: border-box; padding: 0 10px; border: 1px solid #2a2a30; border-radius: 8px; background: #121215; color: #8b8b94">
+<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<input type="text" value="{{q}}" onChange="{{onQ}}" placeholder="Search prompts and replies…" aria-label="Search turns" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #e4e4e8">
+</label>
+<sc-for list="{{toggles}}" as="t" hint-placeholder-count="10"><button type="button" onClick="{{t.pick}}" aria-pressed="{{t.on}}" title="{{t.title}}" style="{{t.style}}">{{t.label}}</button></sc-for>
+<sc-for list="{{active}}" as="a" hint-placeholder-count="2"><button type="button" onClick="{{a.drop}}" title="Remove this filter" style="height: 28px; padding: 0 10px; border-radius: 7px; cursor: pointer; border: 1px solid #23463c; background: #122520; color: #6fd3b4; font-size: 12px">{{a.label}} ✕</button></sc-for>
+<span style="margin-left: auto; font-size: 12px; color: #8b8b94">{{countLine}}</span>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1; min-height: 0">
+<section aria-label="Turns" style="flex: 999 1 560px; min-width: 0; overflow-y: auto; max-height: 900px">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="12">
+<button type="button" class="tn-row" onClick="{{r.pick}}" style="{{r.style}}">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6e6e78; white-space: nowrap">{{r.when}}</span>
+<span style="{{r.srcStyle}}" title="{{r.srcTitle}}">{{r.src}}</span>
+<span style="{{r.intStyle}}" title="{{r.intTitle}}">{{r.intent}}</span>
+<span style="min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; color: #d4d4da">{{r.prompt}}</span>
+<span style="display: flex; height: 8px; width: 70px; border-radius: 2px; overflow: hidden; background: #1a1a1e" title="{{r.workTitle}}"><sc-for list="{{r.work}}" as="w" hint-placeholder-count="3"><span style="{{w}}"></span></sc-for></span>
+<span style="{{r.outStyle}}" title="{{r.outTitle}}">{{r.outcome}}</span>
+<span style="font-size: 11px; color: #e2a557; white-space: nowrap">{{r.marks}}</span>
+</button>
+</sc-for>
+<sc-if value="{{more}}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{showMore}}" style="display: block; margin: 12px auto 20px; height: 30px; padding: 0 14px; border: 1px solid #2c2c33; border-radius: 7px; background: transparent; color: #9a9aa3; cursor: pointer">{{moreLabel}}</button></sc-if>
+<sc-if value="{{empty}}" hint-placeholder-val="{{ false }}"><div style="padding: 30px; text-align: center; color: #8b8b94">No turns match these filters.</div></sc-if>
+</section>
+
+<sc-if value="{{hasSel}}" hint-placeholder-val="{{ false }}">
+<aside aria-label="Turn detail" style="flex: 1 1 440px; max-width: 620px; min-width: 0; border-left: 1px solid #1f1f23; overflow-y: auto; max-height: 900px; padding: 14px 18px 24px; display: flex; flex-direction: column; gap: 14px; box-sizing: border-box">
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b8b94">{{d.when}}</span>
+<span style="font-size: 12px; color: #9a9aa3">{{d.where}}</span>
+<sc-if value="{{d.canTrace}}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{d.trace}}" style="margin-left: auto; height: 26px; padding: 0 10px; border: 1px solid #2c2c33; border-radius: 6px; background: transparent; color: #9a9aa3; cursor: pointer; font-size: 12px">Open in Trace →</button></sc-if>
+<button type="button" onClick="{{closeSel}}" aria-label="Close detail" style="height: 26px; width: 26px; border: 1px solid #2c2c33; border-radius: 6px; background: transparent; color: #9a9aa3; cursor: pointer">✕</button>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h3 style="margin: 0; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b8b94">Labels and the words behind them</h3>
+<sc-for list="{{d.labels}}" as="l" hint-placeholder-count="4">
+<div style="display: grid; grid-template-columns: 74px auto minmax(0, 1fr); column-gap: 10px; align-items: baseline; font-size: 12px">
+<span style="color: #8b8b94">{{l.axis}}</span>
+<span style="{{l.style}}">{{l.label}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; color: #c4c4cb; overflow-wrap: anywhere">{{l.ev}}</span>
+</div>
+</sc-for>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h3 style="margin: 0; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b8b94">Prompt</h3>
+<div style="padding: 10px 12px; border-radius: 8px; background: #121215; border: 1px solid #1f1f23; white-space: pre-wrap; line-height: 1.5; max-height: 260px; overflow-y: auto; overflow-wrap: anywhere"><sc-for list="{{d.prompt}}" as="s" hint-placeholder-count="3"><span style="{{s.style}}" title="{{s.title}}">{{s.t}}</span></sc-for></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h3 style="margin: 0; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b8b94">{{d.actTitle}}</h3>
+<div style="display: flex; flex-direction: column; border: 1px solid #1f1f23; border-radius: 8px; overflow: hidden; max-height: 360px; overflow-y: auto">
+<sc-for list="{{d.actions}}" as="a" hint-placeholder-count="5">
+<div style="display: flex; flex-direction: column; gap: 3px; padding: 7px 10px; border-bottom: 1px solid #17171b; font-size: 12px">
+<div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap">
+<span style="font-weight: 600">{{a.tool}}</span>
+<span style="{{a.catStyle}}">{{a.cat}}</span>
+<sc-for list="{{a.progs}}" as="p" hint-placeholder-count="2"><span style="padding: 0 5px; border-radius: 3px; background: #1d1d23; color: #c4c4cb; font-family: 'JetBrains Mono', monospace; font-size: 11px">{{p}}</span></sc-for>
+<sc-if value="{{a.err}}" hint-placeholder-val="{{ false }}"><span style="color: #ff5c7a; font-weight: 700; font-size: 11px">FAILED</span></sc-if>
+</div>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9a9aa3; white-space: pre-wrap; overflow-wrap: anywhere">{{a.arg}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h3 style="margin: 0; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b8b94">Reply</h3>
+<div style="padding: 10px 12px; border-radius: 8px; background: #121215; border: 1px solid #1f1f23; white-space: pre-wrap; line-height: 1.5; max-height: 260px; overflow-y: auto; overflow-wrap: anywhere"><sc-for list="{{d.reply}}" as="s" hint-placeholder-count="3"><span style="{{s.style}}" title="{{s.title}}">{{s.t}}</span></sc-for></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h3 style="margin: 0; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b8b94">Facts</h3>
+<sc-for list="{{d.facts}}" as="f" hint-placeholder-count="4">
+<div style="display: grid; grid-template-columns: 110px minmax(0, 1fr); column-gap: 10px; font-size: 12px"><span style="color: #8b8b94">{{f.k}}</span><span style="font-family: 'JetBrains Mono', monospace; color: #d4d4da; overflow-wrap: anywhere">{{f.v}}</span></div>
+</sc-for>
+</div>
+</aside>
+</sc-if>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1376,"height":844}}'>
+var GC = { ask: '#e2a557', steer: '#93a9c8', context: '#b39ddb', other: '#8b8b94', machine: '#5f7da0' };
+var SC = { human: '#e2a557', pasted: '#c9b06b', slash: '#b39ddb', interrupt: '#f2703f', 'agent-message': '#4fc3a1', orchestrator: '#5f7da0', automation: '#8b8b94', continuation: '#6a84a6', system: '#55555e' };
+var OC = { done: '#4fc3a1', answered: '#6fd3b4', asked: '#93a9c8', pending: '#e2a557', 'needs-user': '#f2b84b', blocked: '#f2703f', error: '#ff5c7a', limited: '#ff5c7a', delegated: '#2f9e83', interrupted: '#8b8b94', silent: '#55555e', acknowledged: '#7a93b6', planned: '#b39ddb', 'in progress': '#e2a557' };
+var WC = { explore: '#5f7da0', edit: '#e2a557', script: '#c9b06b', delegate: '#4fc3a1', run: '#d68fb0', verify: '#6fd3b4', git: '#b39ddb', browser: '#93a9c8', research: '#7a93b6', shell: '#8b8b94', setup: '#a0a0aa', ask: '#f2b84b', publish: '#9fa8da', wait: '#55555e', '3d': '#ff8a65', plan: '#c4c4cb', net: '#8fb3a3', skill: '#c4c4cb', mcp: '#9fa8da', memory: '#9fa8da', other: '#55555e' };
+var TOGGLES = [
+  ['mine', 'Only mine', 'Prompts you typed (hide other sessions, the coordinator and automation)', function (r) { return r.source === 'human' || r.source === 'pasted' || r.source === 'slash' || r.source === 'interrupt'; }],
+  ['unverified', 'Not verified', 'Replies that say something was not tested or checked', function (r) { return r.flags && r.flags.unverified; }],
+  ['errors', 'Had failures', 'At least one tool call failed', function (r) { return r.errs > 0; }],
+  ['destructive', 'Destructive', 'rm -rf, git reset --hard, force push, pkill…', function (r) { return r.facts && r.facts.destructive; }],
+  ['waiting', 'Waiting on', 'The reply says it is waiting on someone or something', function (r) { return r.flags && r.flags.waitingOn; }],
+  ['followup', 'Follow-ups', 'Prompts that continue the previous one', function (r) { return r.facts && r.facts.followup; }],
+  ['repeat', 'Repeats', 'The same prompt as the previous turn', function (r) { return r.facts && r.facts.repeat; }],
+  ['frustration', 'Frustration', 'Words of frustration in the prompt', function (r) { return r.facts && r.facts.frustration; }],
+  ['secret', 'Secrets', 'A key or token in the prompt', function (r) { return r.facts && r.facts.secret; }]
+];
+function short(s, n) { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+function chip(color, solid) { return 'flex: none; padding: 1px 7px; border-radius: 5px; font-size: 11px; font-weight: 600; white-space: nowrap; color: ' + (solid ? '#0b0b0d' : color) + '; background: ' + (solid ? color : color + '22') + '; border: 1px solid ' + color + '55'; }
+function when(ts, withDate) { if (!ts) return ''; var d = new Date(ts); return (withDate ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' : '') + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+// machine-sent prompts arrive wrapped in tags: show what they are, not the markup
+function promptText(r) {
+  var s = String(r.prompt || '');
+  if (!/^\s*</.test(s)) return s;
+  var id = (s.match(/<agent-message from="([^"]+)"/) || s.match(/<task-id>([^<]+)/) || [])[1] || '';
+  if (/^\s*<task-notification/.test(s)) { var st = (s.match(/<status>([^<]+)/) || [])[1]; return '⚑ background task ' + id.slice(0, 8) + (st ? ' ' + st : ' finished'); }
+  var body = s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return (/^\s*<agent-message/.test(s) ? '↩ subagent ' + id.slice(0, 8) + ' reported: ' : '') + body;
+}
+// text split into spans, with each piece of evidence highlighted where it occurs
+function marked(text, marks) {
+  text = String(text || '');
+  var hits = [];
+  marks.forEach(function (m) {
+    if (!m.ev || m.ev.length < 2) return;
+    var i = text.toLowerCase().indexOf(String(m.ev).toLowerCase().slice(0, 80));
+    if (i >= 0 && !hits.some(function (h) { return i < h.e && i + m.ev.length > h.s; })) hits.push({ s: i, e: i + Math.min(m.ev.length, 80), m: m });
+  });
+  hits.sort(function (a, b) { return a.s - b.s; });
+  var out = [], at = 0;
+  hits.forEach(function (h) {
+    if (h.s > at) out.push({ t: text.slice(at, h.s), style: '', title: '' });
+    out.push({ t: text.slice(h.s, h.e), style: 'background: ' + h.m.color + '33; border-bottom: 2px solid ' + h.m.color + '; border-radius: 2px', title: h.m.label });
+    at = h.e;
+  });
+  if (at < text.length) out.push({ t: text.slice(at), style: '', title: '' });
+  return out;
+}
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    var scope = 'live'; try { scope = localStorage.getItem('devtools.turnScope') || scope; } catch (e) {}
+    this.state = { scope: scope, q: '', filters: [], toggles: { mine: true }, sel: null, limit: 150, past: null, detail: null };
+  }
+  componentDidMount() { this.poll(); }
+  componentWillUnmount() { clearTimeout(this.t); }
+  poll(refresh) {
+    var self = this;
+    if (this.state.scope !== 'past') return;
+    fetch('/api/turns' + (refresh ? '?refresh=1' : '')).then(function (r) { return r.json(); }).then(function (d) {
+      self.setState({ past: d });
+      if (d.status !== 'ready') self.t = setTimeout(function () { self.poll(); }, 1500);
+    }).catch(function () { self.t = setTimeout(function () { self.poll(); }, 3000); });
+  }
+  // rows in the compact shape both scopes share
+  liveRows() {
+    var key = DT.events.length + ':' + (DT.events[DT.events.length - 1] || {}).end + ':' + DT.session;
+    if (this._lk === key) return this._lr;
+    var turns = CLASSIFY.fromEvents(DT.events, DT.session, (DT.meta.cwd || '').split('/').pop());
+    var cs = CLASSIFY.classifyAll(turns);
+    this._lt = turns; this._lc = cs; this._lk = key;
+    this._lr = turns.map(function (t, k) {
+      var c = cs[k];
+      return { k: k, sid: t.sid, project: (DT.meta.cwd || '').split('/').pop(), ts: t.ts, prompt: short(t.prompt, 220), reply: short(String(t.reply).slice(-400), 180), source: c.source, sub: c.sub, failed: c.failed, intent: c.intent, intents: c.intents.map(function (x) { return [x.k, x.ev]; }), outcome: c.outcome, outcomeEv: c.outcomeEv, roll: c.roll, dominant: c.dominant, n: c.n, errs: c.errs, flags: c.flags, facts: c.facts, live: true };
+    });
+    return this._lr;
+  }
+  rows() { return this.state.scope === 'live' ? this.liveRows() : (this.state.past && this.state.past.rows) || []; }
+  match(r, skipDim) {
+    var S = this.state;
+    for (var i = 0; i < TOGGLES.length; i++) if (S.toggles[TOGGLES[i][0]] && !TOGGLES[i][3](r)) return false;
+    for (var j = 0; j < S.filters.length; j++) {
+      var f = S.filters[j]; if (f.dim === skipDim) continue;
+      var v = f.dim === 'group' ? CLASSIFY.groupOf(r.intent) : f.dim === 'work' ? r.dominant : f.dim === 'project' ? r.project : r[f.dim];
+      if (f.dim === 'intent' ? !r.intents.some(function (x) { return x[0] === f.v; }) : v !== f.v) return false;
+    }
+    if (S.q) { var q = S.q.toLowerCase(); if ((r.prompt + ' ' + r.reply).toLowerCase().indexOf(q) < 0) return false; }
+    return true;
+  }
+  addFilter(dim, v) {
+    var f = this.state.filters.filter(function (x) { return x.dim !== dim; }).concat([{ dim: dim, v: v }]);
+    this.setState({ filters: f, limit: 150 });
+  }
+  select(r) {
+    var self = this;
+    if (r.live) { this.setState({ sel: r.k, detail: { turn: this._lt[r.k], c: this._lc[r.k], live: true } }); return; }
+    this.setState({ sel: r.k, detail: null });
+    fetch('/api/turn/' + r.k).then(function (x) { return x.json(); }).then(function (d) { if (self.state.sel === r.k) self.setState({ detail: d }); });
+  }
+  dim(title, key, all, colorOf, note) {
+    var self = this, counts = {}, n = 0;
+    all.forEach(function (r) { if (!self.match(r, key)) return; var v = key === 'group' ? CLASSIFY.groupOf(r.intent) : key === 'work' ? (r.n ? r.dominant : 'no tools') : r[key]; counts[v] = (counts[v] || 0) + 1; n++; });
+    var list = Object.entries(counts).sort(function (a, b) { return b[1] - a[1]; });
+    var cur = (this.state.filters.find(function (f) { return f.dim === key; }) || {}).v;
+    return {
+      title: title, note: note || (n + ' turns'),
+      segs: list.map(function (e) { return { title: e[0] + ': ' + e[1] + ' (' + Math.round(e[1] / Math.max(1, n) * 100) + '%)', pick: function () { self.addFilter(key, e[0]); }, style: 'display: block; height: 100%; cursor: pointer; width: ' + (e[1] / Math.max(1, n) * 100) + '%; background: ' + colorOf(e[0]) + '; opacity: ' + (cur && cur !== e[0] ? 0.3 : 1) + '; border-right: 1px solid #0b0b0d' }; }),
+      chips: list.slice(0, 14).map(function (e) { return { label: e[0], n: e[1], title: 'Filter: ' + key + ' = ' + e[0], pick: function () { self.addFilter(key, e[0]); }, style: chip(colorOf(e[0]), cur === e[0]) + '; cursor: pointer' }; })
+    };
+  }
+  renderVals() {
+    var self = this, S = this.state;
+    var past = S.past, isPast = S.scope === 'past';
+    var loading = isPast && (!past || past.status !== 'ready');
+    var all = loading ? [] : this.rows();
+    var shown = all.filter(function (r) { return self.match(r); });
+    var rowsDesc = shown.slice().reverse();
+    var d = S.detail, sel = all.find(function (r) { return r.k === S.sel; });
+    var intentColor = function (k) { return GC[CLASSIFY.groupOf(k)]; };
+    var vals = {
+      scopes: [['live', 'This session'], ['past', 'All past sessions']].map(function (t) {
+        var on = S.scope === t[0];
+        return { label: t[1], on: on ? 'true' : 'false', pick: function () { try { localStorage.setItem('devtools.turnScope', t[0]); } catch (e) {} self.setState({ scope: t[0], sel: null, detail: null, filters: [] }, function () {}); if (t[0] === 'past') setTimeout(function () { self.poll(); }, 0); },
+          style: 'height: 28px; padding: 0 12px; border: 0; border-radius: 7px; cursor: pointer; background: ' + (on ? '#26262c' : 'transparent') + '; color: ' + (on ? '#f4f4f6' : '#9a9aa3') };
+      }),
+      statusLine: isPast ? (past && past.status === 'ready' ? all.length + ' turns from ' + past.total + ' transcripts · read ' + new Date(past.at).toLocaleTimeString() : '') : all.length + ' turns in this session',
+      canRefresh: isPast && past && past.status === 'ready',
+      refresh: function () { self.setState({ past: { status: 'indexing', done: 0, total: (past && past.total) || 0 } }); self.poll(true); },
+      loading: loading,
+      loadTitle: past && past.status === 'error' ? 'Could not read the transcripts' : 'Reading your Claude Code transcripts',
+      loadText: past && past.status === 'error' ? String(past.error) : 'Every session under ~/.claude/projects, read once and cached on this machine. ' + (past && past.total ? past.done + ' of ' + past.total + ' files.' : ''),
+      loadBar: 'display: block; height: 100%; background: #e2a557; width: ' + (past && past.total ? Math.round(past.done / past.total * 100) : 5) + '%',
+      ready: !loading,
+      dims: [
+        this.dim('Who sent it', 'source', all, function (k) { return SC[k] || '#8b8b94'; }),
+        this.dim('What was asked', 'intent', all, intentColor),
+        this.dim('What Claude did', 'work', all, function (k) { return WC[k] || '#55555e'; }, 'most of each turn\'s tool calls'),
+        this.dim('How it ended', 'outcome', all, function (k) { return OC[k] || '#8b8b94'; })
+      ],
+      q: S.q, onQ: function (ev) { self.setState({ q: ev.target.value, limit: 150 }); },
+      toggles: TOGGLES.map(function (t) {
+        var on = !!S.toggles[t[0]], n = all.filter(t[3]).length;
+        return { label: t[1] + (t[0] === 'mine' ? '' : ' ' + n), title: t[2], on: on ? 'true' : 'false', pick: function () { var o = Object.assign({}, S.toggles); o[t[0]] = !on; self.setState({ toggles: o, limit: 150 }); },
+          style: 'height: 28px; padding: 0 10px; border-radius: 7px; cursor: pointer; font-size: 12px; border: 1px solid ' + (on ? '#4a3a1e' : '#2a2a30') + '; background: ' + (on ? '#241c10' : 'transparent') + '; color: ' + (on ? '#e2a557' : (n || t[0] === 'mine' ? '#9a9aa3' : '#55555e')) };
+      }),
+      active: S.filters.map(function (f) { return { label: f.dim + ': ' + f.v, drop: function () { self.setState({ filters: S.filters.filter(function (x) { return x !== f; }) }); } }; }),
+      countLine: shown.length + ' of ' + all.length + ' turns',
+      rows: rowsDesc.slice(0, S.limit).map(function (r) {
+        var on = r.k === S.sel, tot = r.n || 1;
+        var marks = [r.facts && r.facts.secret ? '⚠ secret' : '', r.flags && r.flags.unverified ? 'unverified' : '', r.errs ? r.errs + ' failed' : '', r.facts && r.facts.destructive ? 'destructive' : ''].filter(Boolean).join(' · ');
+        return {
+          pick: function () { self.select(r); },
+          style: 'display: grid; grid-template-columns: ' + (isPast ? '96px' : '62px') + ' 108px 96px minmax(0, 1fr) 70px 92px auto; column-gap: 10px; align-items: center; width: 100%; padding: 7px 16px; border: 0; border-bottom: 1px solid #141418; cursor: pointer; color: inherit; font-size: 12px; text-align: left; background: ' + (on ? '#1b1b21' : 'transparent') + (on ? '; box-shadow: inset 2px 0 0 #f4f4f6' : ''),
+          when: when(r.ts, isPast),
+          src: r.source === 'agent-message' ? (r.sub === 'hand-back' ? 'subagent' : 'agent · ' + r.sub) : r.source === 'automation' && r.sub === 'task-notification' ? 'task notice' : r.sub ? r.source + ' · ' + r.sub : r.source, srcStyle: chip(SC[r.source] || '#8b8b94') + '; overflow: hidden; text-overflow: ellipsis; max-width: 108px', srcTitle: r.source + (r.sub ? ' / ' + r.sub : '') + (r.failed ? ' · failed: ' + r.failed : ''),
+          intent: r.intent + (r.intents.length > 1 ? ' +' + (r.intents.length - 1) : ''), intStyle: chip(intentColor(r.intent)) + '; overflow: hidden; text-overflow: ellipsis; max-width: 96px',
+          intTitle: r.intents.map(function (x) { return x[0] + (x[1] ? ' «' + x[1] + '»' : ''); }).join('\n'),
+          prompt: promptText(r),
+          work: Object.entries(r.roll || {}).sort(function (a, b) { return b[1] - a[1]; }).map(function (e) { return 'display: block; height: 100%; width: ' + (e[1] / tot * 100) + '%; background: ' + (WC[e[0]] || '#55555e'); }),
+          workTitle: r.n ? r.n + ' tool calls: ' + Object.entries(r.roll || {}).sort(function (a, b) { return b[1] - a[1]; }).map(function (e) { return e[0] + ' ' + e[1]; }).join(', ') : 'no tool calls',
+          outcome: r.outcome, outStyle: chip(OC[r.outcome] || '#8b8b94') + '; justify-self: start', outTitle: r.outcomeEv ? '«' + r.outcomeEv + '»' : r.outcome,
+          marks: marks
+        };
+      }),
+      more: shown.length > S.limit, moreLabel: 'Show ' + Math.min(300, shown.length - S.limit) + ' more of ' + (shown.length - S.limit),
+      showMore: function () { self.setState({ limit: S.limit + 300 }); },
+      empty: !loading && !shown.length,
+      hasSel: !!sel,
+      closeSel: function () { self.setState({ sel: null, detail: null }); },
+      d: { when: '', where: '', labels: [], prompt: [], actions: [], reply: [], facts: [], actTitle: '', canTrace: false, trace: function () {} }
+    };
+    if (sel) {
+      var c = d && d.c, t = d && d.turn;
+      var labels = [{ axis: 'source', label: sel.source + (sel.sub ? ' / ' + sel.sub : ''), style: chip(SC[sel.source] || '#8b8b94'), ev: c && c.sourceEv ? '«' + short(c.sourceEv, 80) + '»' : (sel.failed ? 'failed: ' + sel.failed : '') }];
+      sel.intents.forEach(function (x, i) { labels.push({ axis: i ? 'also' : 'intent', label: x[0], style: chip(intentColor(x[0]), !i), ev: x[1] ? '«' + x[1] + '»' : '' }); });
+      labels.push({ axis: 'did', label: sel.n ? sel.dominant : 'no tools', style: chip(WC[sel.dominant] || '#55555e'), ev: sel.n ? Object.entries(sel.roll).map(function (e) { return e[0] + ' ' + e[1]; }).join(' · ') : '' });
+      labels.push({ axis: 'outcome', label: sel.outcome, style: chip(OC[sel.outcome] || '#8b8b94', true), ev: sel.outcomeEv ? '«' + sel.outcomeEv + '»' : '' });
+      Object.entries(sel.flags || {}).forEach(function (e) { if (e[1]) labels.push({ axis: 'flag', label: e[0], style: chip('#e2a557'), ev: e[1] === true ? '' : '«' + short(e[1], 80) + '»' }); });
+      var promptMarks = sel.intents.map(function (x) { return { ev: x[1], label: x[0], color: intentColor(x[0]) }; });
+      var facts = [];
+      Object.entries(sel.facts || {}).forEach(function (e) { var v = e[1]; if (!v || (Array.isArray(v) && !v.length)) return; facts.push({ k: e[0], v: Array.isArray(v) ? v.join(', ') : v === true ? 'yes' : String(v) }); });
+      vals.d = {
+        when: when(sel.ts, true), where: [sel.project, t && t.cwd ? t.cwd.replace(/^\/Users\/[^/]+/, '~') : ''].filter(Boolean).join(' · '),
+        canTrace: !!(d && d.live && t && t.id), trace: function () { DT.focus = t.id; if (DT.goto) DT.goto('timeline'); },
+        labels: labels,
+        prompt: t ? marked(t.prompt, promptMarks) : [{ t: 'Loading…', style: 'color: #8b8b94', title: '' }],
+        actTitle: 'What Claude did · ' + (c ? c.actions.length + ' tool call' + (c.actions.length === 1 ? '' : 's') : '…'),
+        actions: c ? c.actions.slice(0, 300).map(function (a) { return { tool: a.tool, cat: a.cat.replace('bash:', ''), catStyle: chip(WC[a.roll] || '#55555e'), progs: a.progs.filter(function (p, i, arr) { return arr.indexOf(p) === i; }), err: a.err, arg: short(a.arg, 400) }; }) : [],
+        reply: t ? marked(t.reply || '(no text reply)', sel.outcomeEv ? [{ ev: sel.outcomeEv, label: 'outcome: ' + sel.outcome, color: OC[sel.outcome] || '#8b8b94' }].concat(Object.entries(sel.flags || {}).filter(function (e) { return typeof e[1] === 'string'; }).map(function (e) { return { ev: e[1], label: e[0], color: '#e2a557' }; })) : []) : [],
+        facts: facts
+      };
+    }
+    return vals;
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude coach</title>
+<style>
+html,body{margin:0;height:100%;background:#0b0b0d;color:#e4e4e8;font-family:Inter,system-ui,-apple-system,sans-serif}
+#app{height:100%}
+.dt-wait{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;height:100%;min-height:600px;color:#8b8b94;font-size:14px}
+.dt-wait b{color:#e4e4e8;font-weight:600}
+</style>
+</head>
+<body>
+<div id="app"><div class="dt-wait">Loading…</div></div>
+<script>
+'use strict';
+// ─────────────────────────────────────────────────────────────────────────────
+// 0. Light / dark. The views are authored dark; in light mode every colour is
+//    remapped where it is applied (inline styles, helmet CSS, canvas), so the
+//    colour story holds: surfaces and text flip, accents darken to read on white.
+// ─────────────────────────────────────────────────────────────────────────────
+const THEME = { mode: 'system', light: false, styles: [], cache: new Map() };
+try { THEME.mode = localStorage.getItem('devtools.theme') || 'system'; } catch {}
+function mapRgb(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+  let h = 0, s = 0;
+  if (d) {
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h /= 6;
+  }
+  let L;
+  if (l < 0.4) { L = 1 - l * 0.9; s = Math.min(s, 0.45); }   // dark surfaces and tints → light ones
+  else if (s < 0.2) L = 1 - l;                              // grey text → dark grey text
+  else L = l * 0.72;                                        // accents: darker, so they read on white
+  const q = L < 0.5 ? L * (1 + s) : L + s - L * s, p = 2 * L - q;
+  const f = t => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
+  return s ? [f(h + 1 / 3), f(h), f(h - 1 / 3)].map(x => Math.round(x * 255)) : [L, L, L].map(x => Math.round(x * 255));
+}
+function tc(str) {
+  if (!THEME.light || typeof str !== 'string' || (str.indexOf('#') < 0 && str.indexOf('rgb') < 0)) return str;
+  const hit = THEME.cache.get(str); if (hit !== undefined) return hit;
+  const out = str.replace(/#([0-9a-f]{6})\b/gi, (m, x) => '#' + mapRgb(parseInt(x.slice(0, 2), 16), parseInt(x.slice(2, 4), 16), parseInt(x.slice(4, 6), 16)).map(v => v.toString(16).padStart(2, '0')).join(''))
+    .replace(/rgb(a?)\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/g, (m, a, r, g, b) => 'rgb' + a + '(' + mapRgb(+r, +g, +b).join(','));
+  if (THEME.cache.size > 5000) THEME.cache.clear();
+  THEME.cache.set(str, out); return out;
+}
+const isDarkInk = v => { const m = typeof v === 'string' && v.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i); return !!m && parseInt(m[1], 16) + parseInt(m[2], 16) + parseInt(m[3], 16) < 90; };
+(function patchCanvas() {
+  const P = CanvasRenderingContext2D.prototype, raw = {};
+  for (const prop of ['fillStyle', 'strokeStyle', 'shadowColor']) {
+    const d = raw[prop] = Object.getOwnPropertyDescriptor(P, prop);
+    Object.defineProperty(P, prop, { configurable: true, get: d.get, set(v) { if (prop === 'fillStyle') this.__ink = v; d.set.call(this, tc(v)); } });
+  }
+  // dark text drawn on a coloured tile stays dark
+  const fillText = P.fillText;
+  P.fillText = function (...a) {
+    if (!THEME.light || !isDarkInk(this.__ink)) return fillText.apply(this, a);
+    const mapped = raw.fillStyle.get.call(this);
+    raw.fillStyle.set.call(this, '#121214');
+    fillText.apply(this, a);
+    raw.fillStyle.set.call(this, mapped);
+  };
+  const stop = CanvasGradient.prototype.addColorStop;
+  CanvasGradient.prototype.addColorStop = function (o, c) { return stop.call(this, o, tc(c)); };
+})();
+function applyTheme() {
+  THEME.light = THEME.mode === 'light' || (THEME.mode === 'system' && matchMedia('(prefers-color-scheme: light)').matches);
+  THEME.cache.clear();
+  document.documentElement.style.colorScheme = THEME.light ? 'light' : 'dark';
+  document.body.style.background = THEME.light ? '#f6f6f8' : '#0b0b0d';
+  document.body.style.color = THEME.light ? '#1b1b1f' : '#e4e4e8';
+  for (const st of THEME.styles) st.textContent = tc(st.__raw);
+  if (typeof DT !== 'undefined') DT.bump();
+}
+matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. A small runtime for the .dc.html views: {{holes}}, sc-for, sc-if, dc-import,
+//    on* handlers, ref, and a DOM morph so canvases and inputs survive re-renders.
+// ─────────────────────────────────────────────────────────────────────────────
+class DCLogic {
+  constructor(props) { this.props = props || {}; this.state = {}; }
+  setState(p) {
+    this.state = Object.assign({}, this.state, typeof p === 'function' ? p(this.state) : p);
+    if (this.__host) this.__host.schedule();
+  }
+}
+const DEFS = {};
+const EVT = { onclick: 'click', onmousemove: 'mousemove', onmousedown: 'mousedown', onmouseleave: 'mouseleave', ondoubleclick: 'dblclick', onkeydown: 'keydown', onchange: 'input', oninput: 'input', onscroll: 'scroll' };
+const SVG = 'http://www.w3.org/2000/svg';
+
+async function loadDef(name) {
+  if (DEFS[name]) return DEFS[name];
+  const text = await (await fetch(`views/${name}.dc.html`)).text();
+  const doc = new DOMParser().parseFromString(text, 'text/html');
+  const xdc = doc.querySelector('x-dc');
+  const helmet = xdc.querySelector('helmet');
+  if (helmet) {
+    helmet.querySelectorAll('style').forEach(s => { const st = document.createElement('style'); st.__raw = s.textContent; st.textContent = tc(s.textContent); THEME.styles.push(st); document.head.appendChild(st); });
+    helmet.remove(); // fonts stay local: system fallbacks, no network
+  }
+  const script = doc.querySelector('script[data-dc-script]');
+  const props = {};
+  try { const p = JSON.parse(script.getAttribute('data-props') || '{}'); for (const k in p) if (k[0] !== '$' && p[k] && 'default' in p[k]) props[k] = p[k].default; } catch {}
+  const Comp = new Function('DCLogic', 'DT', script.textContent + '\n;return Component;')(DCLogic, DT);
+  const imports = [...xdc.querySelectorAll('dc-import')].map(n => n.getAttribute('name'));
+  await Promise.all(imports.map(loadDef));
+  return (DEFS[name] = { tpl: xdc, Comp, props });
+}
+
+function lookup(path, scopes) {
+  path = path.trim();
+  if (path === 'true') return true; if (path === 'false') return false;
+  const parts = path.split('.');
+  for (const s of scopes) {
+    if (s && parts[0] in s) { let v = s; for (const p of parts) v = v == null ? undefined : v[p]; return v; }
+  }
+  return undefined;
+}
+const HOLE = /\{\{([^}]+)\}\}/g;
+const interp = (str, scopes) => str.replace(HOLE, (_, p) => { const v = lookup(p, scopes); return v == null ? '' : String(v); });
+const whole = str => { const m = str.trim().match(/^\{\{([^}]+)\}\}$/); return m ? m[1] : null; };
+
+function build(nodes, scopes, ns) {
+  const out = [];
+  for (const n of nodes) {
+    if (n.nodeType === 3) { out.push(document.createTextNode(interp(n.data, scopes))); continue; }
+    if (n.nodeType !== 1) continue;
+    const tag = n.tagName.toLowerCase();
+    if (tag === 'sc-for') {
+      const list = lookup(whole(n.getAttribute('list')) || '', scopes) || [];
+      const as = n.getAttribute('as');
+      for (const item of list) out.push(...build(n.childNodes, [{ [as]: item }, ...scopes], ns));
+      continue;
+    }
+    if (tag === 'sc-if') {
+      if (lookup(whole(n.getAttribute('value')) || '', scopes)) out.push(...build(n.childNodes, scopes, ns));
+      continue;
+    }
+    if (tag === 'dc-import') {
+      const el = document.createElement('div');
+      el.style.cssText = 'display: contents';
+      el.__import = n.getAttribute('name');
+      out.push(el);
+      continue;
+    }
+    const myNs = tag === 'svg' ? SVG : ns;
+    const el = myNs ? document.createElementNS(myNs, tag) : document.createElement(tag);
+    el.__on = {};
+    for (const a of n.attributes) {
+      const name = a.name;
+      if (name.startsWith('hint-')) continue;
+      const w = whole(a.value);
+      const v = w !== null ? lookup(w, scopes) : interp(a.value, scopes);
+      if (EVT[name]) { if (typeof v === 'function') el.__on[EVT[name]] = v; continue; }
+      if (name === 'ref') { if (typeof v === 'function') el.__ref = v; continue; }
+      if (name === 'value' && (tag === 'input' || tag === 'textarea' || tag === 'select')) { el.__value = v == null ? '' : String(v); continue; }
+      if (v === undefined || v === null || v === false) continue;
+      el.setAttribute(name, v === true ? '' : tc(String(v)));
+    }
+    bind(el);
+    for (const c of build(n.childNodes, scopes, myNs)) el.appendChild(c);
+    if (el.__value !== undefined) el.value = el.__value;
+    out.push(el);
+  }
+  return out;
+}
+function bind(el) {
+  el.__bound = el.__bound || {};
+  for (const evt in el.__on) if (!el.__bound[evt]) { el.__bound[evt] = true; el.addEventListener(evt, e => { const f = el.__on[evt]; if (f) f(e); }); }
+}
+const same = (o, n) => o.nodeType === n.nodeType && (o.nodeType === 3 || (o.tagName === n.tagName && o.__import === n.__import));
+function morph(parent, fresh, refs) {
+  const old = [...parent.childNodes];
+  fresh.forEach((n, i) => {
+    const o = old[i];
+    if (o && same(o, n)) patch(o, n, refs);
+    else { if (o) parent.replaceChild(n, o); else parent.appendChild(n); collect(n, refs); }
+  });
+  for (let i = fresh.length; i < old.length; i++) { teardown(old[i]); parent.removeChild(old[i]); }
+}
+function patch(o, n, refs) {
+  if (o.nodeType === 3) { if (o.data !== n.data) o.data = n.data; return; }
+  for (const a of [...o.attributes]) if (!n.hasAttribute(a.name) && !(o.tagName === 'CANVAS' && (a.name === 'width' || a.name === 'height'))) o.removeAttribute(a.name);
+  for (const a of n.attributes) if (o.getAttribute(a.name) !== a.value) o.setAttribute(a.name, a.value);
+  o.__on = n.__on; bind(o);
+  if (n.__value !== undefined && document.activeElement !== o && o.value !== n.__value) o.value = n.__value;
+  if (n.__ref) refs.push([n.__ref, o]);
+  if (o.__import || o.__keepChildren) return; // a child view (or a ref) owns what is inside
+  morph(o, [...n.childNodes], refs);
+}
+function collect(n, refs) {
+  if (n.nodeType !== 1) return;
+  if (n.__ref) refs.push([n.__ref, n]);
+  for (const c of n.childNodes) collect(c, refs);
+}
+function teardown(n) {
+  if (n.nodeType !== 1) return;
+  if (n.__child) { n.__child.destroy(); n.__child = null; }
+  for (const c of n.childNodes) teardown(c);
+}
+
+class Host {
+  constructor(name, el, props) {
+    this.def = DEFS[name]; this.el = el;
+    this.inst = new this.def.Comp(Object.assign({}, this.def.props, props || {}));
+    this.inst.__host = this;
+    this.off = DT.on(() => this.schedule());
+    this.render();
+    if (this.inst.componentDidMount) this.inst.componentDidMount();
+  }
+  schedule() {
+    if (this.pending || this.dead) return;
+    this.pending = true;
+    queueMicrotask(() => { this.pending = false; if (this.dead) return; this.render(); if (this.inst.componentDidUpdate) this.inst.componentDidUpdate(); });
+  }
+  render() {
+    let vals;
+    try { vals = this.inst.renderVals(); } catch (err) { console.error(err); return; }
+    const refs = [];
+    morph(this.el, build(this.def.tpl.childNodes, [vals], null), refs);
+    for (const [fn, el] of refs) fn(el);
+    // mount child views placed by dc-import
+    this.el.querySelectorAll('div').forEach(d => { if (d.__import && !d.__child) d.__child = new Host(d.__import, d); });
+  }
+  destroy() {
+    this.dead = true; this.off();
+    teardown(this.el);
+    if (this.inst.componentWillUnmount) this.inst.componentWillUnmount();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. Live data: the session the server streams, past sessions on request.
+// ─────────────────────────────────────────────────────────────────────────────
+const DT = {
+  theme() { return THEME.mode; },
+  setTheme(m) { THEME.mode = m; try { localStorage.setItem('devtools.theme', m); } catch {} applyTheme(); },
+  ver: 0, events: [], sigs: [], series: [], meta: {}, session: null, live: true, connected: false, sessions: [], current: null,
+  _ls: new Set(), _memo: {},
+  on(fn) { this._ls.add(fn); return () => this._ls.delete(fn); },
+  bump() {
+    this.ver++; this._memo = {};
+    if (this._t) return;
+    this._t = setTimeout(() => { this._t = null; for (const f of this._ls) f(); }, 200);
+  },
+  memo(key, fn) { return key in this._memo ? this._memo[key] : (this._memo[key] = fn()); },
+  nowMs() {
+    const last = this.events.reduce((m, e) => Math.max(m, e.end || e.start || 0), 0);
+    if (!this.live) return last;
+    return Math.abs(Date.now() - last) < 864e5 ? Math.max(Date.now(), last) : last;
+  },
+  _liveStore: { events: [], byId: new Map(), meta: {}, sigs: [], series: [] },
+  connect() {
+    const es = new EventSource('/api/stream');
+    const L = this._liveStore;
+    es.addEventListener('snapshot', m => {
+      const d = JSON.parse(m.data);
+      L.events = d.events; L.byId = new Map(d.events.map(e => [e.id, e])); L.meta = d.meta; L.sigs = d.sigs || []; L.series = d.series || []; this.current = d.session;
+      this.connected = true;
+      if (this.live) this.show(L, d.session);
+      this.loadSessions();
+    });
+    es.onmessage = m => {
+      const op = JSON.parse(m.data);
+      if (op.op === 'put') { const x = L.byId.get(op.ev.id); if (x) Object.assign(x, op.ev); else { L.events.push(op.ev); L.byId.set(op.ev.id, op.ev); } }
+      else if (op.op === 'patch') { const x = L.byId.get(op.id); if (x) Object.assign(x, op.p); }
+      else if (op.op === 'meta') Object.assign(L.meta, op.meta);
+      else if (op.op === 'sig') {
+        for (const g of op.list) {
+          L.sigs.push(g);
+          if (g.ev === 'session.measure' && g.sum) L.meta.limits = { at: g.at, rateLimits: g.sum.rateLimits, cost: g.sum.cost, context: g.sum.context };
+          if (g.ev === 'classic.PreModelSwitch' && g.sum) L.meta.cacheTtl = g.sum.cache_ttl;
+        }
+        if (L.sigs.length > 30000) L.sigs.splice(0, L.sigs.length - 20000);
+        L.series.push({ at: op.at, c: op.counts }); if (L.series.length > 7200) L.series.splice(0, 3600);
+      }
+      if (this.live) this.bump();
+    };
+    es.onerror = () => { this.connected = false; this.bump(); };
+    es.onopen = () => { this.connected = true; this.bump(); };
+  },
+  show(store, id) { this.events = store.events; this.meta = store.meta; this.sigs = store.sigs || []; this.series = store.series || []; this.session = id; this.bump(); },
+  async pick(id) {
+    if (id === this.current) { this.live = true; return this.show(this._liveStore, id); }
+    const d = await this.fetchSession(id);
+    this.live = false; this.show({ events: d.events, meta: d.meta, sigs: d.sigs, series: d.series }, id);
+  },
+  async fetchSession(id) { return (await fetch(`/api/session/${id}`)).json(); },
+  async loadSessions() {
+    try { const d = await (await fetch('/api/sessions')).json(); this.sessions = d.sessions; this.current = d.current; this.bump(); } catch {}
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. Adapters: real events → the shapes each view draws.
+// ─────────────────────────────────────────────────────────────────────────────
+const parse = s => { try { return JSON.parse(s); } catch { return null; } };
+const clip = (s, n) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+// One way to write every number, used by every view: 79.4M · 585.7k · 106k · 42 / $84.49 · $0.236 · $0.0041 / 2h 05m · 4m 12s · 1.6s · 84ms
+const ftok = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e6 ? (n / 1e6).toFixed(a >= 1e7 ? 1 : 2) + 'M' : a >= 1e5 ? Math.round(n / 1e3) + 'k' : a >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Math.round(n)); };
+const fusd = n => { n = Number(n) || 0; const a = Math.abs(n); return (n < 0 ? '−$' : '$') + (a >= 1 ? a.toFixed(2) : a >= 0.01 ? a.toFixed(3) : a === 0 ? '0.00' : a.toFixed(4).replace(/0$/, '')); };
+const fdur = ms => { ms = Math.max(0, Number(ms) || 0); return ms < 1000 ? Math.round(ms) + 'ms' : ms < 60000 ? (ms / 1000).toFixed(1) + 's' : ms < 3600e3 ? Math.floor(ms / 60000) + 'm ' + String(Math.round(ms % 60000 / 1000)).padStart(2, '0') + 's' : Math.floor(ms / 3600e3) + 'h ' + String(Math.round(ms % 3600e3 / 60000)).padStart(2, '0') + 'm'; };
+const fkk = ftok;
+DT.fmt = { tok: ftok, usd: fusd, dur: fdur };
+const inTot = e => (e.inTok || 0) + (e.cacheRead || 0) + (e.cacheWrite || 0);
+const AGENT_TOOLS = ['Agent', 'Task'];
+function argSummary(tool, payload) {
+  const a = parse(payload) || {};
+  let v = a.command || a.file_path || a.path || a.pattern || a.url || a.query || a.description || a.prompt || Object.values(a).find(x => typeof x === 'string') || '';
+  if (tool === 'Bash') v = String(v).replace(/^(\s*cd\s+("[^"]*"|'[^']*'|\S+)\s*(&&|;)\s*)+/, ''); // the leading `cd <dir> &&` says nothing about the command
+  return clip(v, 90);
+}
+
+DT.base = function () {
+  return this.memo('base', () => {
+    const ev = this.events.slice().sort((a, b) => a.start - b.start);
+    const t0 = ev.length ? ev[0].start : Date.now();
+    const nowMs = this.nowMs();
+    const S = ms => (ms - t0) / 1000;
+    const turnNo = new Map();
+    ev.filter(e => e.kind === 'user' && !e.agentId).forEach(e => { if (!turnNo.has(e.turnId)) turnNo.set(e.turnId, turnNo.size + 1); });
+    const calls = ev.filter(e => e.kind === 'assistant');
+    // price per uncached input token, calibrated from the session's own cost ledger
+    let num = 0, den = 0;
+    calls.forEach(e => { if (e.usd > 0) { num += e.usd; den += (e.inTok || 0) + 0.1 * (e.cacheRead || 0) + 1.25 * (e.cacheWrite || 0) + 5 * (e.outTok || 0); } });
+    const p = den > 0 ? num / den : 5e-6;
+    const costOf = e => e.usd !== undefined && e.usd !== null ? e.usd : p * ((e.inTok || 0) + 0.1 * (e.cacheRead || 0) + 1.25 * (e.cacheWrite || 0) + 5 * (e.outTok || 0));
+    const window = this.meta.window || (this.meta.context && this.meta.context.max) || 200000;
+    const autoAt = (this.meta.context && this.meta.context.autoCompactAt) || Math.round(window * 0.835);
+    // subagents: group by agentId, tie each to the main thread's Agent tool call
+    const groups = new Map();
+    ev.filter(e => e.agentId).forEach(e => { if (!groups.has(e.agentId)) groups.set(e.agentId, []); groups.get(e.agentId).push(e); });
+    const agentTools = ev.filter(e => e.kind === 'tool' && !e.agentId && AGENT_TOOLS.includes(e.tool));
+    // a background subagent's Agent call returns only a stub; its real report arrives later as a message naming the agent
+    const handbacks = ev.filter(e => e.kind === 'user' && !e.agentId && /^\s*<(agent-message|task-notification)\b/.test(e.payload || ''));
+    const used = new Set();
+    const agents = [...groups.entries()].map(([id, list], i) => {
+      const prompt = (list.find(e => e.kind === 'user') || {}).title || '';
+      let tool = agentTools.find(t => !used.has(t.id) && prompt && ((parse(t.payload) || {}).prompt || '').slice(0, 120) === prompt.slice(0, 120));
+      if (!tool) tool = agentTools.find(t => !used.has(t.id) && t.start <= list[0].start + 2000);
+      if (tool) used.add(tool.id);
+      const a = (tool && parse(tool.payload)) || {};
+      const acalls = list.filter(e => e.kind === 'assistant');
+      const start = tool ? tool.start : list[0].start;
+      const hb = handbacks.filter(u => (u.payload || '').slice(0, 200).indexOf(id) >= 0);
+      const retMsg = hb.reduce((s, u) => s + Math.round((u.payload || '').length / 4), 0);
+      const end = hb.length ? Math.max(...hb.map(u => u.start)) : tool ? (tool.end || nowMs) : Math.max(...list.map(e => e.end || nowMs));
+      return {
+        id, i, tool, list, calls: acalls, start, end,
+        name: (a.subagent_type ? a.subagent_type + ' · ' : '') + clip(a.description || prompt || id, 60),
+        read: acalls.reduce((s, e) => s + inTot(e), 0),
+        ret: retMsg || (tool ? (tool.est || 0) : 0), retVia: retMsg ? 'message' : 'result', handbacks: hb,
+        usd: acalls.reduce((s, e) => s + costOf(e), 0)
+      };
+    });
+    const mainCalls = calls.filter(e => !e.agentId);
+    const compacts = ev.filter(e => e.kind === 'compact' && !e.agentId);
+    // the one session total every view shows: every model call (subagents included) plus the compaction calls
+    const totalUsd = calls.reduce((a, e) => a + costOf(e), 0) + compacts.reduce((a, e) => a + (e.usd || 0), 0);
+    return { ev, t0, nowMs, S, turnNo, calls, mainCalls, p, costOf, window, autoAt, agents, agentTools, used, compacts, totalUsd };
+  });
+};
+
+// Timeline (trace explorer)
+DT.timeline = function () {
+  return this.memo('timeline', () => {
+    const B = this.base(), S = B.S, now = B.nowMs;
+    const turnOf = e => B.turnNo.get(e.turnId);
+    const out = [];
+    const agentByTool = new Map(B.agents.filter(a => a.tool).map(a => [a.tool.id, a]));
+    let prevCall = null, sawCompact = false;
+    B.ev.forEach(e => {
+      if (e.agentId) return; // drawn inside their agent
+      const t = S(e.start), d = Math.max(0, S(e.end || now) - t);
+      if (e.kind === 'system' || e.kind === 'context') out.push({ id: e.id, k: e.kind, t, d: 0, title: e.title, est: Math.round((e.payload || '').length / 4), body: clip(e.payload, 4000) });
+      else if (e.kind === 'user') out.push({ id: e.id, k: 'user', turn: turnOf(e), t, d: 0, title: clip(e.title, 300), est: Math.round((e.payload || '').length / 4), body: e.payload });
+      else if (e.kind === 'compact') { sawCompact = true; out.push({ id: e.id, k: 'compact', turn: turnOf(e), t, d, title: e.title, before: e.before || 0, after: e.after || 0, cost: e.usd || 0, body: e.result }); }
+      else if (e.kind === 'assistant') {
+        const ctx = inTot(e);
+        if (prevCall && !sawCompact && e.end && ctx < prevCall.ctx * 0.85 && prevCall.ctx - ctx > 2000)
+          out.push({ id: 'clean:' + e.id, k: 'cleanup', turn: turnOf(e), t: Math.max(prevCall.t, t - 0.05), d: 0.05, title: 'Context cleared between calls', before: prevCall.ctx, after: ctx, body: 'The prompt shrank by ' + fkk(prevCall.ctx - ctx) + ' tokens without a compaction: old tool results were cleared.' });
+        const x = { id: e.id, k: 'assistant', turn: turnOf(e), step: (e.step || 0) + 1, t, d, title: e.title === '…' ? 'streaming…' : clip(e.title, 200), inp: e.inTok || 0, cr: e.cacheRead || 0, cw: e.cacheWrite || 0, o: e.outTok || 0, ctx, cost: B.costOf(e), ttft: e.firstAt ? (e.firstAt - e.start) / 1000 : d, body: e.result, model: e.model, effort: e.effort, err: e.isError && e.end !== undefined && e.title === '(interrupted)' };
+        out.push(x); if (e.end) { prevCall = x; sawCompact = false; }
+      } else if (e.kind === 'tool') {
+        const a = agentByTool.get(e.id);
+        if (a) {
+          const kids = a.list.filter(k => k.kind === 'assistant' || k.kind === 'tool').map((k, j) => ({ id: k.id, k: 'sub', parent: e.id, lane: a.i % 2, t: S(k.start), d: Math.max(0.05, S(k.end || now) - S(k.start)), isCall: k.kind === 'assistant', est: k.kind === 'tool' ? (k.est || 0) : 0, title: k.kind === 'assistant' ? 'sub-call ' + ((k.step || 0) + 1) + ' · ' + fkk(inTot(k)) + ' in' : (k.tool || '').toLowerCase() + ' ' + argSummary(k.tool, k.payload) }));
+          out.push({ id: e.id, k: 'agent', lane: a.i % 2, turn: turnOf(e), step: (e.step || 0) + 1, t, d, title: a.name, arrow: e.end ? ' → ' + fkk(a.ret) + ' returned' : '', est: a.ret, read: a.read, cost: a.usd, body: e.result, kids });
+        } else {
+          out.push({ id: e.id, k: 'tool', turn: turnOf(e), step: (e.step || 0) + 1, t, d, title: (e.tool || '').toLowerCase() + ' ' + argSummary(e.tool, e.payload), arrow: e.end !== undefined ? ' → ' + clip((e.result || '').split('\n')[0], 60) : '', est: e.est || 0, body: (e.payload || '') + (e.result ? '\n→ ' + clip(e.result, 3000) : ''), err: !!e.isError });
+        }
+      }
+    });
+    // agents spawned without a matching tool row still show
+    B.agents.filter(a => !a.tool).forEach(a => out.push({ id: 'agent:' + a.id, k: 'agent', lane: a.i % 2, t: S(a.start), d: S(a.end) - S(a.start), title: a.name, est: 0, read: a.read, cost: a.usd, kids: [] }));
+    out.sort((a, b) => a.t - b.t);
+    const all = out.concat(...out.filter(e => e.kids).map(e => e.kids));
+    // Where the money went: every number below is recorded per call; only the split of each
+    // call's dollars across its four token kinds uses list-price ratios (read 0.1×, write 1.25×, output 5×).
+    const PARTS = [
+      ['read', 'Cache read', 'cacheRead', 0.1, '#6fd3b4', 'Context the cache already held, re-sent on every call. 10% of the input price.'],
+      ['fresh', 'Fresh input', 'inTok', 1, '#e2a557', 'Input the cache did not have. Full input price.'],
+      ['write', 'Cache write', 'cacheWrite', 1.25, '#f2703f', 'Input stored in the cache for the next calls. 125% of the input price; spikes after a model switch, a long pause or a compaction.'],
+      ['out', 'Output', 'outTok', 5, '#b39ddb', 'What Claude wrote, thinking included. 5× the input price.']
+    ];
+    const split = e => {
+      const w = PARTS.map(x => (e[x[2]] || 0) * x[3]), tw = w.reduce((a, b) => a + b, 0) || 1, usd = B.costOf(e);
+      return PARTS.map((x, i) => ({ tok: e[x[2]] || 0, usd: usd * w[i] / tw }));
+    };
+    const tot = PARTS.map(() => ({ tok: 0, usd: 0 })), perTurn = new Map();
+    B.calls.forEach(e => {
+      const sp = split(e);
+      sp.forEach((x, i) => { tot[i].tok += x.tok; tot[i].usd += x.usd; });
+      const key = e.agentId ? null : e.turnId;
+      const t = key && (perTurn.get(key) || perTurn.set(key, { turn: B.turnNo.get(key), parts: PARTS.map(() => 0), calls: 0, id: null }).get(key));
+      if (t) { sp.forEach((x, i) => { t.parts[i] += x.usd; }); t.calls++; if (!t.id) t.id = e.id; }
+    });
+    // a turn's subagents count toward it
+    B.agents.forEach(ag => { const t = ag.tool && perTurn.get(ag.tool.turnId); if (t) ag.calls.forEach(e => split(e).forEach((x, i) => { t.parts[i] += x.usd; })); });
+    const ctx = this.meta.context;
+    const money = {
+      parts: PARTS.map((x, i) => ({ key: x[0], label: x[1], rate: x[3], color: x[4], note: x[5], tok: tot[i].tok, usd: tot[i].usd })),
+      turns: [...perTurn.values()].filter(t => t.turn).sort((a, b) => a.turn - b.turn),
+      calls: B.calls.length, totalUsd: B.totalUsd, compactUsd: B.compacts.reduce((a, e) => a + (e.usd || 0), 0),
+      ctx: ctx && ctx.total ? { total: ctx.total, max: ctx.max || B.window, cats: ctx.categories.filter(c => c.kind === 'used' && !c.isDeferred && c.tokens > 0).map(c => ({ name: c.name, tokens: c.tokens })) } : null
+    };
+    return { events: out, all, end: S(now), window: B.window, autoAt: B.autoAt, turns: [...B.turnNo.values()], money };
+  });
+};
+
+// Cache health
+// Tokens: where they go. Every model call re-sends the whole context, so whatever enters the
+// conversation is paid for again on each later call until a compaction replaces it. This
+// charges each piece for every call that carried it; what the pieces don't explain stays
+// visible as "unattributed".
+DT.tokens = function () {
+  return this.memo('tokens', () => {
+    const B = this.base(), main = B.mainCalls.slice().sort((a, b) => a.start - b.start);
+    if (!main.length) return null;
+    const ctxOf = e => inTot(e);
+    const compacts = B.ev.filter(e => e.kind === 'compact' && !e.agentId).map(e => e.start).sort((a, b) => a - b);
+    const epochEnd = t => { const c = compacts.find(x => x > t); return c === undefined ? Infinity : c; };
+    // calls that carry something added at time t: every later main call before the next compaction
+    const carriers = t => { const end = epochEnd(t); return main.filter(c => c.start > t && c.start < end); };
+    // fixed setup: the latest /context breakdown minus the conversation; else the first call's size
+    const ctx = this.meta.context;
+    const setupCats = ctx && ctx.categories ? ctx.categories.filter(c => c.kind === 'used' && !c.isDeferred && c.tokens > 0 && !/messages/i.test(c.name)) : [];
+    let fixed = setupCats.reduce((a, c) => a + c.tokens, 0);
+    if (!fixed) fixed = Math.max(0, ctxOf(main[0]) - Math.round(((B.ev.find(e => e.kind === 'user' && !e.agentId) || {}).payload || '').length / 4));
+    fixed = Math.min(fixed, Math.min(...main.map(ctxOf)));
+    // the pieces that entered the conversation
+    const items = [];
+    const handbackIds = new Set([].concat(...B.agents.map(a => a.handbacks.map(u => u.id))));
+    B.ev.forEach(e => {
+      if (e.agentId) return;
+      if (e.kind === 'tool') {
+        const isAgent = AGENT_TOOLS.includes(e.tool);
+        items.push({ id: e.id, at: e.end || e.start, size: e.est || 0, kind: isAgent ? 'Subagent reports' : 'Tool results', group: isAgent ? 'Agent' : (e.tool || 'tool'), label: (e.tool || 'tool') + ' ' + argSummary(e.tool, e.payload) });
+      } else if (e.kind === 'user') {
+        const size = Math.round((e.payload || e.title || '').length / 4);
+        if (handbackIds.has(e.id)) items.push({ id: e.id, at: e.start, size, kind: 'Subagent reports', group: 'Agent', label: 'subagent report · ' + clip((e.payload || '').replace(/<[^>]+>/g, ' '), 50) });
+        else items.push({ id: e.id, at: e.start, size, kind: 'Your prompts', group: 'prompt', label: '"' + clip(e.title, 70) + '"' });
+      } else if (e.kind === 'assistant' && e.end) {
+        items.push({ id: e.id, at: e.end, size: e.outTok || 0, kind: "Claude's replies", group: 'reply', label: 'reply · turn ' + (B.turnNo.get(e.turnId) || '?') + (e.title && e.title !== '…' ? ' · ' + clip(e.title.replace(/^→\s*/, ''), 46) : '') });
+      } else if (e.kind === 'compact' && e.after) {
+        items.push({ id: e.id, at: e.start, size: e.after, kind: 'Compaction summaries', group: 'summary', label: 'summary after ' + (e.trigger || '') + ' compaction' });
+      }
+    });
+    // text Claude Code attaches to prompts (reminders, hook output, listings): recorded as prompt.attachment signals
+    (this.sigs || []).forEach(g => {
+      if (g.ev !== 'prompt.attachment') return;
+      const chars = parseInt(String(g.out || '').replace(/\D/g, '')) || 0; if (!chars) return;
+      const type = (g.sum && (g.sum.type || g.sum.event || g.sum.kind)) || 'attachment';
+      items.push({ id: null, at: g.at, size: Math.round(chars / 4), kind: 'Hidden attachments', group: type, label: 'attachment · ' + type });
+    });
+    items.forEach(it => { const cs = carriers(it.at); it.times = cs.length; it.total = it.size * cs.length; });
+    // per call: what it carried (for the chart), and what's left over
+    const KINDS = ['Setup', 'Tool results', 'Subagent reports', 'Your prompts', "Claude's replies", 'Compaction summaries', 'Hidden attachments', 'Unattributed'];
+    const KNOWN = KINDS.slice(0, 7);
+    const perCall = main.map(c => {
+      const parts = Object.fromEntries(KINDS.map(k => [k, 0]));
+      parts.Setup = fixed;
+      items.forEach(it => { if (it.at < c.start && epochEnd(it.at) > c.start) parts[it.kind] += it.size; });
+      const known = KNOWN.reduce((a, k) => a + parts[k], 0);
+      const real = ctxOf(c);
+      // estimates (chars/4) can overshoot: scale the conversation down to the real size, never invent
+      if (known > real && known > fixed) { const f = Math.max(0, real - fixed) / (known - fixed); KNOWN.slice(1).forEach(k => { parts[k] *= f; }); }
+      parts.Unattributed = Math.max(0, real - KNOWN.reduce((a, k) => a + parts[k], 0));
+      return { id: c.id, t: c.start, turn: B.turnNo.get(c.turnId), real, parts, usd: B.costOf(c) };
+    });
+    // where each compaction falls, as a call index (for the chart's markers)
+    const marks = compacts.map(t => main.findIndex(c => c.start > t)).filter(i => i > 0);
+    const sumKinds = Object.fromEntries(KINDS.map(k => [k, perCall.reduce((a, c) => a + c.parts[k], 0)]));
+    const mainIn = perCall.reduce((a, c) => a + c.real, 0);
+    const out = main.reduce((a, c) => a + (c.outTok || 0), 0);
+    const subIn = B.calls.filter(e => e.agentId).reduce((a, e) => a + inTot(e), 0);
+    const mainUsd = main.reduce((a, c) => a + B.costOf(c), 0), subUsd = B.agents.reduce((a, g) => a + g.usd, 0);
+    const perTok = mainUsd / Math.max(1, mainIn + 5 * out); // blended: output weighs 5×
+    // tools grouped: which tool's results cost the most once re-sent
+    const byTool = {};
+    items.filter(it => it.kind === 'Tool results' || it.kind === 'Subagent reports').forEach(it => { const x = byTool[it.group] = byTool[it.group] || { n: 0, size: 0, total: 0 }; x.n++; x.size += it.size; x.total += it.total; });
+    const compactUsd = B.compacts.reduce((a, e) => a + (e.usd || 0), 0), compactTok = B.compacts.reduce((a, e) => a + (e.before || 0), 0);
+    return {
+      kinds: KINDS, perCall, sumKinds, mainIn, out, subIn, mainUsd, subUsd, perTok, fixed, setupCats, marks, compactUsd, compactTok, totalUsd: B.totalUsd,
+      calls: main.length, compactions: compacts.length, attachmentsSince: (this.sigs || []).length ? this.sigs[0].at : null,
+      top: items.filter(it => it.total > 0).sort((a, b) => b.total - a.total).slice(0, 12),
+      byTool: Object.entries(byTool).sort((a, b) => b[1].total - a[1].total),
+      agents: B.agents.map(a => ({ name: a.name, read: a.read, usd: a.usd, ret: a.ret, retVia: a.retVia, id: a.tool && a.tool.id })).sort((a, b) => b.read - a.read)
+    };
+  });
+};
+
+DT.cache = function () {
+  return this.memo('cache', () => {
+    const B = this.base(), calls = B.mainCalls.filter(e => e.end);
+    const between = (a, b, pred) => B.ev.some(e => !e.agentId && e.start > a.start && e.start < b.start && pred(e));
+    const rows = calls.map((e, i) => {
+      const prev = calls[i - 1];
+      const r = { id: e.id, turn: B.turnNo.get(e.turnId) || 0, step: (e.step || 0) + 1, title: clip(e.title, 80), inp: e.inTok || 0, cr: e.cacheRead || 0, cw: e.cacheWrite || 0, o: e.outTok || 0, first: i === 0 };
+      if (prev && r.cr < 0.5 * ((prev.cacheRead || 0) + (prev.cacheWrite || 0)) && (prev.cacheRead || 0) + (prev.cacheWrite || 0) > 2000) {
+        const gap = (e.start - (prev.end || prev.start)) / 1000;
+        if (between(prev, e, x => x.kind === 'compact')) { r.brk = 'compact'; r.cause = 'Compaction replaced the conversation with a summary'; r.diff = '- conversation  ' + fkk(inTot(prev)) + '\n+ summary       ' + fkk(inTot(e)); r.fix = 'Expected after a compaction. Compacting at a task boundary means you pay for this once instead of mid-task.'; }
+        else if (prev.model && e.model && prev.model !== e.model) { r.brk = 'model'; r.cause = 'The model changed: every model has its own cache'; r.diff = '- ' + prev.model + '\n+ ' + e.model; r.fix = 'Switch models at a task boundary, or right after /clear, so the rewrite is small.'; }
+        else if (gap > 300) { r.brk = 'ttl'; r.cause = 'Idle for ' + fdur(gap * 1000) + ': the cache expired'; r.diff = 'last call ended ' + fdur(gap * 1000) + ' before this one'; r.fix = 'Caches expire after ' + (this.meta.cacheTtl === '1h' ? 'an hour' : '~5 minutes') + ' idle. Long breaks mid-task re-pay the whole prompt.'; }
+        else if (between(prev, e, x => x.kind === 'system' && x.title.indexOf('changed') >= 0)) { r.brk = 'sys'; r.cause = 'The system prompt changed (CLAUDE.md, output style, MCP or plugin change)'; r.diff = 'system prompt rebuilt between these calls'; r.fix = 'Edit CLAUDE.md and connect MCP servers before you start, not mid-task.'; }
+        else {
+          r.brk = 'cleanup'; r.cause = 'The middle of the prompt changed: old tool results were cleared';
+          const big = B.ev.filter(x => x.kind === 'tool' && !x.agentId && x.start < prev.start && (x.est || 0) > 1000).sort((a, b) => b.est - a.est).slice(0, 4);
+          r.diff = big.length ? big.map(x => '- ' + clip((x.tool || '').toLowerCase() + ' ' + argSummary(x.tool, x.payload), 34).padEnd(36) + fkk(x.est)).join('\n') + '\n  everything after them shifted' : 'prompt shrank by ' + fkk(inTot(prev) - inTot(e));
+          r.fix = 'Usually worth it: every later call is smaller. Clearing right after acting on a big result costs less than clearing late.';
+        }
+      } else if (r.cw > 5000) {
+        const big = B.ev.filter(x => x.kind === 'tool' && !x.agentId && prev && x.start > prev.start && x.start < e.start).sort((a, b) => (b.est || 0) - (a.est || 0))[0];
+        if (big && big.est > 2000) r.note = (big.tool || '').toLowerCase() + ' result written into the cache';
+      }
+      return r;
+    });
+    const maxTot = Math.max(10000, ...rows.map(r => r.inp + r.cr + r.cw));
+    const last = calls[calls.length - 1];
+    return { calls: rows, maxTok: Math.ceil(maxTot * 1.08 / 10000) * 10000, price: { read: B.p * 0.1e6, fresh: B.p * 1e6, write: B.p * 1.25e6 }, idle: last ? (B.nowMs - (last.end || last.start)) / 1000 : 0, live: this.live };
+  });
+};
+
+// Context X-ray
+DT.contextTree = function () {
+  return this.memo('ctx', () => {
+    const B = this.base(), c = this.meta.context;
+    if (!c) return null;
+    const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    const mcpUse = {};
+    B.ev.filter(e => e.kind === 'tool' && /^mcp__/.test(e.tool || '')).forEach(e => { const srv = e.tool.split('__')[1]; mcpUse[norm(srv)] = (mcpUse[norm(srv)] || 0) + 1; });
+    const lastCompact = B.ev.filter(e => e.kind === 'compact' && !e.agentId).pop();
+    const curTurn = B.turnNo.size;
+    const tree = [];
+    c.categories.filter(x => x.kind === 'used' && !x.isDeferred && x.tokens > 0).forEach((cat, ci) => {
+      const id = 'c' + ci;
+      let kids = [];
+      if (cat.name === 'MCP tools') {
+        const by = {};
+        (c.mcpTools || []).filter(t => t.isLoaded !== false).forEach(t => { by[t.server] = by[t.server] || { n: 0, tok: 0 }; by[t.server].n++; by[t.server].tok += t.tokens; });
+        kids = Object.keys(by).map((s, i) => { const n = mcpUse[norm(s)] || 0; return { id: id + 'm' + i, name: s + ' · ' + by[s].n + ' tools', v: by[s].tok, st: n ? 'keep' : 'cut', note: n ? 'Called ' + n + '×' : 'Never called this session' }; });
+      } else if (cat.name === 'Memory files') {
+        kids = (c.memoryFiles || []).map((f, i) => { const global = /\/\.claude\/CLAUDE\.md$/.test(f.path) || f.type === 'User'; return { id: id + 'f' + i, name: f.path.replace(/^.*\/(\.claude\/)?/, (m, d) => d ? '~/.claude/' : ''), v: f.tokens, st: global && f.tokens > 1500 ? 'cut' : 'keep', note: global ? 'Global: loads in every repo' : 'Project' }; });
+      } else if (cat.name === 'Messages') {
+        const tools = B.ev.filter(e => e.kind === 'tool' && !e.agentId && (e.est || 0) > 300 && (!lastCompact || e.start > lastCompact.start));
+        let sumT = tools.reduce((s, e) => s + e.est, 0);
+        const k = sumT > cat.tokens * 0.9 ? cat.tokens * 0.9 / sumT : 1;
+        // a long absolute path says nothing in a tile: keep the tail
+        const tail = p => { const segs = String(p || '').split('/'); return segs.length > 4 ? '…/' + segs.slice(-3).join('/') : String(p || ''); }; // whole path in, last three segments out (paths may contain spaces)
+        const what = e => { const a = parse(e.payload) || {}; const p = a.file_path || a.notebook_path || a.path; return p ? tail(p) : argSummary(e.tool, e.payload); };
+        kids = tools.sort((a, b) => b.est - a.est).slice(0, 12).map((e, i) => {
+          const age = curTurn - (B.turnNo.get(e.turnId) || curTurn);
+          return { id: id + 't' + i, name: (e.tool || '').toLowerCase() + ' ' + what(e), v: Math.round(e.est * k), st: e.est > 5000 && age >= 2 ? 'cut' : 'keep', note: age >= 2 ? 'Stale: from ' + age + ' turns ago' : age === 1 ? 'Last turn' : 'This turn' };
+        });
+        const rest = cat.tokens - kids.reduce((s, x) => s + x.v, 0);
+        if (rest > 0) kids.push({ id: id + 'r', name: 'Prompts, replies and small results', v: rest, st: 'keep', note: B.turnNo.size + ' turns' });
+      }
+      if (!kids.length || kids.reduce((s, x) => s + x.v, 0) <= 0) kids = [{ id: id + 'x', name: cat.name, v: cat.tokens, st: cat.name === 'Messages' ? 'keep' : 'fixed', note: cat.name === 'Skills' ? 'Descriptions only; bodies load when used' : 'Fixed by Claude Code' }];
+      tree.push({ id, name: cat.name, kids });
+    });
+    const pick = pred => { const o = {}; tree.forEach(t => t.kids.forEach(k => { const v = pred(t, k); if (v !== undefined) o[k.id] = v; })); return o; };
+    const fixes = [];
+    const stale = pick((t, k) => t.name === 'Messages' && k.st === 'cut' ? 0 : undefined);
+    if (Object.keys(stale).length) fixes.push({ id: 'clear', label: 'Clear stale tool results', how: 'Results you already acted on, 2+ turns old.', set: stale });
+    const mcp = pick((t, k) => t.name === 'MCP tools' && k.st === 'cut' ? 0 : undefined);
+    if (Object.keys(mcp).length) fixes.push({ id: 'mcp', label: 'Disable unused MCP servers', how: '/mcp → turn off the servers never called this session.', set: mcp });
+    const mem = pick((t, k) => t.name === 'Memory files' && k.st === 'cut' ? Math.round(k.v * 0.3) : undefined);
+    if (Object.keys(mem).length) fixes.push({ id: 'mem', label: 'Trim the global CLAUDE.md', how: 'Move project-only notes into ./CLAUDE.md.', set: mem });
+    const msgs = tree.find(t => t.name === 'Messages');
+    if (msgs && msgs.kids.reduce((s, k) => s + k.v, 0) > 10000) fixes.push({ id: 'compact', label: 'Compact with a focus', how: '/compact <what to keep>: messages become one summary.', set: pick((t, k) => t.name === 'Messages' ? Math.round(k.v * 0.1) : undefined) });
+    return { tree, fixes, window: c.max || B.window, percent: c.percent, read: B.p * 0.1e6, write: B.p * 1.25e6, autoAt: B.autoAt };
+  });
+};
+
+// Subagents
+DT.agentsView = function () {
+  return this.memo('agents', () => {
+    const B = this.base(), S = B.S, now = B.nowMs;
+    const node = (id, name, tok, sec, usd, kids) => ({ id, name, self: { tok, sec, usd }, kids: kids || [] });
+    const dur = e => Math.max(0, ((e.end || now) - e.start) / 1000);
+    const turns = [...B.turnNo.entries()].map(([tid, n]) => node('t' + n, 'Turn ' + n, 0, 0, 0,
+      B.ev.filter(e => !e.agentId && e.turnId === tid && (e.kind === 'assistant' || e.kind === 'compact')).map(e => node(e.id, e.kind === 'compact' ? 'compaction' : 'call · ' + clip(e.title, 30), e.kind === 'compact' ? (e.before || 0) : inTot(e), dur(e), e.kind === 'compact' ? (e.usd || 0) : B.costOf(e)))));
+    const root = node('root', 'Session', 0, 0, 0, [node('main', 'Main thread', 0, 0, 0, turns)].concat(B.agents.map(a => node('ag:' + a.id, a.name, 0, 0, 0,
+      a.calls.map(e => node(e.id, 'sub-call ' + ((e.step || 0) + 1), inTot(e), dur(e), B.costOf(e),
+        a.list.filter(t => t.kind === 'tool' && t.step === e.step).map(t => node(t.id, (t.tool || '').toLowerCase() + ' ' + argSummary(t.tool, t.payload), t.est || 0, dur(t), 0))))))));
+    const agents = B.agents.map(a => ({ id: a.id, name: a.name, read: a.read, ret: a.ret, usd: a.usd, sec: (a.end - a.start) / 1000, t0: S(a.start) }));
+    const samples = [];
+    B.ev.filter(e => !e.agentId && (e.kind === 'assistant' || e.kind === 'compact') && e.end).forEach(e => samples.push([S(e.start), e.kind === 'compact' ? (e.after || 0) : inTot(e)]));
+    return { root, agents, samples, end: Math.max(1, S(now)), window: B.window, autoAt: B.autoAt };
+  });
+};
+
+// Habits across sessions
+DT.habits = function () {
+  return this.memo('habits', () => {
+    const list = this.sessions.filter(s => s.calls > 0).slice(0, 14).reverse();
+    if (!list.length) return null;
+    const date = ms => ms ? new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+    const base = s => (s.cwd || '').split('/').filter(Boolean).pop() || s.id.slice(0, 8);
+    const cpt = s => s.usd / Math.max(1, s.turns) * 100;
+    const hit = s => Math.round(s.cacheRead / Math.max(1, s.input) * 100);
+    const atCompact = s => s.compactions.length ? Math.round(s.compactions.reduce((a, c) => a + (c.before || 0) / (c.window || 200000) * 100, 0) / s.compactions.length) : Math.round(s.peakPercent);
+    const med = a => { const x = a.slice().sort((p, q) => p - q); return x[Math.floor(x.length / 2)] || 0; };
+    const medCpt = med(list.map(cpt));
+    const radar = list.map(s => [
+      hit(s) / 100,
+      Math.min(1, s.subagentInput / Math.max(1, s.input) * 3),
+      1 - Math.min(1, s.toolResults.filter(x => x > 20000).length / Math.max(1, s.toolResults.length) * 8),
+      1 / (1 + s.modelSwitches),
+      s.compactions.length ? s.compactions.filter(c => c.trigger === 'manual').length / s.compactions.length : (s.peakPercent < 80 ? 1 : 0.3),
+      Math.min(1, medCpt / Math.max(0.01, cpt(s)))
+    ].map(v => Math.max(0.06, Math.min(1, v))));
+    const notes = list.map(s => [s.turns + ' turns', '$' + s.usd.toFixed(2), 'cache ' + hit(s) + '%', s.compactions.length ? s.compactions.length + ' compaction' + (s.compactions.length > 1 ? 's' : '') : 'no compaction', s.toolResults.filter(x => x > 20000).length + ' results over 20k', s.modelSwitches ? s.modelSwitches + ' model switch' + (s.modelSwitches > 1 ? 'es' : '') : ''].filter(Boolean).join(' · '));
+    const flat = k => [].concat(...list.map(s => s[k] || []));
+    return {
+      names: list.map(s => date(s.start) + ' · ' + base(s) + (s.id === this.current ? ' (now)' : '')),
+      trends: { cost: list.map(s => Math.round(cpt(s) * 10) / 10), hit: list.map(hit), cmp: list.map(atCompact), sub: list.map(s => Math.round(s.subagentInput / 1000)) },
+      radar, notes, n: list.length,
+      reads: flat('toolResults').filter(x => x > 0), turns: flat('turnCosts').filter(x => x > 0), peaks: flat('ctxPercents').filter(x => x > 0)
+    };
+  });
+};
+
+// Signals: the firehose, interpreted. Each insight reads the raw stream and says
+// what it means, with the query that shows its evidence in the raw log.
+const NS_COLORS = { tool: '#e2a557', classic: '#b39ddb', session: '#6fd3b4', turn: '#f2703f', prompt: '#93a9c8', ui: '#5f7da0', mcp: '#e48a5c', agent: '#4fc3a1', fs: '#8fb3a3', http: '#d68fb0', process: '#c9b06b', model: '#ff8a65', skill: '#c4c4cb', command: '#a0a0aa', config: '#8b8b94', settings: '#8b8b94', env: '#8b8b94', telemetry: '#7aa2c8', plugin: '#9fa8da', audio: '#8b8b94', attribution: '#8b8b94' };
+const nsOf = ev => ev.split('.')[0];
+const colorOfNs = ns => NS_COLORS[ns] || '#8b8b94';
+const pct = (a, n) => { if (!a.length) return 0; const x = a.slice().sort((p, q) => p - q); return x[Math.min(x.length - 1, Math.floor(n * x.length))]; };
+const topN = (map, n) => Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, n || 5);
+const sigText = g => g.ev + ' ' + g.by + ' ' + JSON.stringify(g.sum || {}) + ' ' + (g.out || '') + ' ' + (g.err || '');
+const signature = g => { const x = g.sum || {}; return (x.tool || x.tool_name || '') + '|' + String(x.command || x.file_path || x.path || x.pattern || x.url || x.input || '').slice(0, 160); };
+function parseIn(v) { if (typeof v !== 'string') return v || {}; try { return JSON.parse(v.replace(/…$/, '')); } catch { return {}; } }
+
+DT.signals = function () {
+  return this.memo('signals', () => {
+    const G = this.sigs, by = ev => G.filter(g => g.ev === ev), out = [];
+    const add = x => out.push(x);
+    const B = this.base();
+    // 1. permission friction
+    const asks = by('classic.PermissionRequest');
+    if (asks.length) {
+      const per = {}; let wait = 0;
+      asks.forEach(a => {
+        const t = a.sum && a.sum.tool_name || '?'; per[t] = (per[t] || 0) + 1;
+        const after = G.find(g => g.at > a.at && (g.ev === 'classic.PostToolUse' || g.ev === 'classic.PermissionDenied' || g.ev === 'classic.PostToolUseFailure') && g.sum && g.sum.tool_name === t);
+        if (after) wait += Math.max(0, Math.min(after.at - a.at - ((after.sum && after.sum.duration_ms) || 0), 600000));
+      });
+      const [tt] = topN(per, 1)[0];
+      const firstIn = parseIn((asks.find(a => a.sum.tool_name === tt).sum || {}).input);
+      const rule = tt === 'Bash' && firstIn.command ? 'Bash(' + String(firstIn.command).split(/\s+/)[0] + ':*)' : tt;
+      add({ id: 'perm', sev: asks.length > 8 ? 'hot' : 'warn', icon: '⛨', title: 'Permission prompts interrupted you', big: asks.length + '×', unit: 'asked · ' + fdur(wait) + ' waiting on you',
+        detail: 'Every prompt stops the agent until you answer. ' + tt + ' asked most (' + per[tt] + '×).', tip: 'Allow the safe, repetitive ones: add "' + rule + '" to permissions.allow in .claude/settings.json, or use /permissions.',
+        bars: topN(per).map(([k, v]) => ({ label: k, v, of: asks.length })), q: 'classic.PermissionRequest' });
+    }
+    // 2. who decides
+    const checks = by('tool.check');
+    if (checks.length) {
+      const src = {};
+      checks.forEach(c => { const o = c.out || ''; const k = /rule /.test(o) ? 'allow/deny rule' : /from /.test(o) ? 'settings' : /by /.test(o) ? 'a plugin' : /hook /.test(o) ? 'a hook' : /decision: ask/.test(o) ? 'asked you' : 'default'; src[k] = (src[k] || 0) + 1; });
+      const denied = checks.filter(c => /decision: deny/.test(c.out || '')).length;
+      add({ id: 'decide', sev: denied ? 'warn' : 'info', icon: '⚖', title: 'Who decided your tool permissions', big: String(checks.length), unit: 'checks · ' + denied + ' denied',
+        detail: 'Each tool call is checked before it runs. This is who answered.', tip: denied ? 'Denied calls cost a model round-trip each. If they are expected, say so in CLAUDE.md so Claude stops trying.' : 'Nothing denied. Rules you rely on are working.',
+        bars: topN(src).map(([k, v]) => ({ label: k, v, of: checks.length })), q: 'tool.check' });
+    }
+    // 3. failures and retry loops
+    const fails = by('classic.PostToolUseFailure'), calls = by('tool.call');
+    const sigs = {}; calls.forEach(c => { const k = signature(c); if (k.length > 1) (sigs[k] = sigs[k] || []).push(c.at); });
+    const loops = Object.entries(sigs).filter(([, ts]) => ts.length >= 3 && ts[ts.length - 1] - ts[0] < 5 * 60000);
+    if (fails.length || loops.length) {
+      const per = {}; fails.forEach(f => { const t = f.sum && f.sum.tool_name || '?'; per[t] = (per[t] || 0) + 1; });
+      const L0 = loops.sort((a, b) => b[1].length - a[1].length)[0];
+      add({ id: 'loops', sev: loops.length ? 'hot' : 'warn', icon: '↻', title: loops.length ? 'Claude repeated the same call' : 'Tool calls failed', big: loops.length ? L0[1].length + '×' : String(fails.length), unit: loops.length ? 'same call within ' + fdur(L0[1][L0[1].length - 1] - L0[1][0]) : 'failures',
+        detail: loops.length ? '"' + L0[0].replace('|', ' ').slice(0, 90) + '" ran ' + L0[1].length + ' times. Repeats like this usually mean a failing approach Claude keeps retrying.' : fails.length + ' tool calls failed this session.',
+        tip: loops.length ? 'Interrupt (Esc) and redirect: say what is failing and what to try instead, or ask for a plan first.' : 'Check the failures in the raw log; recurring ones belong in CLAUDE.md as known gotchas.',
+        bars: topN(per).map(([k, v]) => ({ label: k, v, of: Math.max(1, fails.length) })), q: loops.length ? (L0[0].split('|')[0]) : 'PostToolUseFailure' });
+    }
+    // 4. where tool time goes
+    const done = by('classic.PostToolUse').filter(g => g.sum && g.sum.duration_ms !== undefined);
+    if (done.length) {
+      const tot = {}, durs = {};
+      done.forEach(d => { const t = d.sum.tool_name; tot[t] = (tot[t] || 0) + d.sum.duration_ms; (durs[t] = durs[t] || []).push(d.sum.duration_ms); });
+      const all = Object.values(tot).reduce((a, b) => a + b, 0), [tt] = topN(tot, 1)[0];
+      add({ id: 'tooltime', sev: 'info', icon: '◷', title: 'Where tool time went', big: fdur(all), unit: 'across ' + done.length + ' tool runs',
+        detail: tt + ' took the most: ' + fdur(tot[tt]) + ' (p95 ' + fdur(pct(durs[tt], 0.95)) + ').', tip: 'Slow, repeated commands (test suites, builds) are worth scoping: run one test file, not the suite.',
+        bars: topN(tot).map(([k, v]) => ({ label: k + ' · p50 ' + fdur(pct(durs[k], 0.5)), v, of: all, fmt: fdur(v) })), q: 'classic.PostToolUse' });
+    }
+    // 5. MCP health
+    const mcp = G.filter(g => g.ev === 'mcp.call' || (g.ev === 'tool.call' && /^mcp__/.test((g.sum && g.sum.tool) || '')));
+    if (mcp.length) {
+      const per = {}; mcp.forEach(m => { const srv = (m.sum && (m.sum.server || String(m.sum.tool || '').split('__')[1])) || '?'; const x = per[srv] = per[srv] || { n: 0, ms: [], err: 0 }; x.n++; x.ms.push(m.ms); if (m.err || /isError: true/.test(m.out || '')) x.err++; });
+      const worst = Object.entries(per).sort((a, b) => pct(b[1].ms, 0.95) - pct(a[1].ms, 0.95))[0];
+      const errs = Object.values(per).reduce((a, x) => a + x.err, 0);
+      add({ id: 'mcp', sev: errs ? 'warn' : 'info', icon: '⧉', title: 'MCP servers', big: String(Object.keys(per).length), unit: 'servers used · ' + mcp.length + ' calls · ' + errs + ' errors',
+        detail: worst[0] + ' is the slowest: p95 ' + fdur(pct(worst[1].ms, 0.95)) + '.', tip: 'Servers you never call still cost tokens on every request: see the Context view.',
+        bars: Object.entries(per).map(([k, x]) => ({ label: k + ' · p95 ' + fdur(pct(x.ms, 0.95)) + (x.err ? ' · ' + x.err + ' err' : ''), v: x.n, of: mcp.length })), q: 'mcp' });
+    }
+    // 6. plugin overhead (dev-tools included, honestly)
+    const pl = {};
+    G.forEach(g => (g.chain || []).forEach(([p, o, ms]) => { if (p === 'engine') return; const x = pl[p] = pl[p] || { ms: 0, n: 0, rej: 0 }; x.ms += ms; x.n++; if (o === 'rejected' || o === 'caught') x.rej++; }));
+    if (Object.keys(pl).length) {
+      const tot = Object.values(pl).reduce((a, x) => a + x.ms, 0), rej = Object.values(pl).reduce((a, x) => a + x.rej, 0);
+      add({ id: 'plugins', sev: tot > 5000 || rej ? 'warn' : 'ok', icon: '⚙', title: 'Time spent in plugin hooks', big: fdur(tot), unit: Object.keys(pl).length + ' plugins · ' + rej + ' hook failures',
+        detail: 'Hooks run inside every event they cover. This is their own time, waits excluded.', tip: rej ? 'A failing hook is skipped, so whatever it guards silently stops working. Check the raw log for "caught".' : 'Hook overhead is small.',
+        bars: Object.entries(pl).sort((a, b) => b[1].ms - a[1].ms).slice(0, 6).map(([k, x]) => ({ label: k + ' · ' + x.n + ' runs', v: x.ms, of: tot, fmt: fdur(x.ms) })), q: '' });
+    }
+    // 7. waiting on you
+    const notes = by('classic.Notification');
+    if (notes.length) {
+      const types = {}; let idle = 0;
+      notes.forEach(n => { const t = (n.sum && n.sum.notification_type) || 'other'; types[t] = (types[t] || 0) + 1; const nx = G.find(g => g.at > n.at && (g.ev === 'prompt.submit' || g.ev === 'classic.UserPromptSubmit')); if (nx) idle += Math.min(nx.at - n.at, 3600000); });
+      add({ id: 'waiting', sev: 'info', icon: '☕', title: 'Claude waited on you', big: fdur(idle), unit: notes.length + ' notifications',
+        detail: 'Time between Claude asking for you and your next message.', tip: 'Long waits mid-task let the prompt cache expire (5 min by default): the next message re-pays the whole context.',
+        bars: topN(types).map(([k, v]) => ({ label: k, v, of: notes.length })), q: 'classic.Notification' });
+    }
+    // 8. rate limits with a burn-rate forecast
+    const meas = by('session.measure').filter(g => g.sum && Array.isArray(g.sum.rateLimits) && g.sum.rateLimits.length);
+    if (meas.length) {
+      const last = meas[meas.length - 1], bars = [];
+      last.sum.rateLimits.forEach(rl => {
+        const hist = meas.map(m => [m.at, (m.sum.rateLimits.find(x => x.kind === rl.kind) || {}).percentUsed]).filter(x => x[1] !== undefined);
+        const old = hist.find(h => h[0] >= last.at - 30 * 60000) || hist[0];
+        const rate = (rl.percentUsed - old[1]) / Math.max(1, (last.at - old[0]) / 60000); // % per minute
+        const eta = rate > 0 ? (100 - rl.percentUsed) / rate : Infinity;
+        bars.push({ label: rl.kind.replace('_', '-') + ' · ' + Math.round(rl.percentUsed) + '%' + (isFinite(eta) ? ' · full in ~' + fdur(eta * 60000) : '') + (rl.resetsAt ? ' · resets ' + new Date(rl.resetsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''), v: rl.percentUsed, of: 100, hot: rl.percentUsed > 80 });
+      });
+      const worst = Math.max(...last.sum.rateLimits.map(r => r.percentUsed));
+      add({ id: 'limits', sev: worst > 80 ? 'hot' : worst > 50 ? 'warn' : 'ok', icon: '⏳', title: 'Plan usage limits', big: Math.round(worst) + '%', unit: 'of your tightest window',
+        detail: 'Forecast from your burn rate over the last 30 minutes.', tip: worst > 80 ? 'Near the limit: hand exploration to subagents on a smaller model, and /clear between tasks.' : 'Plenty of headroom at this pace.', bars, q: 'session.measure' });
+    }
+    // 9. model switches
+    const sw = by('classic.PreModelSwitch');
+    if (sw.length) {
+      const usd = sw.reduce((a, g) => a + (Number(g.sum && g.sum.estimated_cache_write_usd) || 0), 0);
+      add({ id: 'models', sev: usd > 0.5 ? 'warn' : 'info', icon: '⇄', title: 'Model switches', big: String(sw.length), unit: '≈ ' + fusd(usd) + ' in cache rewrites',
+        detail: 'Each model has its own cache: switching re-sends the whole context at write price. Cache TTL here: ' + (this.meta.cacheTtl || '?') + '.', tip: 'Switch at task boundaries or right after /clear, when the context is small.',
+        bars: sw.map(g => ({ label: (g.sum.from_model || '?') + ' → ' + (g.sum.to_model || '?') + (Number(g.sum.context_tokens) > 0 ? ' · ' + fkk(Number(g.sum.context_tokens)) + ' ctx' : ''), v: Number(g.sum.estimated_cache_write_usd) || 0, of: Math.max(0.01, usd), fmt: fusd(Number(g.sum.estimated_cache_write_usd) || 0) })), q: 'ModelSwitch' });
+    }
+    // 10. instructions loaded
+    const instr = by('classic.InstructionsLoaded');
+    if (instr.length) {
+      const why = {}; instr.forEach(i => { const r = (i.sum && i.sum.load_reason) || '?'; why[r] = (why[r] || 0) + 1; });
+      add({ id: 'instr', sev: 'info', icon: '☰', title: 'Instruction files loaded', big: String(instr.length), unit: 'loads',
+        detail: [...new Set(instr.map(i => String((i.sum && i.sum.file_path) || '').replace(/^.*\/(?=[^/]+\/[^/]+$)/, '…/')))].slice(0, 4).join(', '),
+        tip: 'Nested and path-matched files load only when Claude touches that folder: a cheap way to keep the root CLAUDE.md small.',
+        bars: topN(why).map(([k, v]) => ({ label: k.replace(/_/g, ' '), v, of: instr.length })), q: 'InstructionsLoaded' });
+    }
+    // 11. files changed outside Claude
+    const fc = by('classic.FileChanged');
+    if (fc.length) {
+      const written = new Set(G.filter(g => g.ev === 'tool.call' && /^(Edit|Write|MultiEdit|NotebookEdit)$/.test((g.sum && g.sum.tool) || '')).map(g => g.sum.file_path));
+      const ext = fc.filter(f => f.sum && !written.has(f.sum.file_path));
+      if (ext.length) add({ id: 'external', sev: 'warn', icon: '✎', title: 'Files changed outside Claude', big: String(ext.length), unit: 'changes not made by a tool call',
+        detail: [...new Set(ext.map(f => String(f.sum.file_path).split('/').slice(-2).join('/')))].slice(0, 4).join(', '),
+        tip: 'Claude may still hold the old contents in context. Say "I changed X" or let it re-read before editing.', bars: [], q: 'FileChanged' });
+    }
+    // 12. hidden reminders
+    const att = by('prompt.attachment');
+    if (att.length) {
+      const per = {}; let chars = 0;
+      att.forEach(a => { const k = (a.sum && (a.sum.type || a.sum.event || a.sum.kind)) || '?'; const n = parseInt((a.out || '').replace(/\D/g, '')) || 0; chars += n; per[k] = (per[k] || 0) + n; });
+      add({ id: 'attach', sev: chars > 40000 ? 'warn' : 'info', icon: '⌁', title: 'Text Claude Code added to your messages', big: '~' + fkk(chars / 4), unit: 'tokens · ' + att.length + ' attachments',
+        detail: 'Reminders, file-change notices, hook outputs: invisible in the chat, paid for in context.', tip: 'Large hook outputs are the usual culprit. Keep hook stdout short.',
+        bars: topN(per).map(([k, v]) => ({ label: k, v, of: Math.max(1, chars), fmt: '~' + fkk(v / 4) })), q: 'prompt.attachment' });
+    }
+    // 13. what the transcript stores
+    const app = by('session.append').filter(g => g.sum && g.sum.chars);
+    if (app.length) {
+      const per = {}; let tot = 0; app.forEach(a => { const k = a.sum.door || a.sum.role || '?'; per[k] = (per[k] || 0) + a.sum.chars; tot += a.sum.chars; });
+      const [tk] = topN(per, 1)[0];
+      add({ id: 'growth', sev: per[tk] / tot > 0.7 ? 'warn' : 'info', icon: '▤', title: 'What your conversation is made of', big: '~' + fkk(tot / 4), unit: 'tokens appended · ' + app.length + ' messages',
+        detail: tk + ' is ' + Math.round(per[tk] / tot * 100) + '% of everything stored.', tip: 'Tool results dominating? Narrow reads (offset/limit), head_limit on searches, or an Explore subagent.',
+        bars: topN(per).map(([k, v]) => ({ label: k, v, of: tot, fmt: '~' + fkk(v / 4) })), q: 'session.append' });
+    }
+    // 14. what plugins reached outside
+    const reach = G.filter(g => g.by !== 'engine' && /^(http\.fetch|process\.run|process\.spawn|env\.get|env\.set|fs\.write|fs\.read|mcp\.call)$/.test(g.ev));
+    if (reach.length) {
+      const per = {};
+      reach.forEach(r => { let what = r.ev; const x = r.sum || {}; if (r.ev === 'http.fetch') { try { what = 'net ' + new URL(x.url).host; } catch { what = 'net ' + x.url; } } else if (/^process/.test(r.ev)) what = 'exec ' + String(Array.isArray(x.argv) ? x.argv[0] : x.argv || '?').split('/').pop(); else if (/^env/.test(r.ev)) what = 'env ' + (x.name || x.key || '?'); else if (/^fs/.test(r.ev)) what = r.ev.slice(3) + ' ' + String(x.path || '').split('/').slice(-2).join('/'); const k = r.by + ' → ' + what; per[k] = (per[k] || 0) + 1; });
+      add({ id: 'reach', sev: 'info', icon: '⇱', title: 'What plugins reached outside', big: String(Object.keys(per).length), unit: 'distinct destinations · ' + reach.length + ' calls',
+        detail: 'Network hosts, programs, environment variables and files that plugins (not you or Claude) touched.', tip: 'Anything unexpected here is worth a look at that plugin\'s source.',
+        bars: topN(per, 8).map(([k, v]) => ({ label: k, v, of: reach.length })), q: '' });
+    }
+    // 15. agents, skills, interruptions
+    const sp = by('agent.spawn'), sk = by('skill.prompt'), ab = G.filter(g => g.ev === 'turn.abort' || g.ev === 'classic.StopFailure');
+    if (sp.length || sk.length || ab.length) {
+      const per = {}; sp.forEach(a => { const k = 'agent ' + ((a.sum && (a.sum.subagentType || a.sum.agent_type)) || 'general'); per[k] = (per[k] || 0) + 1; });
+      sk.forEach(a => { const k = 'skill ' + ((a.sum && a.sum.skill) || '?'); per[k] = (per[k] || 0) + 1; });
+      if (ab.length) per['interrupted / failed stop'] = ab.length;
+      add({ id: 'delegation', sev: 'info', icon: '⑂', title: 'Delegation and interruptions', big: String(sp.length), unit: 'subagents · ' + sk.length + ' skills · ' + ab.length + ' interruptions',
+        detail: 'Subagents keep exploration out of your context; skills load instructions only when used.', tip: sp.length ? 'See the Agents view for what each subagent kept out of your context.' : 'Big searches in the main thread? Ask for an Explore subagent instead.',
+        bars: topN(per, 8).map(([k, v]) => ({ label: k, v, of: Math.max(1, sp.length + sk.length + ab.length) })), q: 'agent.spawn' });
+    }
+    // 16. volume
+    const vol = {}; this.series.forEach(r => Object.entries(r.c || {}).forEach(([k, v]) => { vol[nsOf(k)] = (vol[nsOf(k)] || 0) + v[0]; }));
+    const totalV = Object.values(vol).reduce((a, b) => a + b, 0);
+    if (totalV) add({ id: 'volume', sev: 'info', icon: '≋', title: 'Everything the engine did', big: fkk(totalV), unit: 'events · ' + Object.keys(vol).length + ' kinds',
+      detail: 'Counted per namespace, renders and clocks included. The Pulse tab shows them over time.', tip: '', bars: topN(vol, 8).map(([k, v]) => ({ label: k, v, of: totalV, color: colorOfNs(k) })), q: '' });
+    const order = { hot: 0, warn: 1, ok: 2, info: 3 };
+    return out.sort((a, b) => order[a.sev] - order[b.sev]);
+  });
+};
+DT.sigText = sigText; DT.nsOf = nsOf; DT.colorOfNs = colorOfNs; DT.fdur = fdur;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. Boot: the shell view, mounted once the stream has said hello.
+// ─────────────────────────────────────────────────────────────────────────────
+(async function boot() {
+  applyTheme();
+  DT.connect();
+  setInterval(() => DT.loadSessions(), 30000);
+  setInterval(() => { if (DT.live) DT.bump(); }, 1000); // "now" moves even when nothing arrives
+  try {
+    await loadDef('Web');
+  } catch (err) {
+    document.getElementById('app').innerHTML = '<div class="dt-wait"><b>Could not load the views</b>' + String(err) + '</div>';
+    return;
+  }
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  new Host('Web', app);
+})();
+</script>
+<script src="classify.js"></script>
+<script src="coach.js"></script>
+</body>
+</html>

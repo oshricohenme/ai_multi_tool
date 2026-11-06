@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Context X-ray view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit}
+</style>
+</helmet>
+<div style="height: 100%; min-height: 844px; display: flex; flex-direction: column; background: #0b0b0d; color: #e4e4e8; font-family: Inter, system-ui, sans-serif; font-size: 13px">
+
+<div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 16px 20px 12px; border-bottom: 1px solid #1f1f23; background: linear-gradient(#111114, #0d0d10)">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 18px; font-weight: 600">Context X-ray</h1>
+<p style="margin: 0; color: #9a9aa3">Every tile rides along on every request. Orange tiles are the ones you can cut. Toggle a fix to see the treemap and the bill change.</p>
+</div>
+<div style="display: flex; align-items: baseline; gap: 10px; font-family: 'JetBrains Mono', monospace">
+<span style="font-size: 30px; font-weight: 700">{{totalS}}</span><span style="color: #8b8b94">{{windowS}}</span><span style="{{deltaStyle}}">{{deltaS}}</span>
+</div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1; min-height: 0">
+<section style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+<canvas ref="{{mapRef}}" onMouseMove="{{onMove}}" onMouseLeave="{{onLeave}}" aria-label="Treemap of everything in the context window, sized by tokens" style="display: block; width: 100%; flex: 1; min-height: 400px; cursor: default"></canvas>
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 8px 20px 4px; border-top: 1px solid #1f1f23; font-size: 12px; color: #8b8b94">
+<span style="font-weight: 600; color: #e4e4e8">Every tile, largest first</span><span>{{projLine}}</span>
+</div>
+<div style="max-height: 240px; overflow-y: auto; padding: 0 20px 12px">
+<sc-for list="{{tiles}}" as="t" hint-placeholder-count="10">
+<div style="display: grid; grid-template-columns: 12px minmax(0, 1.2fr) 140px 64px 48px minmax(0, 1fr); column-gap: 10px; align-items: center; padding: 4px 0; border-bottom: 1px solid #141418; font-size: 12px">
+<span style="{{t.dot}}"></span>
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis">{{t.name}}</span>
+<span style="color: #8b8b94; overflow: hidden; white-space: nowrap; text-overflow: ellipsis">{{t.cat}}</span>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace">{{t.tok}}</span>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; color: #8b8b94">{{t.pct}}</span>
+<span style="{{t.noteStyle}}">{{t.note}}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<aside aria-label="What if" style="flex: 1 1 320px; max-width: 400px; min-width: 290px; border-left: 1px solid #1f1f23; background: #101013; display: flex; flex-direction: column; gap: 14px; padding: 16px">
+<div style="font-size: 11px; letter-spacing: 0.08em; color: #6e6e78">WHAT IF YOU…</div>
+<sc-for list="{{fixes}}" as="f" hint-placeholder-count="4">
+<button type="button" onClick="{{f.toggle}}" aria-pressed="{{f.on}}" style="{{f.style}}">
+<span style="{{f.boxStyle}}">{{f.mark}}</span>
+<span style="display: flex; flex-direction: column; gap: 3px; text-align: left; flex: 1; min-width: 0">
+<span style="font-weight: 600">{{f.label}}</span>
+<span style="font-size: 12px; color: #9a9aa3; line-height: 1.45">{{f.how}}</span>
+</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #6fd3b4">{{f.save}}</span>
+</button>
+</sc-for>
+<sc-if value="{{hasFix}}" hint-placeholder-val="{{ false }}">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px">
+<sc-for list="{{stats}}" as="s" hint-placeholder-count="4">
+<div style="display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 10px; background: #151518; border: 1px solid #222227">
+<span style="font-size: 11px; color: #8b8b94">{{s.k}}</span>
+<span style="{{s.style}}">{{s.v}}</span>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<p style="margin: 0; font-size: 12px; line-height: 1.55; color: #8b8b94">{{verdict}}</p>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1376,"height":844}}'>
+var C = { bg: '#0b0b0d', text: '#e4e4e8', dim: '#8b8b94', faint: '#55555e', relief: '#6fd3b4', hot: '#f2703f', warm: '#e2a557', steel: '#4d6b8f', mist: '#93a9c8', focus: '#f4f4f6' };
+function hex(c) { return [1, 3, 5].map(function (i) { return parseInt(c.substr(i, 2), 16); }); }
+function rgba(c, a) { var p = hex(c); return 'rgba(' + p[0] + ',' + p[1] + ',' + p[2] + ',' + a + ')'; }
+function rr(g, x, y, w, h, r) { r = Math.max(0, Math.min(r, w / 2, h / 2)); g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+function fk(n) { return DT.fmt.tok(n); }
+function fusd(n) { return DT.fmt.usd(n); }
+function ease(a, b, k) { return a + (b - a) * k; }
+
+// Live: the latest /context breakdown plus this session's tool results (index.html: DT.contextTree).
+// status: fixed (Claude Code owns it), keep (in use), cut (stale / unused / trimmable)
+var TREE = [], FIXES = [], READ = 0.5, WRITE = 6.25, WIN = 200000, PCT = 0, VER = -1, BASE = 0;
+function sync() {
+  if (VER === DT.ver) return; VER = DT.ver;
+  var d = DT.contextTree(); if (!d) return;
+  TREE = d.tree; FIXES = d.fixes; READ = d.read; WRITE = d.write; WIN = d.window; PCT = d.percent;
+  BASE = total(sizes({}));
+}
+function sizes(on) {
+  var m = {};
+  TREE.forEach(function (c) { c.kids.forEach(function (k) { m[k.id] = k.v; }); });
+  FIXES.forEach(function (f) { if (on[f.id]) Object.keys(f.set).forEach(function (k) { m[k] = Math.min(m[k], f.set[k]); }); });
+  return m;
+}
+function total(m) { return Object.keys(m).reduce(function (a, k) { return a + m[k]; }, 0); }
+
+function squarify(items, x, y, w, h) {
+  var out = {}, live = items.filter(function (i) { return i.v > 0; }).sort(function (a, b) { return b.v - a.v; });
+  var sum = live.reduce(function (a, i) { return a + i.v; }, 0);
+  if (sum <= 0 || w <= 0 || h <= 0) return out;
+  var scale = w * h / sum, rest = live.map(function (i) { return { id: i.id, a: i.v * scale }; });
+  var worst = function (row, s) { var a = 0, mx = 0, mn = Infinity; row.forEach(function (r) { a += r.a; mx = Math.max(mx, r.a); mn = Math.min(mn, r.a); }); return Math.max(s * s * mx / (a * a), a * a / (s * s * mn)); };
+  while (rest.length) {
+    var s = Math.min(w, h), row = [], best = Infinity, i = 0;
+    while (i < rest.length) { var cand = row.concat([rest[i]]), r = worst(cand, s); if (r <= best) { row = cand; best = r; i++; } else break; }
+    var area = row.reduce(function (a, r) { return a + r.a; }, 0), thick = area / s, pos = 0;
+    row.forEach(function (r) { var len = r.a / thick; out[r.id] = w >= h ? { x: x, y: y + pos, w: thick, h: len } : { x: x + pos, y: y, w: len, h: thick }; pos += len; });
+    if (w >= h) { x += thick; w -= thick; } else { y += thick; h -= thick; }
+    rest = rest.slice(row.length);
+  }
+  return out;
+}
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    sync();
+    this.state = { on: {}, hover: null };
+    this.cur = {}; this.alpha = {}; this.mouse = null; this.hits = [];
+    this.shown = BASE; this.proj = 0;
+  }
+  componentDidMount() {
+    var self = this;
+    var loop = function (ts) { sync(); self.draw(ts / 1000); self.raf = requestAnimationFrame(loop); };
+    this.raf = requestAnimationFrame(loop);
+  }
+  componentWillUnmount() { cancelAnimationFrame(this.raf); }
+  canvasSize(cv) {
+    var dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); return { g: g, w: w, h: h };
+  }
+  layout(w, h) {
+    var m = sizes(this.state.on), P = 14, rects = {};
+    var cats = squarify(TREE.map(function (c) { return { id: c.id, v: c.kids.reduce(function (a, k) { return a + m[k.id]; }, 0) }; }), P, P, w - P * 2, h - P * 2);
+    TREE.forEach(function (c) {
+      var r = cats[c.id];
+      if (!r) { c.kids.forEach(function (k) { rects[k.id] = null; }); return; }
+      rects[c.id] = r;
+      var head = r.h > 56 && r.w > 170 ? 22 : 0;
+      var kids = squarify(c.kids.map(function (k) { return { id: k.id, v: m[k.id] }; }), r.x + 3, r.y + head + 3, r.w - 6, r.h - head - 6);
+      c.kids.forEach(function (k) { rects[k.id] = kids[k.id] || null; });
+    });
+    return rects;
+  }
+  draw(t) {
+    var self = this;
+    if (this.map) {
+      var s = this.canvasSize(this.map), g = s.g, w = s.w, h = s.h, tgt = this.layout(w, h), hits = [];
+      g.clearRect(0, 0, w, h); g.fillStyle = C.bg; g.fillRect(0, 0, w, h);
+      var hov = this.state.hover;
+      TREE.forEach(function (c) {
+        // category frame
+        var cr = tgt[c.id], cc = self.cur[c.id];
+        if (cr) { self.cur[c.id] = cc = cc ? { x: ease(cc.x, cr.x, 0.14), y: ease(cc.y, cr.y, 0.14), w: ease(cc.w, cr.w, 0.14), h: ease(cc.h, cr.h, 0.14) } : Object.assign({}, cr); }
+        if (cc) {
+          g.fillStyle = '#131317'; rr(g, cc.x + 1, cc.y + 1, cc.w - 2, cc.h - 2, 8); g.fill();
+          g.strokeStyle = '#24242a'; g.lineWidth = 1; g.stroke();
+          if (cc.h > 56 && cc.w > 170) {
+            var sum = c.kids.reduce(function (a, k) { return a + (sizes(self.state.on)[k.id]); }, 0);
+            g.font = '600 11px Inter, system-ui, sans-serif'; g.textBaseline = 'middle'; g.textAlign = 'left'; g.fillStyle = C.dim;
+            g.fillText(c.name.toUpperCase(), cc.x + 10, cc.y + 13);
+            g.textAlign = 'right'; g.font = '500 11px JetBrains Mono, monospace'; g.fillText(fk(sum), cc.x + cc.w - 10, cc.y + 13);
+          }
+        }
+        c.kids.forEach(function (k) {
+          var r = tgt[k.id], cur = self.cur[k.id];
+          if (r) {
+            cur = self.cur[k.id] = cur ? { x: ease(cur.x, r.x, 0.14), y: ease(cur.y, r.y, 0.14), w: ease(cur.w, r.w, 0.14), h: ease(cur.h, r.h, 0.14) } : Object.assign({}, r);
+            self.alpha[k.id] = ease(self.alpha[k.id] ?? 0, 1, 0.12);
+          } else if (cur) {
+            // removed: collapse into its centre and flash mint
+            cur = self.cur[k.id] = { x: cur.x + cur.w * 0.07, y: cur.y + cur.h * 0.07, w: cur.w * 0.86, h: cur.h * 0.86 };
+            self.alpha[k.id] = ease(self.alpha[k.id] ?? 1, 0, 0.1);
+            if (cur.w < 1) { delete self.cur[k.id]; return; }
+          } else return;
+          var a = self.alpha[k.id], x = cur.x + 1.5, y = cur.y + 1.5, ww = cur.w - 3, hh = cur.h - 3;
+          if (ww <= 0 || hh <= 0) return;
+          var base = r ? (k.st === 'cut' ? C.hot : k.st === 'fixed' ? '#7d93b2' : k.v > 5000 ? C.warm : C.mist) : C.relief;
+          var on = hov === k.id;
+          g.globalAlpha = a;
+          var grad = g.createLinearGradient(x, y, x + ww, y + hh);
+          grad.addColorStop(0, rgba(base, on ? 1 : 0.94)); grad.addColorStop(1, rgba(base, on ? 0.86 : 0.74));
+          g.fillStyle = grad; rr(g, x, y, ww, hh, 5); g.fill();
+          if (k.st === 'cut' && r) {
+            // hatched: removable
+            g.save(); rr(g, x, y, ww, hh, 5); g.clip(); g.strokeStyle = 'rgba(11,11,13,0.1)'; g.lineWidth = 6;
+            var off = (t * 14) % 16;
+            for (var d = -hh; d < ww + hh; d += 16) { g.beginPath(); g.moveTo(x + d + off, y + hh); g.lineTo(x + d + off + hh, y); g.stroke(); }
+            g.restore();
+          }
+          if (on) { g.strokeStyle = C.focus; g.lineWidth = 2; rr(g, x, y, ww, hh, 5); g.stroke(); }
+          if (ww > 70 && hh > 34) {
+            g.fillStyle = '#0d0d10'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+            var big = Math.max(12, Math.min(26, Math.sqrt(ww * hh) / 9));
+            g.font = '700 ' + big.toFixed(0) + 'px JetBrains Mono, monospace'; g.fillText(fk(k.v > 0 ? sizes(self.state.on)[k.id] || k.v : k.v), x + 9, y + 8 + big);
+            g.font = '600 11px Inter, system-ui, sans-serif';
+            var txt = k.name; while (txt.length > 4 && g.measureText(txt).width > ww - 18) txt = txt.slice(0, -2);
+            if (txt !== k.name) txt += '…';
+            g.fillText(txt, x + 9, y + 24 + big);
+            if (hh > 80) { g.font = '11px Inter, system-ui, sans-serif'; g.fillStyle = 'rgba(13,13,16,0.72)'; var n = k.note; while (n.length > 4 && g.measureText(n).width > ww - 18) n = n.slice(0, -2); g.fillText(n, x + 9, y + 40 + big); }
+          }
+          g.globalAlpha = 1;
+          if (r) hits.push({ id: k.id, x: x, y: y, w: ww, h: hh });
+        });
+      });
+      this.hits = hits;
+      // tooltip
+      var mm = this.mouse, hk = hov && TREE.reduce(function (a, c) { return a || c.kids.find(function (k) { return k.id === hov; }); }, null);
+      if (mm && hk) {
+        var cur2 = sizes(this.state.on)[hk.id], per = cur2 * READ / 1e6;
+        var lines = [hk.name, fk(cur2) + ' tokens · ' + (cur2 / BASE * 100).toFixed(1) + '% of context', '$' + per.toFixed(4) + ' every request (cache read)', hk.note];
+        g.font = '12px Inter, system-ui, sans-serif';
+        var tw = Math.max.apply(null, lines.map(function (l) { return g.measureText(l).width; })) + 24, th = 86;
+        var tx = Math.min(w - tw - 8, mm.x + 14), ty = Math.min(h - th - 8, mm.y + 14);
+        g.fillStyle = 'rgba(20,20,24,0.96)'; rr(g, tx, ty, tw, th, 8); g.fill(); g.strokeStyle = '#33333a'; g.lineWidth = 1; g.stroke();
+        g.textAlign = 'left'; g.textBaseline = 'middle';
+        lines.forEach(function (l, i) { g.fillStyle = i === 0 ? C.text : i === 3 ? (hk.st === 'cut' ? C.hot : C.dim) : C.dim; g.font = (i === 0 ? '600 ' : '') + '12px Inter, system-ui, sans-serif'; g.fillText(l, tx + 12, ty + 16 + i * 18); });
+      }
+    }
+    if (this.projC) this.drawProj(t);
+  }
+  economics() {
+    var after = total(sizes(this.state.on)), saved = BASE - after;
+    var rewrite = saved > 0 ? after * WRITE / 1e6 : 0; // removing anything re-writes the prefix after it once
+    var perCall = saved * READ / 1e6;
+    return { after: after, saved: saved, rewrite: rewrite, perCall: perCall, breakEven: perCall > 0 ? Math.ceil(rewrite / perCall) : null };
+  }
+  drawProj(t) {
+    var s = this.canvasSize(this.projC), g = s.g, w = s.w, h = s.h, e = this.economics(), N = 60;
+    var L = 64, R = 24, T = 14, B = 28, W = w - L - R, H = h - T - B;
+    var asIs = function (n) { return n * BASE * READ / 1e6; }, fixed = function (n) { return e.rewrite + n * e.after * READ / 1e6; };
+    var max = Math.max(asIs(N), fixed(N)) * 1.08;
+    var X = function (n) { return L + n / N * W; }, Y = function (v) { return T + H - v / max * H; };
+    this.proj = ease(this.proj, 1, 0.08);
+    g.clearRect(0, 0, w, h); g.fillStyle = C.bg; g.fillRect(0, 0, w, h);
+    g.font = '10px JetBrains Mono, monospace'; g.fillStyle = C.faint; g.textAlign = 'right'; g.textBaseline = 'middle';
+    for (var i = 0; i <= 4; i++) { var v = max * i / 4; g.fillStyle = '#1a1a1e'; g.fillRect(L, Y(v), W, 1); g.fillStyle = C.faint; g.fillText('$' + v.toFixed(2), L - 8, Y(v)); }
+    g.textAlign = 'center'; [0, 10, 20, 30, 40, 50, 60].forEach(function (n) { g.fillText(n === 0 ? 'now' : '+' + n, X(n), h - 12); });
+    var line = function (f, col, dash) {
+      g.beginPath(); for (var n = 0; n <= N; n++) { var y = Y(f(n)); if (n === 0) g.moveTo(X(n), y); else g.lineTo(X(n), y); }
+      g.setLineDash(dash || []); g.strokeStyle = col; g.lineWidth = 2; g.stroke(); g.setLineDash([]);
+    };
+    // area between: what you save
+    if (e.saved > 0) {
+      g.beginPath(); for (var n = 0; n <= N; n++) g.lineTo(X(n), Y(asIs(n))); for (n = N; n >= 0; n--) g.lineTo(X(n), Y(Math.min(asIs(n), fixed(n)))); g.closePath();
+      g.fillStyle = rgba(C.relief, 0.12); g.fill();
+    }
+    line(asIs, C.hot);
+    if (e.saved > 0) line(fixed, C.relief);
+    g.textAlign = 'left'; g.font = '600 11px Inter, system-ui, sans-serif';
+    g.fillStyle = C.hot; g.fillText('as is  $' + asIs(N).toFixed(2), X(N) - 120, Y(asIs(N)) - 12);
+    if (e.saved > 0) {
+      g.fillStyle = C.relief; g.fillText('with fixes  $' + fixed(N).toFixed(2), X(N) - 140, Y(fixed(N)) + 14);
+      if (e.breakEven !== null && e.breakEven <= N) {
+        var bx = X(e.breakEven), by = Y(asIs(e.breakEven)), pulse = 4 + 2 * Math.sin(t * 4);
+        g.fillStyle = rgba(C.focus, 0.18); g.beginPath(); g.arc(bx, by, pulse + 6, 0, Math.PI * 2); g.fill();
+        g.fillStyle = C.focus; g.beginPath(); g.arc(bx, by, 4, 0, Math.PI * 2); g.fill();
+        g.fillStyle = C.text; g.fillText('break-even at call ' + e.breakEven, bx + 10, by - 12);
+      }
+      // one-time cache rewrite step
+      g.fillStyle = C.dim; g.font = '11px Inter, system-ui, sans-serif'; g.fillText('one-time cache rewrite $' + e.rewrite.toFixed(3), X(0) + 8, Y(e.rewrite) - 10);
+    }
+  }
+  renderVals() {
+    sync();
+    var self = this, S = this.state, e = this.economics();
+    var mono = "font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: ";
+    var m = sizes(S.on), tiles = [];
+    TREE.forEach(function (c) { c.kids.forEach(function (k) { tiles.push({ k: k, c: c, v: m[k.id] }); }); });
+    tiles.sort(function (a, b) { return b.v - a.v; });
+    var full = Math.round(PCT || BASE / WIN * 100), asIs60 = 60 * BASE * READ / 1e6;
+    return {
+      totalS: fk(e.after), windowS: '/ ' + fk(WIN), deltaS: e.saved > 0 ? '−' + fk(e.saved) : full + '% full',
+      hasFix: e.saved > 0,
+      projLine: e.saved > 0 ? 'next 60 calls: ' + fusd(asIs60) + ' as is → ' + fusd(e.rewrite + 60 * e.after * READ / 1e6) + ' with the fixes' + (e.breakEven ? ' · pays back at call ' + e.breakEven : '') : 'carrying this costs ≈' + fusd(BASE * READ / 1e6) + ' per call while cached · ' + fusd(asIs60) + ' over the next 60',
+      tiles: tiles.map(function (t) {
+        var k = t.k, col = k.st === 'cut' ? C.hot : k.st === 'fixed' ? '#7d93b2' : k.v > 5000 ? C.warm : C.mist;
+        return { name: k.name, cat: t.c.name, tok: fk(t.v), pct: (t.v / Math.max(1, BASE) * 100).toFixed(1) + '%', note: (k.st === 'cut' ? 'can cut · ' : '') + (k.note || ''), noteStyle: 'overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: ' + (k.st === 'cut' ? C.hot : '#8b8b94'), dot: 'display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: ' + col };
+      }),
+      deltaStyle: 'font-weight: 700; color: ' + (e.saved > 0 ? C.relief : C.dim),
+      mapRef: function (el) { self.map = el; }, projRef: function (el) { self.projC = el; },
+      onMove: function (ev) {
+        var r = ev.currentTarget.getBoundingClientRect ? ev.currentTarget.getBoundingClientRect() : { left: 0, top: 0 };
+        var p = { x: ev.clientX - r.left, y: ev.clientY - r.top }; self.mouse = p;
+        var hit = self.hits.find(function (b) { return p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h; });
+        var id = hit ? hit.id : null; if (id !== S.hover) self.setState({ hover: id });
+      },
+      onLeave: function () { self.mouse = null; self.setState({ hover: null }); },
+      fixes: FIXES.map(function (f) {
+        var on = !!S.on[f.id], one = {}; one[f.id] = true;
+        var save = BASE - total(sizes(one));
+        return {
+          label: f.label, how: f.how, on: on ? 'true' : 'false', save: '−' + fk(save), mark: on ? '✓' : '',
+          toggle: function () { var o = Object.assign({}, S.on); o[f.id] = !on; self.setState({ on: o }); },
+          style: 'display: flex; align-items: flex-start; gap: 12px; padding: 12px; border-radius: 10px; cursor: pointer; color: #e4e4e8; border: 1px solid ' + (on ? '#23463c' : '#26262c') + '; background: ' + (on ? '#122520' : '#151518'),
+          boxStyle: 'flex: none; display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-top: 1px; border-radius: 5px; font-size: 12px; font-weight: 700; color: #0b0b0d; background: ' + (on ? C.relief : 'transparent') + '; border: 1.5px solid ' + (on ? C.relief : '#4a4a52')
+        };
+      }),
+      stats: [
+        { k: 'Context after', v: fk(e.after), style: mono + C.text },
+        { k: 'Saved per request', v: e.saved > 0 ? fusd(e.perCall) : '—', style: mono + C.relief },
+        { k: 'One-time rewrite', v: e.saved > 0 ? fusd(e.rewrite) : '—', style: mono + C.warm },
+        { k: 'Break-even', v: e.breakEven ? 'call ' + e.breakEven : '—', style: mono + C.text }
+      ],
+      verdict: e.saved <= 0 ? (full < 30 ? 'At ' + full + '% full there is no pressure yet: auto-compact is far off and each call carries only ' + fusd(BASE * READ / 1e6) + ' of cached context. ' : '') + 'Removing tokens costs one cache rewrite, so a fix pays off only if the session keeps going. Pick one to see the numbers.'
+        : e.breakEven <= 10 ? 'Worth it: the rewrite pays for itself within ' + e.breakEven + ' calls, and you push auto-compact back by ' + fk(e.saved) + '.'
+        : 'Marginal on cost alone (break-even at call ' + e.breakEven + '). Do it if you expect a long session or need the room before auto-compact.'
+    };
+  }
+}
+</script>
+</body>
+</html>

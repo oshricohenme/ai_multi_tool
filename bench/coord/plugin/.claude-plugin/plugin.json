@@ -1,0 +1,5 @@
+{
+  "name": "mt",
+  "description": "mt, the code tool for coding agents: use it for all code reading, searching and editing, and for long output. One call reads a symbol with its callers, tests and data (as a map, expanded in one call); one call changes many files, checked. Starts a per-session mt server, briefs Claude with the whole reference, redirects grep/sed/cat code reads to mt, and compresses large tool output (JSON stays out of context, queried with JSONPath or jq).",
+  "version": "0.1.0"
+}

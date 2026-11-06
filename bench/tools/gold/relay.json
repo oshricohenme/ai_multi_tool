@@ -1,0 +1,139 @@
+[
+ {
+  "prompt": "which migration creates the table that stores audit log entries, and which store function inserts rows into it",
+  "expect": [
+   "audit_log",
+   "WriteAudit"
+  ]
+ },
+ {
+  "prompt": "add a nullable archived_at column to the session table and return it from the session detail endpoint",
+  "expect": [
+   "session",
+   "SessionDetail",
+   "GetSession"
+  ]
+ },
+ {
+  "prompt": "the sessions list screen shows sessions in the wrong state filter",
+  "expect": [
+   "Sessions",
+   "listSessions"
+  ]
+ },
+ {
+  "prompt": "the session timeline endpoint returns turns out of order",
+  "expect": [
+   "getSessionTimeline",
+   "Timeline"
+  ]
+ },
+ {
+  "prompt": "TOTP enrollment confirm step rejects a valid code",
+  "expect": [
+   "EnrollTOTPConfirm",
+   "confirmTotpEnroll"
+  ]
+ },
+ {
+  "prompt": "the login screen's TOTP challenge never submits",
+  "expect": [
+   "TotpChallenge"
+  ]
+ },
+ {
+  "prompt": "revoking a user session does not log them out",
+  "expect": [
+   "RevokeSession"
+  ]
+ },
+ {
+  "prompt": "the org policy settings panel saves the wrong retention value",
+  "expect": [
+   "PolicyPanel",
+   "UpdatePolicy"
+  ]
+ },
+ {
+  "prompt": "flipping the killswitch in settings does not stop the agent from capturing",
+  "expect": [
+   "KillswitchPanel",
+   "setKillswitch",
+   "enterKillswitch"
+  ]
+ },
+ {
+  "prompt": "creating an enrollment token from the org page fails",
+  "expect": [
+   "CreateEnrollmentToken",
+   "createEnrollmentToken"
+  ]
+ },
+ {
+  "prompt": "the agent's shipper loop retries too aggressively after a 503",
+  "expect": [
+   "Shipper.loop"
+  ]
+ },
+ {
+  "prompt": "secrets that match a glob pattern are not redacted before upload",
+  "expect": [
+   "matchGlob"
+  ]
+ },
+ {
+  "prompt": "the outbox keeps old session sequence rows forever",
+  "expect": [
+   "PruneSessionSeq"
+  ]
+ },
+ {
+  "prompt": "full text search returns sessions from other orgs",
+  "expect": [
+   "Search",
+   "search"
+  ]
+ },
+ {
+  "prompt": "following a session does not persist after reload",
+  "expect": [
+   "SetFollow"
+  ]
+ },
+ {
+  "prompt": "the install screen shows the wrong curl command",
+  "expect": [
+   "Install"
+  ]
+ },
+ {
+  "prompt": "estimate how much an eval run will cost before starting it",
+  "expect": [
+   "EstimateRun"
+  ]
+ },
+ {
+  "prompt": "the live session websocket hub drops events when a session publishes many at once",
+  "expect": [
+   "PublishSessionEvents"
+  ]
+ },
+ {
+  "prompt": "rewrite this paragraph so it sounds less like AI using the humanizer skill",
+  "expect": [
+   "humanizer"
+  ]
+ },
+ {
+  "prompt": "deploy the web dashboard to a vercel preview",
+  "expect": [
+   "vercel:deploy"
+  ]
+ },
+ {
+  "prompt": "generate a 3d model of a desk lamp with meshy for the landing page",
+  "expect": [
+   "meshy"
+  ]
+ }
+]

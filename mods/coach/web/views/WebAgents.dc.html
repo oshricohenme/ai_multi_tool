@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Subagents view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit}
+</style>
+</helmet>
+<div style="height: 100%; min-height: 844px; display: flex; flex-direction: column; background: #0b0b0d; color: #e4e4e8; font-family: Inter, system-ui, sans-serif; font-size: 13px">
+
+<div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 16px 20px 12px; border-bottom: 1px solid #1f1f23; background: linear-gradient(#111114, #0d0d10)">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 18px; font-weight: 600">Subagents</h1>
+<p style="margin: 0; color: #9a9aa3">Where the work went, and what the subagents kept out of your main context.</p>
+</div>
+<div style="display: flex; gap: 22px; flex-wrap: wrap">
+<sc-for list="{{kpis}}" as="k" hint-placeholder-count="4">
+<div style="display: flex; flex-direction: column; gap: 3px"><span style="font-size: 11px; color: #8b8b94">{{k.label}}</span><span style="{{k.style}}">{{k.value}}</span></div>
+</sc-for>
+</div>
+</div>
+
+<div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 10px 20px">
+<span style="font-size: 12px; color: #8b8b94">{{crumb}}</span>
+<div role="group" aria-label="Size by" style="display: flex; gap: 4px; padding: 3px; border-radius: 9px; background: #151518; border: 1px solid #222227">
+<sc-for list="{{modes}}" as="m" hint-placeholder-count="3"><button type="button" onClick="{{m.pick}}" aria-pressed="{{m.on}}" style="{{m.style}}">{{m.label}}</button></sc-for>
+</div>
+</div>
+<canvas ref="{{iceRef}}" onMouseMove="{{onMove}}" onMouseLeave="{{onLeave}}" onClick="{{onClick}}" aria-label="Icicle chart of the session: main thread and each subagent, down to single calls and tools. Click to zoom." style="display: block; width: 100%; height: 300px; cursor: pointer"></canvas>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1; min-height: 0; border-top: 1px solid #1f1f23">
+<section style="flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid #1f1f23">
+<div style="display: flex; justify-content: space-between; gap: 10px; padding: 12px 20px 0"><span style="font-weight: 600">Read vs returned</span><span style="font-size: 12px; color: #8b8b94">each dot is ~1.2k tokens · only the bright ones reach your context</span></div>
+<canvas ref="{{funnelRef}}" aria-label="Funnel per subagent: tokens it read on the left, tokens it returned to the main thread on the right" style="display: block; width: 100%; flex: 1; min-height: 300px"></canvas>
+</section>
+<section style="flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column">
+<div style="display: flex; justify-content: space-between; gap: 10px; padding: 12px 20px 0"><span style="font-weight: 600">Main context: actual vs done inline</span><span style="{{cfStyle}}">{{cfNote}}</span></div>
+<canvas ref="{{cfRef}}" aria-label="Main thread context over time, and what it would have been had the subagents' reads happened in the main thread" style="display: block; width: 100%; flex: 1; min-height: 300px"></canvas>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1376,"height":844}}'>
+var C = { bg: '#0b0b0d', text: '#e4e4e8', dim: '#8b8b94', faint: '#55555e', relief: '#6fd3b4', hot: '#f2703f', warm: '#e2a557', error: '#ff5c7a', focus: '#f4f4f6', steel: '#4d6b8f', mist: '#93a9c8' };
+var RAMP = [[0, '#4d6b8f'], [0.45, '#93a9c8'], [0.72, '#e2a557'], [1, '#f2703f']];
+function hex(c) { return [1, 3, 5].map(function (i) { return parseInt(c.substr(i, 2), 16); }); }
+function mix(a, b, t) { var pa = hex(a), pb = hex(b); return '#' + pa.map(function (v, i) { return Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0'); }).join(''); }
+function rgba(c, a) { var p = hex(c); return 'rgba(' + p[0] + ',' + p[1] + ',' + p[2] + ',' + a + ')'; }
+function heat(t) { t = Math.max(0, Math.min(1, t)); for (var i = 1; i < RAMP.length; i++) if (t <= RAMP[i][0]) return mix(RAMP[i - 1][1], RAMP[i][1], (t - RAMP[i - 1][0]) / (RAMP[i][0] - RAMP[i - 1][0])); return RAMP[3][1]; }
+function rr(g, x, y, w, h, r) { r = Math.max(0, Math.min(r, w / 2, h / 2)); g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+function fk(n) { return DT.fmt.tok(n); }
+function fusd(n) { return DT.fmt.usd(n); }
+function ease(a, b, k) { return a + (b - a) * k; }
+function N(id, name, tok, sec, usd, kids) { return { id: id, name: name, self: { tok: tok, sec: sec, usd: usd }, kids: kids || [] }; }
+
+// Live (index.html: DT.agentsView). A node's size = its own + its children's.
+var ROOT = N('root', 'Session', 0, 0, 0, []), AGENTS = [], IDX = {}, CTX = [], WINDOW = 200000, AUTO = 167000, END = 1, CROSS = null, VER = -1;
+function size(n, m) { return n.self[m] + n.kids.reduce(function (a, k) { return a + size(k, m); }, 0); }
+function family(n) { while (n.parent && n.parent !== ROOT) n = n.parent; return n.id; }
+function ctxAt(t) { var v = 0; for (var i = 0; i < CTX.length; i++) { if (CTX[i][0] <= t) v = CTX[i][1]; } return v; }
+// had each subagent's reads landed in the main thread, spread over its run
+function extra(t) { return AGENTS.reduce(function (a, g) { return a + g.read * Math.max(0, Math.min(1, (t - g.t0) / Math.max(0.1, g.sec))); }, 0); }
+function sync() {
+  if (VER === DT.ver) return; VER = DT.ver;
+  var d = DT.agentsView();
+  ROOT = d.root; AGENTS = d.agents; CTX = d.samples; WINDOW = d.window; AUTO = d.autoAt; END = d.end; IDX = {};
+  (function walk(n, parent, depth) { n.parent = parent; n.depth = depth; IDX[n.id] = n; n.kids.forEach(function (k) { walk(k, n, depth + 1); }); })(ROOT, null, 0);
+  CROSS = null;
+  if (AGENTS.length) for (var t = 0; t < END; t += END / 600) if (ctxAt(t) + extra(t) >= AUTO) { CROSS = t; break; }
+}
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    sync();
+    this.state = { mode: 'tok', focus: 'root', hover: null };
+    this.cur = {}; this.hits = []; this.mouse = null; this.parts = []; this.cfP = 0;
+  }
+  componentDidMount() {
+    var self = this, last = performance.now();
+    var loop = function (ts) { var dt = Math.min(0.05, (ts - last) / 1000); last = ts; sync(); self.draw(ts / 1000, dt); self.raf = requestAnimationFrame(loop); };
+    this.raf = requestAnimationFrame(loop);
+  }
+  componentWillUnmount() { cancelAnimationFrame(this.raf); }
+  canvasSize(cv) {
+    var dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); return { g: g, w: w, h: h };
+  }
+  draw(t, dt) {
+    if (this.ice) this.drawIce(t);
+    if (this.funnel) this.drawFunnel(t, dt);
+    if (this.cf) this.drawCf(t, dt);
+  }
+  drawIce(t) {
+    var s = this.canvasSize(this.ice), g = s.g, w = s.w, h = s.h, self = this, m = this.state.mode;
+    var P = 20, W = w - P * 2, rowH = (h - 16) / 4, f = IDX[this.state.focus] || ROOT, tgt = {};
+    // partition in [0,1], then zoom so the focus spans the full width
+    (function part(n, x0, x1) {
+      tgt[n.id] = [x0, x1];
+      var tot = size(n, m), x = x0 + (tot ? n.self[m] / tot : 0) * (x1 - x0);
+      n.kids.forEach(function (k) { var kx = x + (tot ? size(k, m) / tot : 0) * (x1 - x0); part(k, x, kx); x = kx; });
+    })(ROOT, 0, 1);
+    var fx = tgt[f.id];
+    var maxLeaf = Math.max(1e-9, Math.max.apply(null, Object.keys(IDX).map(function (id) { return IDX[id].self[m]; })));
+    g.clearRect(0, 0, w, h); g.fillStyle = C.bg; g.fillRect(0, 0, w, h);
+    var hits = [], hov = this.state.hover;
+    Object.keys(IDX).forEach(function (id) {
+      var n = IDX[id], a = tgt[id];
+      var onPath = false, p = f; while (p) { if (p === n) onPath = true; p = p.parent; }
+      var z0 = onPath ? 0 : (a[0] - fx[0]) / (fx[1] - fx[0]), z1 = onPath ? 1 : (a[1] - fx[0]) / (fx[1] - fx[0]);
+      var c = self.cur[id] || (self.cur[id] = [z0, z1]);
+      c[0] = ease(c[0], z0, 0.16); c[1] = ease(c[1], z1, 0.16);
+      var x0 = P + Math.max(0, c[0]) * W, x1 = P + Math.min(1, c[1]) * W;
+      if (x1 - x0 < 0.6 || c[1] < 0 || c[0] > 1) return;
+      var y = 8 + n.depth * rowH, hh = rowH - 4, fam = family(n);
+      var r = Math.min(1, n.self[m] / maxLeaf), col, dark = true;
+      if (n === ROOT) { col = '#26262c'; dark = false; }
+      else if (fam === 'main') { if (n.kids.length) { col = '#3a3530'; dark = false; } else col = heat(r); }
+      else if (n.depth === 1) { col = '#24493f'; dark = false; }
+      else if (n.depth === 2) col = mix('#3f8a74', C.relief, r);
+      else col = mix('#5f7da0', C.mist, Math.min(1, r * 2));
+      var on = hov === id;
+      var grad = g.createLinearGradient(0, y, 0, y + hh); grad.addColorStop(0, col); grad.addColorStop(1, rgba(col, 0.75));
+      g.fillStyle = grad; rr(g, x0 + 1, y, Math.max(1, x1 - x0 - 2), hh, 5); g.fill();
+      if (on) { g.strokeStyle = C.focus; g.lineWidth = 2; rr(g, x0 + 1, y, Math.max(1, x1 - x0 - 2), hh, 5); g.stroke(); }
+      if (x1 - x0 > 60) {
+        g.fillStyle = dark ? '#0d0d10' : C.text; g.textAlign = 'left'; g.textBaseline = 'middle';
+        g.font = '600 12px Inter, system-ui, sans-serif';
+        var lab = n.name, mx = x1 - x0 - 20; while (lab.length > 3 && g.measureText(lab).width > mx) lab = lab.slice(0, -2); if (lab !== n.name) lab += '…';
+        g.fillText(lab, Math.max(x0, P) + 10, y + hh / 2 - 8);
+        g.font = '500 11px JetBrains Mono, monospace';
+        var v = size(n, m), vs = m === 'tok' ? fk(v) + ' tok' : m === 'sec' ? DT.fmt.dur(v * 1000) : fusd(v);
+        if (g.measureText(vs).width < mx) g.fillText(vs, Math.max(x0, P) + 10, y + hh / 2 + 9);
+      }
+      hits.push({ id: id, x0: x0, x1: x1, y0: y, y1: y + hh });
+    });
+    this.hits = hits;
+    var hn = hov && IDX[hov], mm = this.mouse;
+    if (hn && mm) {
+      var par = hn.parent, share = par ? size(hn, m) / size(par, m) : 1;
+      var lines = [hn.name, fk(size(hn, 'tok')) + ' tokens · ' + DT.fmt.dur(size(hn, 'sec') * 1000) + ' · ' + fusd(size(hn, 'usd')), Math.round(share * 100) + '% of ' + (par ? par.name : 'session') + (hn.kids.length ? ' · click to zoom' : '')];
+      g.font = '12px Inter, system-ui, sans-serif';
+      var tw = Math.max.apply(null, lines.map(function (l) { return g.measureText(l).width; })) + 24, th = 64;
+      var tx = Math.min(w - tw - 8, mm.x + 14), ty = Math.min(h - th - 6, mm.y + 14);
+      g.fillStyle = 'rgba(20,20,24,0.96)'; rr(g, tx, ty, tw, th, 8); g.fill(); g.strokeStyle = '#33333a'; g.lineWidth = 1; g.stroke();
+      lines.forEach(function (l, i) { g.fillStyle = i === 0 ? C.text : C.dim; g.font = (i === 0 ? '600 ' : '') + '12px Inter, system-ui, sans-serif'; g.textAlign = 'left'; g.fillText(l, tx + 12, ty + 16 + i * 17); });
+    }
+  }
+  drawFunnel(t, dt) {
+    var s = this.canvasSize(this.funnel), g = s.g, w = s.w, h = s.h, self = this;
+    var L = Math.min(230, w * 0.26), R = 170, x0 = L, x1 = w - R, maxH = Math.min(120, (h - 40) / 2 - 20);
+    g.clearRect(0, 0, w, h); g.fillStyle = C.bg; g.fillRect(0, 0, w, h);
+    if (!AGENTS.length) {
+      g.fillStyle = C.dim; g.font = '13px Inter, system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText('No subagents this session. Explore agents keep big searches out of your context.', w / 2, h / 2);
+      return;
+    }
+    var max = Math.max(1, Math.max.apply(null, AGENTS.map(function (a) { return a.read; })));
+    var bands = AGENTS.map(function (a, i) {
+      var cy = 30 + (i + 0.5) * (h - 40) / AGENTS.length, hl = Math.max(6, a.read / max * maxH), hr = Math.max(3, a.ret / max * maxH);
+      return { a: a, cy: cy, hl: hl, hr: hr, at: function (u) { var k = u * u * (3 - 2 * u); return hl + (hr - hl) * k; } };
+    });
+    bands.forEach(function (b) {
+      var a = b.a;
+      g.beginPath(); g.moveTo(x0, b.cy - b.hl / 2);
+      g.bezierCurveTo((x0 + x1) / 2, b.cy - b.hl / 2, (x0 + x1) / 2, b.cy - b.hr / 2, x1, b.cy - b.hr / 2);
+      g.lineTo(x1, b.cy + b.hr / 2);
+      g.bezierCurveTo((x0 + x1) / 2, b.cy + b.hr / 2, (x0 + x1) / 2, b.cy + b.hl / 2, x0, b.cy + b.hl / 2);
+      g.closePath();
+      var grad = g.createLinearGradient(x0, 0, x1, 0); grad.addColorStop(0, rgba(C.mist, 0.22)); grad.addColorStop(0.7, rgba(C.relief, 0.16)); grad.addColorStop(1, rgba(C.relief, 0.5));
+      g.fillStyle = grad; g.fill(); g.strokeStyle = rgba(C.relief, 0.35); g.lineWidth = 1; g.stroke();
+      g.textAlign = 'right'; g.textBaseline = 'middle'; g.fillStyle = C.text; g.font = '600 12px Inter, system-ui, sans-serif';
+      var nm = a.name; g.font = '600 12px Inter, system-ui, sans-serif'; while (nm.length > 4 && g.measureText(nm).width > L - 24) nm = nm.slice(0, -2); if (nm !== a.name) nm += '…';
+      g.fillText(nm, L - 14, b.cy - 9);
+      g.fillStyle = C.mist; g.font = '700 13px JetBrains Mono, monospace'; g.fillText(fk(a.read) + ' read', L - 14, b.cy + 9);
+      g.textAlign = 'left'; g.fillStyle = C.relief; g.fillText(fk(a.ret) + ' returned', x1 + 14, b.cy - 9);
+      g.fillStyle = C.dim; g.font = '11px Inter, system-ui, sans-serif'; g.fillText((a.ret ? Math.round(a.read / a.ret) + '× smaller' : 'running') + ' · $' + a.usd.toFixed(2), x1 + 14, b.cy + 9);
+    });
+    // particles: one per ~1.2k tokens read; survivors are proportional to what was returned
+    bands.forEach(function (b, i) {
+      if (Math.random() < Math.min(0.6, dt * b.a.read / 1200 / 3)) self.parts.push({ b: i, u: 0, off: Math.random() - 0.5, live: Math.random() < b.a.ret / Math.max(1, b.a.read) * 4, die: 0.25 + Math.random() * 0.6, sp: 0.28 + Math.random() * 0.12 });
+    });
+    this.parts = this.parts.filter(function (p) { return p.u < 1.02; });
+    this.parts.forEach(function (p) {
+      p.u += dt * p.sp;
+      var b = bands[p.b], x = x0 + p.u * (x1 - x0), y = b.cy + p.off * b.at(Math.min(1, p.u)) * 0.9;
+      var a = p.live ? 1 : Math.max(0, 1 - Math.max(0, p.u - p.die) * 6);
+      if (a <= 0) return;
+      g.fillStyle = p.live ? rgba(C.focus, 0.95) : rgba(C.mist, 0.55 * a);
+      g.beginPath(); g.arc(x, y, p.live ? 2.2 : 1.6, 0, Math.PI * 2); g.fill();
+      if (p.live && p.u > 0.9) { g.fillStyle = rgba(C.relief, 0.25); g.beginPath(); g.arc(x, y, 6, 0, Math.PI * 2); g.fill(); }
+    });
+  }
+  drawCf(t, dt) {
+    var s = this.canvasSize(this.cf), g = s.g, w = s.w, h = s.h;
+    var L = 52, R = 20, T = 24, B = 28, W = w - L - R, H = h - T - B;
+    var X = function (x) { return L + x / END * W; }, Y = function (v) { return T + H - v / WINDOW * H; };
+    this.cfP = Math.min(1, this.cfP + dt / 3.5);
+    var upto = END * (1 - Math.pow(1 - this.cfP, 2));
+    g.clearRect(0, 0, w, h); g.fillStyle = C.bg; g.fillRect(0, 0, w, h);
+    g.font = '10px JetBrains Mono, monospace'; g.textBaseline = 'middle';
+    [0, 0.25, 0.5, 0.75, 1].map(function (f) { return f * WINDOW; }).forEach(function (v) { g.fillStyle = '#18181c'; g.fillRect(L, Y(v), W, 1); g.fillStyle = C.faint; g.textAlign = 'right'; g.fillText(fk(v), L - 8, Y(v)); });
+    g.textAlign = 'center'; [0, 0.25, 0.5, 0.75, 1].forEach(function (f) { var x = END * f; g.fillStyle = C.faint; g.fillText(x >= 120 ? Math.round(x / 60) + 'm' : Math.round(x) + 's', X(x), h - 12); });
+    // auto-compact zone
+    g.fillStyle = rgba(C.error, 0.07); g.fillRect(L, Y(WINDOW), W, Y(AUTO) - Y(WINDOW));
+    g.setLineDash([4, 4]); g.strokeStyle = rgba(C.error, 0.6); g.beginPath(); g.moveTo(L, Y(AUTO)); g.lineTo(L + W, Y(AUTO)); g.stroke(); g.setLineDash([]);
+    g.fillStyle = rgba(C.error, 0.85); g.textAlign = 'left'; g.font = '11px Inter, system-ui, sans-serif'; g.fillText('auto-compact', L + 6, Y(AUTO) - 9);
+    // subagent windows
+    AGENTS.forEach(function (a) {
+      var t0 = a.t0;
+      g.fillStyle = rgba(C.relief, 0.06); g.fillRect(X(t0), T, X(t0 + a.sec) - X(t0), H);
+    });
+    var step = END / 600, stopAt = CROSS !== null ? Math.min(upto, CROSS) : upto;
+    // counterfactual
+    g.beginPath(); for (var x = 0; x <= stopAt; x += step) { var v = ctxAt(x) + extra(x); if (x === 0) g.moveTo(X(x), Y(v)); else g.lineTo(X(x), Y(v)); }
+    g.setLineDash([6, 4]); g.strokeStyle = C.hot; g.lineWidth = 2; g.stroke(); g.setLineDash([]);
+    // actual, filled
+    g.beginPath(); g.moveTo(X(0), Y(0)); for (x = 0; x <= upto; x += step) g.lineTo(X(x), Y(ctxAt(x))); g.lineTo(X(upto), Y(0)); g.closePath();
+    var grad = g.createLinearGradient(0, T, 0, T + H); grad.addColorStop(0, rgba(C.relief, 0.4)); grad.addColorStop(1, rgba(C.relief, 0.02));
+    g.fillStyle = grad; g.fill();
+    g.beginPath(); for (x = 0; x <= upto; x += step) { if (x === 0) g.moveTo(X(x), Y(ctxAt(x))); else g.lineTo(X(x), Y(ctxAt(x))); }
+    g.strokeStyle = C.relief; g.lineWidth = 2; g.stroke();
+    g.font = '600 11px Inter, system-ui, sans-serif'; g.textAlign = 'left';
+    g.fillStyle = C.relief; g.fillText(AGENTS.length ? 'actual (with subagents)' : 'actual', X(END * 0.55), Y(ctxAt(END * 0.55)) - 12);
+    if (CROSS !== null && upto >= CROSS) {
+      var cx = X(CROSS), cy = Y(AUTO), pulse = 6 + 3 * Math.sin(t * 4);
+      g.fillStyle = rgba(C.error, 0.2); g.beginPath(); g.arc(cx, cy, pulse + 6, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = C.error; g.lineWidth = 2.5; g.beginPath(); g.moveTo(cx - 5, cy - 5); g.lineTo(cx + 5, cy + 5); g.moveTo(cx + 5, cy - 5); g.lineTo(cx - 5, cy + 5); g.stroke();
+      g.fillStyle = C.hot; var lt = 'done inline: auto-compact mid-task at ' + DT.fmt.dur(CROSS * 1000);
+      if (cx - L > g.measureText(lt).width + 20) { g.textAlign = 'right'; g.fillText(lt, cx - 14, cy + 18); } else { g.textAlign = 'left'; g.fillText(lt, cx + 14, cy + 18); }
+    }
+  }
+  renderVals() {
+    sync();
+    var self = this, S = this.state, f = IDX[S.focus] || ROOT;
+    var read = AGENTS.reduce(function (a, x) { return a + x.read; }, 0), ret = AGENTS.reduce(function (a, x) { return a + x.ret; }, 0);
+    var mono = "font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: ";
+    var path = []; for (var p = f; p; p = p.parent) path.unshift(p.name);
+    var at = function (ev) {
+      var r = ev.currentTarget.getBoundingClientRect ? ev.currentTarget.getBoundingClientRect() : { left: 0, top: 0 };
+      var x = ev.clientX - r.left, y = ev.clientY - r.top; self.mouse = { x: x, y: y };
+      var hit = self.hits.slice().reverse().find(function (b) { return x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1; });
+      return hit ? IDX[hit.id] : null;
+    };
+    return {
+      kpis: [
+        { label: 'Read by subagents', value: fk(read), style: mono + C.mist },
+        { label: 'Returned to you', value: fk(ret), style: mono + C.relief },
+        { label: 'Kept out of context', value: fk(Math.max(0, read - ret)), style: mono + C.relief },
+        { label: 'Subagent cost', value: fusd(AGENTS.reduce(function (a, x) { return a + x.usd; }, 0)), style: mono + C.text }
+      ],
+      crumb: path.join('  ›  ') + (S.focus === 'root' ? '  ·  click a block to zoom' : '  ·  click the top bar to zoom out'),
+      modes: [['tok', 'Tokens'], ['sec', 'Time'], ['usd', 'Cost']].map(function (x) {
+        var on = S.mode === x[0];
+        return { label: x[1], on: on ? 'true' : 'false', pick: function () { self.setState({ mode: x[0] }); }, style: 'height: 28px; padding: 0 12px; border: 0; border-radius: 6px; cursor: pointer; background: ' + (on ? '#2a2a31' : 'transparent') + '; color: ' + (on ? C.focus : C.dim) };
+      }),
+      iceRef: function (el) { self.ice = el; }, funnelRef: function (el) { self.funnel = el; }, cfRef: function (el) { self.cf = el; },
+      onMove: function (ev) { var n = at(ev), id = n ? n.id : null; if (id !== S.hover) self.setState({ hover: id }); },
+      onLeave: function () { self.mouse = null; self.setState({ hover: null }); },
+      onClick: function (ev) {
+        var n = at(ev); if (!n) return;
+        var target = n.id === S.focus ? (n.parent || ROOT) : n.kids.length ? n : n.parent;
+        self.setState({ focus: target.id });
+      },
+      cfNote: !AGENTS.length ? 'no subagents yet' : CROSS !== null ? 'subagents kept ' + fk(read - ret) + ' out · inline would have auto-compacted' : 'subagents kept ' + fk(read - ret) + ' out of your context',
+      cfStyle: 'font-size: 12px; color: ' + C.relief
+    };
+  }
+}
+</script>
+</body>
+</html>

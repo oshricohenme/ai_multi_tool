@@ -1,0 +1,2 @@
+#!/bin/sh
+echo "graft disabled for benchmark" >&2; exit 127

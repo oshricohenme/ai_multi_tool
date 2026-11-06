@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trace explorer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#93a9c8}a:hover{color:#c3d1e6}
+button,input{font:inherit}
+@keyframes rowIn{from{opacity:0;transform:translateY(6px);background:#22222a}to{opacity:1;transform:none}}
+.trow{animation:rowIn 360ms ease-out}
+kbd{font-family:'JetBrains Mono',monospace;font-size:10px;padding:1px 5px;border:1px solid #33333a;border-bottom-width:2px;border-radius:4px;color:#b9b9c0;background:#18181b}
+</style>
+</helmet>
+<div tabindex="0" onKeyDown="{{onKey}}" aria-label="Trace explorer. Keys: f follow, j and k step, plus and minus zoom, 0 fit, Escape clear" style="height: 100%; min-height: 844px; display: flex; flex-direction: column; outline: none; background: #0b0b0d; color: #e4e4e8; font-family: Inter, system-ui, sans-serif; font-size: 13px">
+
+<div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 12px 20px; border-bottom: 1px solid #1f1f23; background: linear-gradient(#111114, #0d0d10)">
+<div style="display: flex; align-items: center; gap: 26px; flex-wrap: wrap">
+<sc-for list="{{kpis}}" as="k" hint-placeholder-count="5">
+<div style="display: flex; flex-direction: column; gap: 3px">
+<span style="font-size: 11px; color: #8b8b94">{{k.label}}</span>
+<span style="{{k.style}}">{{k.value}}</span>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+<span style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #6e6e78"><kbd>f</kbd> follow <kbd>j</kbd><kbd>k</kbd> step <kbd>+</kbd><kbd>−</kbd> zoom <kbd>0</kbd> fit</span>
+<button type="button" onClick="{{toggleFollow}}" style="{{followStyle}}"><span style="{{followDot}}"></span>{{followLabel}}</button>
+<label style="display: flex; align-items: center; gap: 8px; width: 220px; height: 32px; box-sizing: border-box; padding: 0 10px; border: 1px solid #2a2a30; border-radius: 8px; background: #121215; color: #8b8b94">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<input type="text" value="{{query}}" onChange="{{onQuery}}" placeholder="Highlight spans…" aria-label="Highlight matching spans" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #e4e4e8">
+</label>
+</div>
+</div>
+
+<div style="position: relative; flex: none; height: 452px; border-bottom: 1px solid #1f1f23">
+<canvas ref="{{traceRef}}" onMouseMove="{{onMove}}" onMouseDown="{{onDown}}" onMouseLeave="{{onLeave}}" onDoubleClick="{{onDbl}}" aria-label="Session trace. Scroll to zoom, drag to pan, click a span to inspect it." style="display: block; width: 100%; height: 452px; cursor: crosshair"></canvas>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1; min-height: 0">
+<section style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; min-height: 300px">
+<div role="tablist" style="display: flex; align-items: center; gap: 4px; padding: 8px 16px; border-bottom: 1px solid #1f1f23">
+<sc-for list="{{bottomTabs}}" as="bt" hint-placeholder-count="2"><button type="button" role="tab" onClick="{{bt.pick}}" style="{{bt.style}}">{{bt.label}}</button></sc-for>
+<span style="margin-left: auto; font-size: 12px; color: #8b8b94">{{bottomNote}}</span>
+</div>
+<sc-if value="{{isFlow}}" hint-placeholder-val="{{ true }}">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px 28px; padding: 12px 20px 14px">
+
+<section aria-label="Where the money went" style="display: flex; flex-direction: column; gap: 7px; min-width: 0">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 10px"><h3 style="margin: 0; font-size: 12px; font-weight: 600">Where the money went</h3><span style="font-size: 11px; color: #8b8b94">{{moneyTotal}}</span></div>
+<div style="display: grid; grid-template-columns: 48px minmax(0, 1fr); column-gap: 8px; row-gap: 4px; align-items: center">
+<span style="font-size: 10px; color: #8b8b94; text-align: right">tokens</span>
+<div style="display: flex; height: 10px; border-radius: 3px; overflow: hidden; background: #1a1a1e"><sc-for list="{{moneyParts}}" as="m" hint-placeholder-count="4"><span title="{{m.tokTitle}}" style="{{m.tokBar}}"></span></sc-for></div>
+<span style="font-size: 10px; color: #8b8b94; text-align: right">dollars</span>
+<div style="display: flex; height: 10px; border-radius: 3px; overflow: hidden; background: #1a1a1e"><sc-for list="{{moneyParts}}" as="m" hint-placeholder-count="4"><span title="{{m.usdTitle}}" style="{{m.usdBar}}"></span></sc-for></div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 16px; font-size: 11px">
+<sc-for list="{{moneyParts}}" as="m" hint-placeholder-count="4">
+<span title="{{m.note}}" style="display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden"><span style="{{m.dot}}"></span><span style="color: #c4c4cb">{{m.label}}</span><span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; color: #8b8b94">{{m.tok}}</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; min-width: 48px; text-align: right">{{m.usd}}</span></span>
+</sc-for>
+</div>
+<p style="margin: 0; font-size: 11px; line-height: 1.45; color: #9a9aa3">{{moneyInsight}}</p>
+</section>
+
+<div style="display: flex; flex-direction: column; gap: 12px; min-width: 0">
+<section aria-label="Cost per turn" style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 10px"><h3 style="margin: 0; font-size: 12px; font-weight: 600">Cost per turn</h3><span style="font-size: 11px; color: #8b8b94; overflow: hidden; white-space: nowrap; text-overflow: ellipsis">{{turnNote}}</span></div>
+<div style="display: flex; align-items: flex-end; gap: 2px; height: 56px; border-bottom: 1px solid #26262c; overflow: hidden">
+<sc-for list="{{turnBars}}" as="t" hint-placeholder-count="12">
+<button type="button" onClick="{{t.pick}}" title="{{t.title}}" aria-label="{{t.title}}" style="{{t.style}}"><sc-for list="{{t.segs}}" as="sg" hint-placeholder-count="4"><span style="{{sg.style}}"></span></sc-for></button>
+</sc-for>
+</div>
+</section>
+<p style="margin: 0; font-size: 11px; color: #6e6e78">What the next call will carry is in the Context view; where the session's money went, by cause, is in Tokens.</p>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{isEvents}}" hint-placeholder-val="{{ false }}">
+<div ref="{{listRef}}" onScroll="{{onListScroll}}" style="flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #2c2c32 transparent">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="10">
+<button type="button" class="trow" onClick="{{r.pick}}" style="{{r.rowStyle}}">
+<span style="color: #6e6e78">{{r.time}}</span>
+<span style="{{r.badgeStyle}}">{{r.label}}</span>
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis"><span style="{{r.heatStyle}}"></span><sc-if value="{{r.above}}" hint-placeholder-val="{{ false }}"><span title="{{r.aboveTip}}" style="{{r.aboveStyle}}">♨</span></sc-if>{{r.title}}<span style="color: #7a7a84">{{r.arrow}}</span></span>
+<span style="text-align: right">{{r.inS}}</span>
+<span style="text-align: right; color: #6fd3b4">{{r.crS}}</span>
+<span style="text-align: right">{{r.outS}}</span>
+<span style="{{r.deltaStyle}}">{{r.deltaS}}</span>
+<span style="text-align: right; color: #8b8b94">{{r.durS}}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+</section>
+
+<aside aria-label="Inspector" style="flex: 1 1 340px; max-width: 420px; min-width: 300px; border-left: 1px solid #1f1f23; background: #101013; display: flex; flex-direction: column; min-height: 300px">
+<div style="display: flex; align-items: center; gap: 10px; padding: 14px 16px 6px">
+<span style="{{sel.badgeStyle}}">{{sel.label}}</span>
+<span style="color: #9a9aa3">{{sel.where}}</span>
+<sc-for list="{{sel.chips}}" as="c" hint-placeholder-count="1"><span style="padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; color: #f2703f; background: #3d2116">{{c.label}}</span></sc-for>
+</div>
+<div style="padding: 0 16px 10px; line-height: 1.5; color: #e4e4e8">{{sel.title}}</div>
+<div style="flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 14px">
+<sc-if value="{{sel.isCall}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; justify-content: space-between; font-size: 11px; color: #8b8b94"><span>Input {{sel.inTotal}}</span><span>Output {{sel.outS}}</span></div>
+<div style="display: flex; height: 12px; border-radius: 4px; overflow: hidden; background: #222227"><div style="{{sel.barRead}}"></div><div style="{{sel.barUncached}}"></div><div style="{{sel.barWrite}}"></div></div>
+<div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #9a9aa3"><span><span style="color: #6fd3b4">■</span> cache read {{sel.crS}}</span><span><span style="color: #e2a557">■</span> uncached {{sel.inS}}</span><span><span style="color: #f2703f">■</span> cache write {{sel.cwS}}</span></div>
+</div>
+</sc-if>
+<div style="display: grid; grid-template-columns: 104px minmax(0, 1fr); row-gap: 7px; column-gap: 12px; font-size: 12px">
+<sc-for list="{{sel.facts}}" as="f" hint-placeholder-count="6"><span style="color: #8b8b94">{{f.k}}</span><span style="font-family: 'JetBrains Mono', monospace; overflow-wrap: anywhere">{{f.v}}</span></sc-for>
+</div>
+<sc-if value="{{sel.hasBody}}" hint-placeholder-val="{{ true }}">
+<pre style="margin: 0; padding: 10px 12px; border-radius: 8px; background: #151518; border: 1px solid #222227; white-space: pre-wrap; overflow-wrap: anywhere; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.55; color: #c9c9cf">{{sel.body}}</pre>
+</sc-if>
+<sc-if value="{{sel.notExplained}}" hint-placeholder-val="{{ true }}">
+<button type="button" onClick="{{explain}}" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 36px; border: 1px solid #3a3a42; border-radius: 8px; background: #18181c; color: #e4e4e8; cursor: pointer">Explain this span<span style="color: #8b8b94; font-size: 11px">from the trace · free</span></button>
+</sc-if>
+<sc-if value="{{sel.explained}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 8px; background: #141418; border: 1px solid #2a2a30; line-height: 1.55">
+<sc-for list="{{sel.explainLines}}" as="x" hint-placeholder-count="3"><div style="{{x.style}}">{{x.text}}</div></sc-for>
+</div>
+</sc-if>
+</div>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"speed":{"editor":"range","min":0.5,"max":4,"step":0.5,"default":1,"section":"Playback"},"$preview":{"width":1376,"height":844}}'>
+var C = { bg: '#0b0b0d', grid: '#1a1a1e', text: '#e4e4e8', dim: '#8b8b94', faint: '#55555e', relief: '#6fd3b4', reliefBg: '#163029', error: '#ff5c7a', focus: '#f4f4f6', hot: '#f2703f', hotBg: '#3d2116', warm: '#e2a557' };
+var RAMP = [[0, '#4d6b8f'], [0.45, '#93a9c8'], [0.72, '#e2a557'], [1, '#f2703f']];
+function hex(c) { return [1, 3, 5].map(function (i) { return parseInt(c.substr(i, 2), 16); }); }
+function mix(a, b, t) { var pa = hex(a), pb = hex(b); return '#' + pa.map(function (v, i) { return Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0'); }).join(''); }
+function rgba(c, a) { var p = hex(c); return 'rgba(' + p[0] + ',' + p[1] + ',' + p[2] + ',' + a + ')'; }
+function heatOf(tok) { var t = Math.min(1, Math.log10(1 + Math.max(0, tok)) / Math.log10(1 + 45000)); for (var i = 1; i < RAMP.length; i++) if (t <= RAMP[i][0]) return mix(RAMP[i - 1][1], RAMP[i][1], (t - RAMP[i - 1][0]) / (RAMP[i][0] - RAMP[i - 1][0])); return RAMP[3][1]; }
+var LABEL = { system: 'SYSTEM', context: 'CONTEXT', user: 'USER', assistant: 'ASSISTANT', tool: 'TOOL', agent: 'SUBAGENT', cleanup: 'CLEANUP', compact: 'COMPACT', sub: 'SUB-CALL' };
+
+// Live: rebuilt from the session whenever DT changes (see index.html adapters).
+var EVENTS = [], ALL = [], END = 1, START = 0, CTX_MAX = 200000, COMPACT_AT = 167000, TURNS = [], MONEY = null, VER = -1;
+function sync() {
+  if (VER === DT.ver) return; VER = DT.ver;
+  var d = DT.timeline();
+  EVENTS = d.events; ALL = d.all; END = d.end; CTX_MAX = d.window; COMPACT_AT = d.autoAt; TURNS = d.turns; MONEY = d.money;
+}
+function liveNow() { var B = DT.base(); return (DT.nowMs() - B.t0) / 1000; }
+function fk(n) { if (n === undefined || n === null) return '—'; return DT.fmt.tok(n); }
+function fs(s) { return DT.fmt.dur(s * 1000); }
+function inTot(e) { return e.inp + e.cr + e.cw; }
+function weightOf(e) { return e.k === 'assistant' ? e.inp + e.cw + e.o : (e.est || 0); }
+function colorOf(e) { return e.err ? C.error : (e.before !== undefined || e.k === 'agent') ? C.relief : e.k === 'sub' ? (e.isCall ? '#6a8aa8' : heatOf(e.est)) : heatOf(weightOf(e)); }
+function prevCtx(i) { for (var j = i - 1; j >= 0; j--) { var e = EVENTS[j]; if (e.k === 'assistant') return e.ctx; if (e.after !== undefined) return e.after; } return 0; }
+function groupOf(e) { return e.k === 'assistant' ? 'call' : e.k === 'tool' ? 'tool' : e.k === 'agent' ? 'agent' : e.before !== undefined ? null : 'input'; }
+function rr(g, x, y, w, h, r) { r = Math.max(0, Math.min(r, w / 2, h / 2)); g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+function ease(a, b, k) { return a + (b - a) * k; }
+
+
+// "Tokens & cost": recorded per-call usage and dollars, drawn as plain bars.
+function fmtUsd(n) { return DT.fmt.usd(n); }
+function moneyVals(self) {
+  var M = MONEY || { parts: [], turns: [], calls: 0, ctx: null };
+  var tokT = M.parts.reduce(function (a, p) { return a + p.tok; }, 0) || 1, usdT = M.parts.reduce(function (a, p) { return a + p.usd; }, 0) || 1e-9;
+  var byKey = {}; M.parts.forEach(function (p) { byKey[p.key] = p; });
+  var r = byKey.read, w = byKey.write;
+  var insight = !M.calls ? 'No model calls yet.' :
+    (r && r.tok / tokT > 0.4 ? 'Cache reads were ' + Math.round(r.tok / tokT * 100) + '% of the tokens but only ' + Math.round(r.usd / usdT * 100) + '% of the cost: the cache is doing its job. ' : '') +
+    (w && w.usd / usdT > 0.3 ? 'Cache writes took ' + Math.round(w.usd / usdT * 100) + '% of the cost: look for cache breaks in the Cache view (model switches, long pauses, compactions).' :
+     byKey.out && byKey.out.usd / usdT > 0.4 ? 'Output was ' + Math.round(byKey.out.usd / usdT * 100) + '% of the cost: long answers or heavy thinking. Lower /effort for routine turns.' : '');
+  var maxTurn = Math.max.apply(null, [1e-9].concat(M.turns.map(function (t) { return t.parts.reduce(function (a, b) { return a + b; }, 0); })));
+  var bw = M.turns.length > 60 ? 6 : M.turns.length > 30 ? 10 : 18;
+  var priciest = M.turns.slice().sort(function (a, b) { return b.parts.reduce(function (x, y) { return x + y; }, 0) - a.parts.reduce(function (x, y) { return x + y; }, 0); })[0];
+  return {
+    moneyTotal: M.calls ? fmtUsd(M.totalUsd || usdT) + ' · ' + fk(tokT) + ' tokens · ' + M.calls + ' model calls incl. subagents' + (M.compactUsd ? ' · ' + fmtUsd(M.compactUsd) + ' of it compacting' : '') : '',
+    moneyInsight: insight,
+    moneyParts: M.parts.map(function (p) {
+      return {
+        label: p.label, note: p.note, tok: fk(p.tok), usd: fmtUsd(p.usd), share: Math.round(p.usd / usdT * 100) + '%',
+        rate: p.rate === 1 ? '1×' : p.rate + '×',
+        dot: 'display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 2px; background: ' + p.color,
+        tokTitle: p.label + ': ' + fk(p.tok) + ' tokens (' + Math.round(p.tok / tokT * 100) + '%)',
+        usdTitle: p.label + ': ' + fmtUsd(p.usd) + ' (' + Math.round(p.usd / usdT * 100) + '%)',
+        tokBar: 'display: block; height: 100%; width: ' + (p.tok / tokT * 100) + '%; background: ' + p.color,
+        usdBar: 'display: block; height: 100%; width: ' + (p.usd / usdT * 100) + '%; background: ' + p.color
+      };
+    }),
+    turnNote: M.turns.length ? 'priciest: turn ' + priciest.turn + ' at ' + fmtUsd(priciest.parts.reduce(function (a, b) { return a + b; }, 0)) + ' · click a bar' : 'no turns yet',
+    turnBars: M.turns.map(function (t) {
+      var sum = t.parts.reduce(function (a, b) { return a + b; }, 0);
+      return {
+        label: 'T' + t.turn,
+        labelStyle: 'flex: none; width: ' + bw + 'px; text-align: center; font-size: 10px; color: #6e6e78; font-family: JetBrains Mono, monospace; overflow: hidden; white-space: nowrap',
+        title: 'Turn ' + t.turn + ' (click to open): ' + fmtUsd(sum) + ' · ' + M.parts.map(function (p, i) { return p.label.toLowerCase() + ' ' + fmtUsd(t.parts[i]); }).join(', '),
+        style: 'flex: none; width: ' + bw + 'px; height: ' + Math.max(2, sum / maxTurn * 52) + 'px; display: flex; flex-direction: column-reverse; padding: 0; border: 0; border-radius: 3px 3px 0 0; overflow: hidden; cursor: pointer; background: #1a1a1e',
+        segs: t.parts.map(function (v, i) { return { style: 'display: block; flex: none; height: ' + (sum ? v / sum * 100 : 0) + '%; background: ' + M.parts[i].color }; }),
+        pick: function () { var f = ALL.find(function (x) { return x.id === t.id; }); if (f) { self.setState({ sel: f.id }); self.focusOn(f); } }
+      };
+    }),
+    hasCarry: !!M.ctx,
+    carryNote: M.ctx ? fk(M.ctx.total) + ' of ' + fk(M.ctx.max) + ' (' + Math.round(M.ctx.total / M.ctx.max * 100) + '%) · from the latest /context' : '',
+    carry: M.ctx ? M.ctx.cats.map(function (c, i) {
+      var col = ['#4d6b8f', '#5f7da0', '#e2a557', '#93a9c8', '#7a93b6', '#6a84a6', '#f2703f', '#b39ddb'][i % 8];
+      if (c.name === 'Messages') col = '#f2703f';
+      return { name: c.name, tok: fk(c.tokens), title: c.name + ': ' + fk(c.tokens) + ' tokens', bar: 'display: block; height: 100%; width: ' + (c.tokens / M.ctx.max * 100) + '%; background: ' + col + '; border-right: 1px solid #0b0b0d', dot: 'display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: ' + col };
+    }) : []
+  };
+}
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    sync(); var n0 = liveNow();
+    this.state = { now: n0, sel: null, follow: true, bottom: 'flow', query: '', explained: {} };
+    this.now = n0; var sp = Math.max(24, Math.min(n0 + 2, 120)); this.view = { t0: n0 + 1.5 - sp, t1: n0 + 1.5 }; this.target = { t0: n0 + 1.5 - sp, t1: n0 + 1.5 }; this.hover = null; this.mouse = null; this.hits = [];
+    this.parts = [];
+  }
+  componentDidMount() {
+    var self = this, last = performance.now(), lastState = 0;
+    var loop = function (ts) {
+      var dt = Math.min(0.05, (ts - last) / 1000); last = ts;
+      sync();
+      self.now = DT.live ? liveNow() : END;
+      if (DT.focus) { var f = ALL.find(function (x) { return x.id === DT.focus; }); DT.focus = null; if (f) { self.setState({ sel: f.id }); self.focusOn(f); } }
+      if (self.state.follow) { var span = self.target.t1 - self.target.t0, act = EVENTS.reduce(function (m, e) { return Math.max(m, e.t + e.d); }, 0); var edge = Math.min(self.now, act + span * 0.35) + 1.5; self.target = { t0: edge - span, t1: edge }; }
+      self.view.t0 = ease(self.view.t0, self.target.t0, 0.18); self.view.t1 = ease(self.view.t1, self.target.t1, 0.18);
+      self.drawTrace();
+      if (ts - lastState > 250) { lastState = ts; self.setState({ now: self.now }); }
+      self.raf = requestAnimationFrame(loop);
+    };
+    this.raf = requestAnimationFrame(loop);
+    this.onWheel = function (ev) {
+      if (!self.trace) return;
+      ev.preventDefault();
+      var r = self.trace.getBoundingClientRect(), L = 92, W = r.width - L - 16;
+      var x = ev.clientX - r.left;
+      if (Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) { self.pan(ev.deltaX / W * (self.target.t1 - self.target.t0)); return; }
+      var at = self.target.t0 + Math.max(0, Math.min(1, (x - L) / W)) * (self.target.t1 - self.target.t0);
+      self.zoom(Math.exp(ev.deltaY * 0.0022), at);
+    };
+    this.onUp = function () { self.drag = null; };
+    this.onDragMove = function (ev) { if (self.drag) self.dragTo(ev); };
+    window.addEventListener('mouseup', this.onUp);
+    window.addEventListener('mousemove', this.onDragMove);
+  }
+  componentWillUnmount() {
+    cancelAnimationFrame(this.raf);
+    window.removeEventListener('mouseup', this.onUp);
+    window.removeEventListener('mousemove', this.onDragMove);
+    if (this.trace) this.trace.removeEventListener('wheel', this.onWheel);
+  }
+  componentDidUpdate() {
+    var el = this.listEl;
+    if (el && this.state.bottom === 'events') {
+      var n = el.children.length;
+      if (n !== this.lastCount && this.stuck !== false && this.state.follow) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+      this.lastCount = n;
+    }
+  }
+  setFollow(on) { this.setState({ follow: on }); }
+  zoom(f, at) {
+    var t = this.target, span = Math.max(0.3, Math.min(END * 1.2 + 6, (t.t1 - t.t0) * f));
+    if (at === undefined) at = (t.t0 + t.t1) / 2;
+    var k = (at - t.t0) / (t.t1 - t.t0);
+    this.target = { t0: at - k * span, t1: at - k * span + span };
+    if (this.state.follow && f < 1) this.setFollow(false);
+  }
+  pan(dt) { this.target = { t0: this.target.t0 + dt, t1: this.target.t1 + dt }; if (this.state.follow) this.setFollow(false); }
+  fit() { this.target = { t0: -0.5, t1: Math.max(10, this.now + 1) }; this.setFollow(false); }
+  focusOn(e) { var pad = Math.max(0.6, e.d * 0.6); this.target = { t0: e.t - pad, t1: e.t + Math.max(e.d, 0.2) + pad }; this.setFollow(false); }
+  canvasSize(cv) {
+    var dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); return { g: g, w: w, h: h };
+  }
+  localX(ev) { var r = this.trace.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top, w: r.width }; }
+  dragTo(ev) {
+    var p = this.localX(ev), d = this.drag, L = 92, W = p.w - L - 16;
+    if (d.kind === 'pan') { var dt = -(p.x - d.x) / W * (d.v.t1 - d.v.t0); this.target = { t0: d.v.t0 + dt, t1: d.v.t1 + dt }; this.view = Object.assign({}, this.target); }
+    else {
+      var t = (p.x - L) / W * END;
+      if (d.kind === 'brush') { var dx = (p.x - d.x) / W * END; this.target = { t0: d.v.t0 + dx, t1: d.v.t1 + dx }; }
+      if (d.kind === 'left') this.target = { t0: Math.min(t, this.target.t1 - 0.6), t1: this.target.t1 };
+      if (d.kind === 'right') this.target = { t0: this.target.t0, t1: Math.max(t, this.target.t0 + 0.6) };
+    }
+  }
+
+  drawTrace() {
+    var cv = this.trace; if (!cv) return; sync();
+    var s = this.canvasSize(cv), g = s.g, w = s.w, h = s.h;
+    var now = this.now, v = this.view, L = 92, R = 16, W = w - L - R;
+    var X = function (t) { return L + (t - v.t0) / (v.t1 - v.t0) * W; };
+    var MX = function (t) { return L + t / END * W; };
+    var q = (this.state.query || '').toLowerCase(), sel = this.state.sel, hov = this.hover;
+    var arrived = ALL.filter(function (e) { return e.t <= now; });
+    var hits = [];
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = C.bg; g.fillRect(0, 0, w, h);
+    g.font = '11px Inter, system-ui, sans-serif'; g.textBaseline = 'middle';
+
+    // overview strip
+    var MY = 10, MH = 34;
+    g.fillStyle = '#121215'; rr(g, L, MY, W, MH, 6); g.fill();
+    arrived.forEach(function (e) {
+      if (e.k === 'sub') return;
+      var row = { assistant: 1, compact: 1, tool: 2, cleanup: 2, agent: 3 }[e.k] ?? 0;
+      g.fillStyle = rgba(colorOf(e), 0.85);
+      g.fillRect(MX(e.t), MY + 4 + row * 7.5, Math.max(1.5, (Math.min(now, e.t + e.d) - e.t) / END * W), 5);
+    });
+    var b0 = MX(Math.max(0, this.target.t0)), b1 = MX(Math.min(END, this.target.t1));
+    g.fillStyle = 'rgba(244,244,246,0.07)'; g.fillRect(b0, MY, Math.max(2, b1 - b0), MH);
+    g.strokeStyle = 'rgba(244,244,246,0.55)'; g.lineWidth = 1; g.strokeRect(b0 + 0.5, MY + 0.5, Math.max(2, b1 - b0) - 1, MH - 1);
+    g.fillStyle = C.focus; [b0, b1].forEach(function (x) { rr(g, x - 3, MY + MH / 2 - 8, 6, 16, 3); g.fill(); });
+    g.fillStyle = C.relief; g.fillRect(MX(now), MY, 1.5, MH);
+    hits.push({ kind: 'left', x: b0 - 6, y: MY, w: 12, h: MH }, { kind: 'right', x: b1 - 6, y: MY, w: 12, h: MH }, { kind: 'brush', x: b0, y: MY, w: b1 - b0, h: MH });
+    g.fillStyle = C.dim; g.textAlign = 'right'; g.fillText('Overview', L - 12, MY + MH / 2);
+
+    // ruler
+    var RY = 54, span = v.t1 - v.t0, steps = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
+    var st = steps.find(function (x) { return W / (span / x) > 70; }) || 3600;
+    g.textAlign = 'center'; g.font = '10px JetBrains Mono, monospace';
+    for (var t = Math.ceil(v.t0 / st) * st; t <= v.t1; t += st) {
+      var x = X(t); g.fillStyle = C.grid; g.fillRect(x, RY + 8, 1, h - RY - 30); g.fillStyle = C.faint; g.fillText(st < 1 ? t.toFixed(2) + 's' : t >= 60 ? Math.floor(t / 60) + 'm' + (t % 60 ? String(Math.round(t % 60)).padStart(2, '0') + 's' : '') : t.toFixed(0) + 's', x, RY);
+    }
+
+    // lanes (the two agent lanes only when a subagent has run)
+    var hasAgents = arrived.some(function (e) { return e.k === 'agent'; });
+    var lanes = [['Story', 72, 14], ['Turns', 92, 18], ['Model', 116, 22], ['Tools', 144, 18]].concat(hasAgents ? [['Agent 1', 172, 16], ['  inside', 191, 10], ['Agent 2', 209, 16], ['  inside', 228, 10]] : []);
+    g.textAlign = 'right'; g.font = '11px Inter, system-ui, sans-serif';
+    lanes.forEach(function (l) { g.fillStyle = l[0].indexOf('inside') >= 0 ? C.faint : C.dim; g.fillText(l[0].trim(), L - 12, l[1] + l[2] / 2); });
+    g.save(); g.beginPath(); g.rect(L, 64, W, h - 64); g.clip();
+
+    var self = this;
+    var drawSpan = function (e, y, hh, label) {
+      var x0 = X(e.t), x1 = X(Math.min(now, e.t + e.d)), ww = Math.max(3, x1 - x0 - 1);
+      if (x0 > w || x0 + ww < L) return;
+      var c = colorOf(e), on = sel === e.id, ho = hov && hov.id === e.id, dim = q && (e.title + (e.arrow || '')).toLowerCase().indexOf(q) < 0;
+      g.globalAlpha = dim ? 0.18 : 1;
+      var grad = g.createLinearGradient(0, y, 0, y + hh); grad.addColorStop(0, c); grad.addColorStop(1, rgba(c, 0.72));
+      g.fillStyle = grad; rr(g, x0, y, ww, hh, 3); g.fill();
+      if (e.t + e.d > now && e.d > 0) { g.fillStyle = 'rgba(255,255,255,' + (0.25 + 0.2 * Math.sin(now * 8)) + ')'; g.fillRect(x0 + ww - 2, y, 2, hh); }
+      if (on || ho) { g.lineWidth = on ? 2 : 1; g.strokeStyle = on ? C.focus : 'rgba(244,244,246,0.6)'; rr(g, x0 - 1, y - 1, ww + 2, hh + 2, 4); g.stroke(); }
+      if (label && ww > 46 && hh >= 14) {
+        g.fillStyle = '#0d0d10'; g.textAlign = 'left'; g.font = '600 10.5px Inter, system-ui, sans-serif';
+        var txt = label, max = ww - 10;
+        while (txt.length > 3 && g.measureText(txt).width > max) txt = txt.slice(0, -2);
+        if (txt !== label) txt = txt.slice(0, -1) + '…';
+        g.fillText(txt, x0 + 5, y + hh / 2 + 0.5);
+      }
+      g.globalAlpha = 1;
+      hits.push({ kind: 'span', id: e.id, e: e, x: x0, y: y, w: ww, h: hh });
+    };
+
+    // turns
+    TURNS.forEach(function (n) {
+      var evs = arrived.filter(function (e) { return e.turn === n && e.k !== 'sub'; });
+      if (!evs.length) return;
+      var t0 = evs[0].t, t1 = Math.min(now, Math.max.apply(null, evs.map(function (e) { return e.t + e.d; })));
+      var cost = evs.reduce(function (a, e) { return a + (e.cost || 0); }, 0);
+      var x0 = X(t0), x1 = X(t1);
+      g.fillStyle = '#1a1a20'; rr(g, x0, 92, Math.max(3, x1 - x0), 18, 4); g.fill();
+      g.strokeStyle = '#2e2e36'; g.stroke();
+      // label inside the visible part of the bar only, so neighbours never overprint each other
+      var v0 = Math.max(L, x0), v1 = Math.min(L + W, x1);
+      if (v1 - v0 > 120) {
+        g.save(); g.beginPath(); g.rect(v0, 92, v1 - v0, 18); g.clip();
+        g.fillStyle = C.text; g.textAlign = 'left'; g.font = '600 10.5px Inter, system-ui, sans-serif';
+        g.fillText('Turn ' + n + '  ·  ' + fmtUsd(cost) + '  ·  ' + fs(t1 - t0), v0 + 6, 101.5);
+        g.restore();
+      }
+    });
+
+    arrived.forEach(function (e) {
+      if (e.k === 'assistant' || e.k === 'compact') drawSpan(e, 116, 22, e.k === 'compact' ? 'compact −' + fk(e.before - e.after) : (e.title.indexOf('→') === 0 ? e.title : 'answer') + '  ' + fk(e.inp + e.cr + e.cw) + ' in');
+      else if (e.k === 'tool' || e.k === 'cleanup') drawSpan(e, 144, 18, e.k === 'cleanup' ? 'cleared −' + fk(e.before - e.after) : e.title + (e.est > 999 ? '  +' + fk(e.est) : ''));
+      else if (e.k === 'agent') drawSpan(e, e.lane ? 209 : 172, 16, e.title + '  read ' + fk(e.read) + ' → ' + fk(e.est));
+      else if (e.k === 'sub') drawSpan(e, e.lane ? 228 : 191, 10, null);
+      else if (e.k === 'user' || e.k === 'system' || e.k === 'context') {
+        var x = X(e.t); if (x < L || x > w) return;
+        g.fillStyle = colorOf(e); g.beginPath(); g.moveTo(x, 113); g.lineTo(x - 4, 107); g.lineTo(x + 4, 107); g.closePath(); g.fill();
+        hits.push({ kind: 'span', id: e.id, e: e, x: x - 5, y: 104, w: 10, h: 10 });
+      }
+    });
+
+    // story pins
+    var lastPin = -999, firstCall = true;
+    arrived.forEach(function (e) {
+      if (e.k === 'sub') return;
+      var text = null, c = null;
+      if (e.err) { text = '✕ ' + (e.k === 'tool' ? e.title.split(' ')[0] + ' failed' : 'error'); c = C.error; }
+      else if (e.before !== undefined) { text = (e.k === 'compact' ? 'compacted −' : 'freed −') + fk(e.before - e.after); c = C.relief; }
+      else if (e.k === 'agent') { text = 'kept ' + fk(e.read - e.est) + ' out'; c = C.relief; }
+      else if (e.k === 'assistant' && !firstCall && e.cr === 0) { text = 'cache miss'; c = C.hot; }
+      else if (weightOf(e) > 20000) { text = (e.k === 'tool' ? e.title.split(' ')[0] : 'call') + ' +' + fk(weightOf(e)); c = heatOf(weightOf(e)); }
+      if (e.k === 'assistant') firstCall = false;
+      var x = X(e.t);
+      if (!text || x - lastPin < 96 || x < L || x > w) return;
+      lastPin = x;
+      g.fillStyle = c; g.fillRect(x, 72, 2, 14);
+      g.font = '600 10px JetBrains Mono, monospace'; g.textAlign = 'left'; g.fillText(text, x + 5, 79.5);
+    });
+
+    // context: stacked area (cache read, fresh input, output) with compaction cliffs
+    var CY = hasAgents ? 252 : 178, CH = h - CY - 26, base = CY + CH;
+    var Y = function (tok) { return base - tok / CTX_MAX * CH; };
+    g.fillStyle = C.grid; g.fillRect(L, base, W, 1);
+    g.setLineDash([4, 4]); g.strokeStyle = rgba(C.hot, 0.5); g.beginPath(); g.moveTo(L, Y(COMPACT_AT)); g.lineTo(L + W, Y(COMPACT_AT)); g.stroke(); g.setLineDash([]);
+    g.fillStyle = rgba(C.hot, 0.8); g.font = '10px JetBrains Mono, monospace'; g.textAlign = 'right'; g.fillText('auto-compact zone', L + W - 4, Y(COMPACT_AT) - 7);
+    var calls = arrived.filter(function (e) { return e.k === 'assistant'; });
+    var layers = [['cr', C.relief], ['fresh', C.warm], ['out', C.hot]];
+    calls.forEach(function (e, i) {
+      var nx = i + 1 < calls.length ? calls[i + 1].t : now;
+      var cut = arrived.find(function (c) { return c.before !== undefined && c.t > e.t && c.t < nx; });
+      var x0 = X(e.t), x1 = X(cut ? cut.t : nx);
+      if (x1 < L || x0 > w) return;
+      var vals = { cr: e.cr, fresh: e.inp + e.cw, out: e.o }, acc = 0;
+      layers.forEach(function (ly) {
+        var y0 = Y(acc), y1 = Y(acc + vals[ly[0]]); acc += vals[ly[0]];
+        var gr = g.createLinearGradient(0, y1, 0, y0); gr.addColorStop(0, rgba(ly[1], 0.55)); gr.addColorStop(1, rgba(ly[1], 0.12));
+        g.fillStyle = gr; g.fillRect(x0, y1, Math.max(1, x1 - x0), y0 - y1);
+      });
+      g.strokeStyle = C.focus; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x0, Y(acc)); g.lineTo(x1, Y(acc)); g.stroke();
+      g.fillStyle = sel === e.id ? C.focus : colorOf(e); g.beginPath(); g.arc(x0, Y(acc), sel === e.id ? 4 : 2.5, 0, Math.PI * 2); g.fill();
+      if (cut) {
+        var xc = X(cut.t);
+        g.strokeStyle = C.relief; g.lineWidth = 1.5; g.beginPath(); g.moveTo(xc, Y(cut.before)); g.lineTo(xc, Y(cut.after)); g.stroke();
+        g.fillStyle = C.relief; g.beginPath(); g.moveTo(xc, Y(cut.after) + 2); g.lineTo(xc - 4, Y(cut.after) - 5); g.lineTo(xc + 4, Y(cut.after) - 5); g.closePath(); g.fill();
+        g.font = '600 10px JetBrains Mono, monospace'; g.textAlign = 'left'; g.fillText('−' + fk(cut.before - cut.after), xc + 6, (Y(cut.before) + Y(cut.after)) / 2);
+      }
+    });
+    g.restore();
+    g.fillStyle = C.dim; g.textAlign = 'right'; g.font = '11px Inter, system-ui, sans-serif';
+    g.fillText('Context', L - 12, CY + 8); g.fillStyle = C.faint; g.font = '10px JetBrains Mono, monospace'; g.fillText('0–' + fk(CTX_MAX), L - 12, CY + 22);
+    g.textAlign = 'left'; g.fillStyle = C.faint;
+    [['cache read', C.relief], ['fresh input', C.warm], ['output', C.hot]].forEach(function (lg, i) { var lx = L + 6 + i * 96; g.fillStyle = lg[1]; g.fillRect(lx, h - 12, 8, 8); g.fillStyle = C.dim; g.fillText(lg[0], lx + 12, h - 8); });
+
+    // now playhead
+    var xn = X(now);
+    if (xn >= L && xn <= L + W) {
+      var glow = g.createLinearGradient(xn - 14, 0, xn, 0); glow.addColorStop(0, 'rgba(111,211,180,0)'); glow.addColorStop(1, 'rgba(111,211,180,0.16)');
+      g.fillStyle = glow; g.fillRect(xn - 14, 64, 14, h - 90);
+      g.fillStyle = C.relief; g.fillRect(xn, 64, 1.5, h - 90);
+      g.font = '600 10px JetBrains Mono, monospace'; g.textAlign = 'center'; g.fillText('now', xn, 66 - 6 < 60 ? 62 : 60);
+    }
+
+    // crosshair + tooltip
+    var m = this.mouse;
+    if (m && m.x > L && m.y > 64 && !this.drag) {
+      var tm = v.t0 + (m.x - L) / W * (v.t1 - v.t0);
+      g.strokeStyle = 'rgba(244,244,246,0.25)'; g.lineWidth = 1; g.beginPath(); g.moveTo(m.x + 0.5, 64); g.lineTo(m.x + 0.5, h - 22); g.stroke();
+      g.fillStyle = '#26262c'; rr(g, m.x - 30, h - 22, 60, 16, 4); g.fill(); g.fillStyle = C.text; g.font = '10px JetBrains Mono, monospace'; g.textAlign = 'center'; g.fillText(tm.toFixed(2) + 's', m.x, h - 14);
+      if (hov) this.drawTip(g, hov, m, w, h);
+    }
+    this.hits = hits;
+  }
+
+  drawTip(g, e, m, w, h) {
+    var lines = [LABEL[e.k] + (e.turn ? '  ·  Turn ' + e.turn + (e.step ? ' · Step ' + e.step : '') : ''), e.title + (e.arrow || '')];
+    var isCall = e.k === 'assistant';
+    if (isCall) lines.push(fk(inTot(e)) + ' in  ·  ' + fk(e.o) + ' out  ·  $' + e.cost.toFixed(4) + '  ·  ' + fs(e.d));
+    else if (e.before !== undefined) lines.push(fk(e.before) + ' → ' + fk(e.after) + '  ·  freed ' + fk(e.before - e.after));
+    else if (e.k === 'agent') lines.push('read ' + fk(e.read) + '  ·  returned ' + fk(e.est) + '  ·  $' + e.cost.toFixed(3));
+    else lines.push((e.est ? '~' + fk(e.est) + ' tokens  ·  ' : '') + (e.d ? fs(e.d) : 'instant'));
+    g.font = '12px Inter, system-ui, sans-serif';
+    var tw = Math.min(380, Math.max.apply(null, lines.map(function (l) { return g.measureText(l).width; })) + 24);
+    var th = 20 + lines.length * 18 + (isCall ? 18 : 0);
+    var tx = Math.min(w - tw - 8, m.x + 14), ty = Math.min(h - th - 8, m.y + 14);
+    g.shadowColor = 'rgba(0,0,0,0.5)'; g.shadowBlur = 18; g.fillStyle = '#1c1c21'; rr(g, tx, ty, tw, th, 8); g.fill(); g.shadowBlur = 0;
+    g.strokeStyle = '#33333b'; g.stroke();
+    g.textAlign = 'left';
+    lines.forEach(function (l, i) {
+      g.fillStyle = i === 0 ? colorOf(e) : i === 1 ? C.text : C.dim;
+      g.font = i === 0 ? '700 10px JetBrains Mono, monospace' : i === 2 ? '11px JetBrains Mono, monospace' : '12px Inter, system-ui, sans-serif';
+      var s = l; while (s.length > 4 && g.measureText(s).width > tw - 24) s = s.slice(0, -2); if (s !== l) s += '…';
+      g.fillText(s, tx + 12, ty + 18 + i * 18);
+    });
+    if (isCall) {
+      var bx = tx + 12, by = ty + th - 18, bw = tw - 24, it = inTot(e), acc = 0;
+      [[e.cr, C.relief], [e.inp, C.warm], [e.cw, C.hot]].forEach(function (p) { var ww = p[0] / it * bw; g.fillStyle = p[1]; g.fillRect(bx + acc, by, ww, 6); acc += ww; });
+    }
+  }
+
+  renderVals() {
+    sync();
+    var self = this, S = this.state, now = this.now;
+    var arrived = EVENTS.filter(function (e) { return e.t <= now; });
+    var running = function (e) { return e.t + e.d > now; };
+    var calls = arrived.filter(function (e) { return e.k === 'assistant'; });
+    var lastCtx = 0; arrived.forEach(function (e) { if (e.k === 'assistant') lastCtx = e.ctx; else if (e.after !== undefined) lastCtx = e.after; });
+    var sumIn = calls.reduce(function (a, e) { return a + inTot(e); }, 0), sumCr = calls.reduce(function (a, e) { return a + e.cr; }, 0);
+    var cost = arrived.reduce(function (a, e) { return a + (e.cost || 0); }, 0);
+    var mono = 'font-family: JetBrains Mono, monospace; font-size: 16px; font-weight: 600; color: ';
+    var avg = {};
+    ['call', 'tool', 'input', 'agent'].forEach(function (gk) {
+      var ws = arrived.filter(function (e) { return groupOf(e) === gk && !running(e); }).map(weightOf);
+      avg[gk] = ws.length > 1 ? ws.reduce(function (a, x) { return a + x; }, 0) / ws.length : Infinity;
+    });
+    var done = calls.filter(function (e) { return !running(e); });
+    var top = function (f) { return done.reduce(function (b, e) { return !b || f(e) > f(b) ? e : b; }, null); };
+    var hotIn = top(inTot), hotOut = top(function (e) { return e.o; });
+    var isAbove = function (e) { var gk = groupOf(e); return !!gk && !running(e) && weightOf(e) > avg[gk]; };
+
+    var rows = arrived.map(function (e) {
+      var i = EVENTS.indexOf(e), isCall = e.k === 'assistant', on = S.sel === e.id;
+      var delta = isCall ? e.ctx - prevCtx(i) : e.before !== undefined ? e.after - e.before : undefined;
+      var gk = groupOf(e);
+      return {
+        pick: function () { self.setState({ sel: e.id }); },
+        rowStyle: 'display: grid; width: 100%; min-width: 820px; grid-template-columns: 64px 96px minmax(0, 1fr) 64px 66px 56px 66px 64px; column-gap: 10px; align-items: center; height: 32px; padding: 0 16px; border: 0; border-bottom: 1px solid #16161a; cursor: pointer; text-align: left; font-family: JetBrains Mono, monospace; font-size: 12px; color: #e4e4e8; background: ' + (on ? '#1b1b21' : 'transparent') + (on ? '; box-shadow: inset 2px 0 0 #f4f4f6' : ''),
+        time: '+' + e.t.toFixed(1) + 's', label: LABEL[e.k],
+        badgeStyle: 'justify-self: end; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; ' + (e.before !== undefined || e.k === 'agent' ? 'color: #6fd3b4; background: #163029' : 'color: #c4c4cb; background: #24242a'),
+        heatStyle: 'display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: ' + colorOf(e),
+        above: isAbove(e), aboveTip: gk && avg[gk] !== Infinity ? (weightOf(e) / avg[gk]).toFixed(1) + '× the average ' + gk : '', aboveStyle: 'margin-right: 6px; color: ' + colorOf(e),
+        title: e.title, arrow: e.arrow || '',
+        inS: isCall ? fk(inTot(e)) : e.est !== undefined ? '~' + fk(e.est) : '—', crS: isCall ? fk(e.cr) : '—', outS: isCall ? (running(e) ? '…' : fk(e.o)) : '—',
+        deltaS: delta === undefined ? '—' : (delta > 0 ? '+' : delta < 0 ? '−' : '') + fk(Math.abs(delta)),
+        deltaStyle: 'text-align: right; color: ' + (delta === undefined ? '#6e6e78' : delta < 0 ? C.relief : heatOf(delta)),
+        durS: running(e) ? 'running' : e.d ? fs(e.d) : '—'
+      };
+    });
+
+    var e = ALL.find(function (x) { return x.id === S.sel; }) || calls[calls.length - 1] || EVENTS[EVENTS.length - 1];
+    var isCall = e.k === 'assistant', it = isCall ? inTot(e) : 0, pct = function (n, of) { return (of ? n / of * 100 : 0).toFixed(1) + '%'; };
+    var facts = [];
+    if (isCall) facts = [{ k: 'model', v: (e.model || '—') + (e.effort ? ' · ' + e.effort : '') }, { k: 'first token', v: fs(e.ttft) }, { k: 'duration', v: fs(e.d) }, { k: 'throughput', v: running(e) ? 'streaming' : (e.o / Math.max(0.1, e.d - e.ttft)).toFixed(0) + ' tok/s' }, { k: 'cache hit', v: pct(e.cr, it) }, { k: 'context', v: fk(e.ctx) + ' / ' + fk(CTX_MAX) }, { k: 'cost', v: fmtUsd(e.cost) }].concat(e.note ? [{ k: 'note', v: e.note }] : []);
+    else if (e.before !== undefined) facts = [{ k: 'before', v: fk(e.before) }, { k: 'after', v: fk(e.after) }, { k: 'freed', v: fk(e.before - e.after) + ' (' + pct(e.before - e.after, e.before) + ')' }, { k: 'duration', v: fs(e.d) }];
+    else if (e.k === 'agent') facts = [{ k: 'read', v: fk(e.read) + ' in its own context' }, { k: 'returned', v: fk(e.est) + ' to main' }, { k: 'kept out', v: fk(Math.max(0, e.read - e.est)) + (e.est ? ' (' + Math.round(e.read / e.est) + '×)' : '') }, { k: 'internal steps', v: String(e.kids.length) }, { k: 'cost', v: fmtUsd(e.cost) }];
+    else facts = [{ k: 'tokens', v: e.est ? '~' + fk(e.est) : '—' }, { k: 'duration', v: e.d ? fs(e.d) : 'instant' }].concat(e.parent ? [{ k: 'inside', v: (EVENTS.find(function (x) { return x.id === e.parent; }) || {}).title || 'subagent' }] : []);
+    var gk = groupOf(e);
+    if (gk && avg[gk] !== Infinity && isAbove(e)) facts.unshift({ k: '♨ above avg', v: (weightOf(e) / avg[gk]).toFixed(1) + '× the average ' + gk });
+    var chips = []; if (hotIn && hotIn.id === e.id) chips.push({ label: '▲ TOP IN' }); if (hotOut && hotOut.id === e.id) chips.push({ label: '▲ TOP OUT' });
+    // Explain: computed from the trace itself, no model call
+    var explainLines = [];
+    if (isCall) {
+      var fresh = e.inp + e.cw, idx = EVENTS.indexOf(e);
+      var before = EVENTS.slice(0, idx).reverse(), prevCall = before.find(function (x) { return x.k === 'assistant'; });
+      var since = prevCall ? EVENTS.slice(EVENTS.indexOf(prevCall) + 1, idx).filter(function (x) { return x.k === 'tool' || x.k === 'agent'; }) : [];
+      var big = since.slice().sort(function (a, b) { return (b.est || 0) - (a.est || 0); })[0];
+      explainLines.push({ text: pct(e.cr, it) + ' of ' + fk(it) + ' input came from cache; ' + fk(fresh) + ' was paid fresh' + (e.cw ? ' (' + fk(e.cw) + ' written to the cache for later calls)' : '') + '.', style: 'color: #e4e4e8' });
+      if (big && big.est > 2000) explainLines.push({ text: 'The biggest new input was ' + big.title + ' at ~' + fk(big.est) + ' tokens. It rides along on every later call until cleared or compacted.', style: 'color: #c4c4cb' });
+      if (prevCall && e.cr === 0 && prevCall.cr + prevCall.cw > 2000) explainLines.push({ text: 'Cache miss: the previous call had ' + fk(prevCall.cr + prevCall.cw) + ' cached. See the Cache view for the cause.', style: 'color: #f2703f' });
+      if (e.o > 2000) explainLines.push({ text: fk(e.o) + ' output tokens: output costs about 5× input per token.', style: 'color: #c4c4cb' });
+      if (gk && avg[gk] !== Infinity && isAbove(e)) explainLines.push({ text: (weightOf(e) / avg[gk]).toFixed(1) + '× the weight of an average call this session.', style: 'color: #c4c4cb' });
+    } else if (e.k === 'tool' && e.est > 10000) explainLines.push({ text: '~' + fk(e.est) + ' tokens entered the context. Narrow it next time: a path, head_limit, files_with_matches, or Read with offset and limit.', style: 'color: #e4e4e8' });
+    else if (e.k === 'agent') explainLines.push({ text: 'The subagent read ' + fk(e.read) + ' in its own context and handed back ' + fk(e.est) + '. That difference never touched your main context.', style: 'color: #e4e4e8' });
+    if (!explainLines.length) explainLines.push({ text: 'Nothing unusual: normal size for its kind.', style: 'color: #c4c4cb' });
+
+    var tab = function (id, label) {
+      var on = S.bottom === id;
+      return { label: label, pick: function () { self.setState({ bottom: id }); }, style: 'height: 30px; padding: 0 12px; border-radius: 7px; cursor: pointer; font-size: 12px; border: 1px solid ' + (on ? '#3a3a42' : 'transparent') + '; background: ' + (on ? '#202026' : 'transparent') + '; color: ' + (on ? '#f4f4f6' : '#9a9aa3') };
+    };
+
+    return {
+      kpis: [
+        { label: 'Context', value: fk(lastCtx) + ' / ' + fk(CTX_MAX), style: mono + heatOf(lastCtx / CTX_MAX * 60000) },
+        { label: 'Cache hit', value: pct(sumCr, sumIn), style: mono + C.relief },
+        { label: 'Input', value: fk(sumIn), style: mono + '#e4e4e8' },
+        { label: 'Output', value: fk(calls.reduce(function (a, x) { return a + x.o; }, 0)), style: mono + '#e4e4e8' },
+        { label: 'Cost', value: fmtUsd(cost), style: mono + '#e4e4e8' }
+      ],
+      followLabel: S.follow ? 'Following live' : 'Exploring · press f',
+      followDot: 'width: 7px; height: 7px; border-radius: 50%; background: ' + (S.follow ? C.relief : '#6e6e78'),
+      followStyle: 'display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 8px; cursor: pointer; border: 1px solid ' + (S.follow ? '#23463c' : '#2a2a30') + '; background: ' + (S.follow ? '#122520' : '#121215') + '; color: ' + (S.follow ? '#c9eee2' : '#c4c4cb'),
+      toggleFollow: function () { self.setState({ follow: !S.follow }); },
+      query: S.query, onQuery: function (ev) { self.setState({ query: ev.target.value }); },
+      traceRef: function (el) {
+        if (self.trace && self.trace !== el) self.trace.removeEventListener('wheel', self.onWheel);
+        if (el && self.trace !== el && self.onWheel) el.addEventListener('wheel', self.onWheel, { passive: false });
+        self.trace = el;
+      },
+      onMove: function (ev) {
+        var p = self.localX(ev); self.mouse = p;
+        var hit = null; for (var i = self.hits.length - 1; i >= 0; i--) { var b = self.hits[i]; if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) { hit = b; break; } }
+        self.hover = hit && hit.kind === 'span' ? hit.e : null;
+        ev.currentTarget.style.cursor = hit ? (hit.kind === 'span' ? 'pointer' : hit.kind === 'brush' ? 'grab' : hit.kind === 'left' || hit.kind === 'right' ? 'ew-resize' : 'crosshair') : (p.y > 64 ? 'grab' : 'crosshair');
+      },
+      onLeave: function () { self.mouse = null; self.hover = null; },
+      onDown: function (ev) {
+        var p = self.localX(ev), hit = null;
+        for (var i = self.hits.length - 1; i >= 0; i--) { var b = self.hits[i]; if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) { hit = b; break; } }
+        if (hit && hit.kind === 'span') { self.setState({ sel: hit.id }); return; }
+        if (hit) { self.drag = { kind: hit.kind, x: p.x, v: Object.assign({}, self.target) }; self.setState({ follow: false }); return; }
+        if (p.y > 64) { self.drag = { kind: 'pan', x: p.x, v: Object.assign({}, self.view) }; self.setState({ follow: false }); }
+      },
+      onDbl: function () { if (self.hover) self.focusOn(self.hover); },
+      onKey: function (ev) {
+        var k = ev.key;
+        if (k === 'f') self.setState({ follow: !S.follow });
+        else if (k === '+' || k === '=') self.zoom(0.7);
+        else if (k === '-' || k === '_') self.zoom(1.4);
+        else if (k === '0') self.fit();
+        else if (k === 'Escape') self.setState({ sel: null });
+        else if (k === 'j' || k === 'k') {
+          var list = arrived, i = list.findIndex(function (x) { return x.id === S.sel; });
+          var n = list[Math.max(0, Math.min(list.length - 1, i + (k === 'j' ? 1 : -1)))];
+          if (n) { self.setState({ sel: n.id }); self.focusOn(n); }
+        } else return;
+        ev.preventDefault();
+      },
+      bottomTabs: [tab('flow', 'Tokens & cost'), tab('events', 'Events · ' + arrived.length)],
+      bottomNote: S.bottom === 'flow' ? 'whole session, subagents included · from each call\'s recorded usage and cost' : 'main thread · newest at the bottom · follows live',
+      isFlow: S.bottom === 'flow', isEvents: S.bottom === 'events',
+      ...moneyVals(self),
+      rows: rows,
+      listRef: function (el) { self.listEl = el; },
+      onListScroll: function (ev) { var el = ev.currentTarget; self.stuck = el.scrollHeight - el.scrollTop - el.clientHeight < 40; },
+      explain: function () { var x = Object.assign({}, S.explained); x[e.id] = true; self.setState({ explained: x }); },
+      sel: {
+        label: LABEL[e.k],
+        badgeStyle: 'padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: ' + colorOf(e) + '; background: ' + rgba(colorOf(e), 0.14),
+        where: [e.turn ? 'Turn ' + e.turn : '', e.step ? 'Step ' + e.step : ''].filter(Boolean).join(' · ') || (e.parent ? 'inside a subagent' : 'Session'),
+        chips: chips, title: e.title + (e.arrow || ''),
+        isCall: isCall, inTotal: fk(it), inS: fk(e.inp), crS: fk(e.cr), cwS: fk(e.cw), outS: fk(e.o),
+        barRead: 'width: ' + pct(e.cr, it) + '; background: ' + C.relief,
+        barUncached: 'width: ' + pct(e.inp, it) + '; background: ' + C.warm,
+        barWrite: 'width: ' + pct(e.cw, it) + '; background: ' + C.hot,
+        facts: facts, hasBody: !!e.body, body: e.body || '',
+        explained: !!S.explained[e.id], notExplained: !S.explained[e.id], explainLines: explainLines
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

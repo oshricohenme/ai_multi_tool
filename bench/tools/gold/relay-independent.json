@@ -1,0 +1,779 @@
+[
+ {
+  "prompt": "Session cards keep saying \"thinking\" for an agent that has been sitting there for 90 seconds; where is the human-readable activity label for a card decided, and what idle threshold flips it to \"idle Nm\"?",
+  "expect": [
+   "deriveActivity"
+  ],
+  "kind": "single",
+  "area": "api-store"
+ },
+ {
+  "prompt": "The transcript endpoint reports holes in the event sequence. Which function works out the missing ranges between consecutive items, and does it handle out-of-order items?",
+  "expect": [
+   "computeGaps"
+  ],
+  "kind": "single",
+  "area": "api-store"
+ },
+ {
+  "prompt": "When the event bus is down agents get a retry-after of roughly 5 seconds with a small random spread. Where is that spread computed? I want it widened to plus or minus 30 percent.",
+  "expect": [
+   "jitterRetry"
+  ],
+  "kind": "single",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Search result excerpts: a transcript containing <script> tags renders as escaped text but the highlight marks still show. Where is the escaping that keeps the highlight tags intact?",
+  "expect": [
+   "sanitiseSnippet"
+  ],
+  "kind": "single",
+  "area": "api-store"
+ },
+ {
+  "prompt": "On every list endpoint, limit=0 gives an invalid-request error while limit=10000 gives a page-too-large error. Where is the limit/cursor query parsing shared by the list handlers?",
+  "expect": [
+   "parsePage"
+  ],
+  "kind": "single",
+  "area": "api-store"
+ },
+ {
+  "prompt": "A POST from the web app with a matching cookie and header still gets 403 \"origin not allowed\" behind our proxy. Where is the double-submit token check plus the Origin allowlist done for mutating requests?",
+  "expect": [
+   "Server.checkCSRF"
+  ],
+  "kind": "single",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Signing up an org called \"\u00dcn\u00efcode Labs\" produces a short URL name like \"n-code-labs-x3f9a1\". Where is the org's URL-friendly name generated from the display name?",
+  "expect": [
+   "slugify"
+  ],
+  "kind": "single",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Identity resolution treats addresses with a trailing @ as having an empty domain. Where is the domain part pulled out of an email address on the ingest side?",
+  "expect": [
+   "emailDomain"
+  ],
+  "kind": "single",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Creating an evaluation template with a numeric scale from 0 to 5 is rejected with \"1 == min < max <= 10\". Where are template name, prompt and rubric dimensions validated before saving?",
+  "expect": [
+   "validateTemplateInput"
+  ],
+  "kind": "single",
+  "area": "api-store"
+ },
+ {
+  "prompt": "The user summary sometimes returns all-zero p10/p50/p90 values even though there is data. Which helper turns the percentile array from Postgres into the percentiles struct, and why does it bail out?",
+  "expect": [
+   "pct"
+  ],
+  "kind": "single",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Revoking a machine that is already revoked, or doesn't exist, returns 204 instead of 404. Fix it in both the HTTP handler and the database update.",
+  "expect": [
+   "Server.revokeMachine",
+   "Store.RevokeMachine"
+  ],
+  "kind": "cross",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Deleting an enrolment token that was already revoked silently succeeds. Make the delete endpoint return not-found when no active token matched.",
+  "expect": [
+   "Server.deleteEnrollmentToken",
+   "Store.RevokeEnrollmentToken"
+  ],
+  "kind": "cross",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Cancelling an evaluation run that has already finished returns 200 and the finished run unchanged. It should be a 409 conflict. Where is the cancel endpoint and the query that flips the run status?",
+  "expect": [
+   "Server.cancelEvalRun",
+   "Store.CancelRun"
+  ],
+  "kind": "cross",
+  "area": "api-store"
+ },
+ {
+  "prompt": "PATCHing the org settings only ever merges keys; there's no way to remove one. Add support for null values deleting a settings key, from the handler down to the SQL.",
+  "expect": [
+   "Server.updateOrg",
+   "Store.UpdateOrg"
+  ],
+  "kind": "cross",
+  "area": "api-store"
+ },
+ {
+  "prompt": "The rollout report (enrolled machines, users with no agent, version spread) is cached per viewer for 30 seconds. Where is that endpoint, and which store query builds the report?",
+  "expect": [
+   "Server.getCoverage",
+   "Store.Coverage"
+  ],
+  "kind": "cross",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Only the person a scorecard is about can reply to it. Managers want to reply to team scorecards too. Where is the subject check and where is the reply saved?",
+  "expect": [
+   "Server.createEvalResultResponse",
+   "Store.GetResultSubject",
+   "Store.AddResultResponse"
+  ],
+  "kind": "cross",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Agents re-download their config on every poll because the ETag keeps changing. Where is the endpoint agents poll for their settings, and where are that document and its ETag built?",
+  "expect": [
+   "Server.getAgentConfig",
+   "Store.AgentConfig"
+  ],
+  "kind": "cross",
+  "area": "api-store"
+ },
+ {
+  "prompt": "The teams page shows median sessions per member over the last 7 days. Make the window configurable through a query parameter, from the endpoint through to the SQL.",
+  "expect": [
+   "Server.listTeams",
+   "Store.ListTeams"
+  ],
+  "kind": "cross",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Deleting an evaluation schedule leaves it in the list, just turned off. Is that intended? Show me the delete endpoint and what it actually does in the database.",
+  "expect": [
+   "Server.deleteEvalSchedule",
+   "Store.DisableSchedule"
+  ],
+  "kind": "cross",
+  "area": "api-store"
+ },
+ {
+  "prompt": "The per-person summary page (top tools, files touched, cost over a date range) is slow for users with lots of sessions. Where's the handler and the store method that runs those queries?",
+  "expect": [
+   "Server.getUserSummary",
+   "Store.GetUserSummary"
+  ],
+  "kind": "cross",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Agent heartbeats overwrite the previous health snapshot for a machine, so we lose history. Where is the per-machine health row upserted, and what does that table look like?",
+  "expect": [
+   "machine_health",
+   "Store.RecordHealth"
+  ],
+  "kind": "data",
+  "area": "api-store"
+ },
+ {
+  "prompt": "When an agent resends the same batch id, how does the server return the original response instead of reprocessing? Show me the table that remembers batches and the code that inserts or replays them.",
+  "expect": [
+   "ingest_batch",
+   "Store.RecordBatch"
+  ],
+  "kind": "data",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Changing a schedule's cadence from daily to weekly doesn't move its next run time. Where is the schedule update query and which table column holds the next run?",
+  "expect": [
+   "eval_schedule",
+   "Store.UpdateSchedule"
+  ],
+  "kind": "data",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Starting an evaluation run should freeze the exact prompt and rubric that were used. Where is that immutable snapshot table and where is it written when a run is created?",
+  "expect": [
+   "eval_template_version",
+   "Store.CreateRun"
+  ],
+  "kind": "data",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Comments pinned to a turn number that doesn't exist get rejected with a validation error. Where is a session comment inserted and what columns does the comments table have?",
+  "expect": [
+   "session_comment",
+   "Store.AddComment"
+  ],
+  "kind": "data",
+  "area": "api-store"
+ },
+ {
+  "prompt": "The monthly evaluation spend cap falls back to $1000 when the org setting is missing. Where is month-to-date spend summed, and from which table?",
+  "expect": [
+   "eval_run",
+   "Store.monthlySpendTx"
+  ],
+  "kind": "data",
+  "area": "api-store"
+ },
+ {
+  "prompt": "A manager can see their indirect reports but not reports of a dotted-line relationship. Where is the manager-to-report table defined and where is the recursive lookup over it?",
+  "expect": [
+   "manages",
+   "Store.ListReports"
+  ],
+  "kind": "data",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Failed two-factor codes should lock the sign-in after 5 attempts. Where is the per-login attempt counter stored and where is it incremented?",
+  "expect": [
+   "user_session",
+   "Store.VerifyTOTP"
+  ],
+  "kind": "data",
+  "area": "api-store"
+ },
+ {
+  "prompt": "The commands tab of a session lists shell runs. Which table are they read from and what filter decides which tool calls count as commands?",
+  "expect": [
+   "tool_call",
+   "Store.SessionCommands"
+  ],
+  "kind": "data",
+  "area": "api-store"
+ },
+ {
+  "prompt": "Editing only the name of an evaluation template should not bump its version, but editing the rubric should. Where is that update query and the version column defined?",
+  "expect": [
+   "eval_template",
+   "Store.UpdateTemplate"
+  ],
+  "kind": "data",
+  "area": "api-store"
+ },
+ {
+  "prompt": "The placeholder text we put in place of a scrubbed secret ends with 8 hex chars. How is that hash computed, and why does the same key give the same hash on two laptops in one org but not across orgs?",
+  "expect": [
+   "Redactor.marker"
+  ],
+  "kind": "single",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "Our secret scrubber catches random base64 API keys but misses a long English passphrase assigned to a password variable, and it leaves 40-char git SHAs alone when the key mentions commit. Where are the entropy thresholds decided?",
+  "expect": [
+   "highEntropy"
+  ],
+  "kind": "single",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "An AWS secret access key pasted on the same line as its AKIA key id isn't being scrubbed when the variable is just called `value`. Which rule decides that a 40-char base64 string is an AWS secret?",
+  "expect": [
+   "awsSecretShaped"
+  ],
+  "kind": "single",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "Screenshots attached to tool results come out corrupted after the agent scrubs secrets, because random base64 happens to match key patterns. Where does the agent decide which parts of a long string get scanned?",
+  "expect": [
+   "walker.redactText"
+  ],
+  "kind": "single",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "After Claude Code compacts a session and rewrites the transcript file, the agent's transcript follower either stops picking up new lines or emits half-written JSON. Where does it track the file offset and detect a rewrite?",
+  "expect": [
+   "Tailer.read"
+  ],
+  "kind": "single",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "Token usage from the Claude transcript is being counted several times per API response, since every content block line repeats the same usage object. Where is each transcript line turned into assistant message events and usage tallied?",
+  "expect": [
+   "Tailer.handleLine"
+  ],
+  "kind": "single",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "When the server is down every agent in the fleet retries uploads at the same moment. Where is the agent's retry delay computed, and does it add jitter and a cap?",
+  "expect": [
+   "backoff"
+  ],
+  "kind": "single",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "The idempotency key the agent attaches to an upload changes on every retry of the same events, so the server re-processes them instead of spotting the duplicate. Which function produces that id?",
+  "expect": [
+   "deterministicBatchID"
+  ],
+  "kind": "single",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "When the local queue's disk usage hovers around 60%, the agent keeps flipping between full bodies and truncated bodies mid-session. Where is the mapping from disk usage to degradation level, with its hysteresis?",
+  "expect": [
+   "ShedLevel"
+  ],
+  "kind": "single",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "For Codex sessions, a file moved via apply_patch shows up as a plain edit, and the added/removed line counts look off. Where do we parse the patch headers into file change records?",
+  "expect": [
+   "parsePatch"
+  ],
+  "kind": "single",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "Sessions older than every row in the model price table used to show $0.00. Which function picks the price that applies to a model at a given time?",
+  "expect": [
+   "RateCard.Lookup"
+  ],
+  "kind": "single",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "A dashboard viewer on a slow network keeps falling behind on the live websocket. Where is the per-connection outgoing buffer, and does it drop the oldest or the newest frames when it fills?",
+  "expect": [
+   "Client.send"
+  ],
+  "kind": "single",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "The agent marks an upload as 'catching up after being offline' when its queue is old, and the server is supposed to raise the rate limit only if the machine really was away. Show me where the agent sets that header and where the server checks it.",
+  "expect": [
+   "Shipper.post",
+   "Service.CheckLimits"
+  ],
+  "kind": "cross",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "When the same batch is uploaded twice, the server answers 409 and the agent should just drop it from its queue as if it succeeded. Where does the server detect the repeat, and where does the agent react to the conflict status?",
+  "expect": [
+   "Service.PublishRaw",
+   "Shipper.handle"
+  ],
+  "kind": "cross",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "When the server rejects some events in a batch (bad envelope, wrong machine, bad blob reference), the agent should delete them instead of retrying forever and report the loss. Where does ingest build the per-event rejection list, and where does the agent process it?",
+  "expect": [
+   "Service.decodeBatch",
+   "Shipper.handle"
+  ],
+  "kind": "cross",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "The 'collector lost data' notice that the agent emits for machine-wide problems (e.g. spool overflow before any session) is being rejected by ingest for an invalid session id. Where does the agent pick the session id for it, and what format does the server accept?",
+  "expect": [
+   "Daemon.degrade",
+   "MachineSessionID",
+   "validSessionID"
+  ],
+  "kind": "cross",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "Big tool outputs are moved to object storage by the agent and the event only keeps a reference, but ingest still rejects some of them as over the inline body limit. Where does the agent swap the field for a reference, and how does the server recognise that a body carries one?",
+  "expect": [
+   "Daemon.externalise",
+   "hasBlobRef"
+  ],
+  "kind": "cross",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "Claude Code turn-end events sometimes reach the server with zero tokens, so the session's token totals are low. Where does the agent wait for usage from the transcript before queueing the turn-end, and where does the server add turn usage to the session totals?",
+  "expect": [
+   "Daemon.enqueueAfterGrace",
+   "TakeUsage",
+   "sessionFold.apply"
+  ],
+  "kind": "cross",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "A laptop with a wrong clock sends events stamped weeks in the future. How does the agent learn its clock offset from upload responses, and where does the server clamp the timestamp and keep the original bytes unless it had to change them?",
+  "expect": [
+   "Daemon.onShipResult",
+   "ValidateEnvelope",
+   "reencodeIfClamped"
+  ],
+  "kind": "cross",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "When a runtime adds a new hook we don't recognise, I want it kept on the timeline instead of dropped. Where does the agent wrap an unrecognised hook into an event, and where does the server decide to store an event raw without interpreting it?",
+  "expect": [
+   "SessionState.Unknown",
+   "DecodeBody"
+  ],
+  "kind": "cross",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "Uploads are getting 413 from the server under load. Where does ingest decide a request can never fit its memory budget, and where does the agent cut its batch size and later grow it back?",
+  "expect": [
+   "ByteAdmission.Reserve",
+   "Shipper.handle",
+   "Shipper.noteSuccess"
+  ],
+  "kind": "cross",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "Events of one session must reach the session assembler in sequence order. Where does the agent make sure it never has two batches of one session in flight, and where does the server-side queue keep per-session order when handing out work?",
+  "expect": [
+   "DB.Claim",
+   "OrderingKey",
+   "sortByKeyAndSeq"
+  ],
+  "kind": "cross",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "Where does each event get its per-session sequence number when it's written to the agent's local SQLite queue, and where does the agent announce that the counter was reset for a resumed session?",
+  "expect": [
+   "DB.Enqueue",
+   "Daemon.enqueue"
+  ],
+  "kind": "data",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "When the agent's background process isn't running, the hook shim writes events to files on disk. Where are those files picked up again later, in what order, and how is each one decoded?",
+  "expect": [
+   "Daemon.drainSpool",
+   "ReadFrame"
+  ],
+  "kind": "data",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "When the agent's queue hits its disk cap, already-queued events start being deleted. Where is that triggered, and which event kinds are protected from deletion?",
+  "expect": [
+   "Daemon.sampleDisk",
+   "DB.Shed"
+  ],
+  "kind": "data",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "The session's 'missing events' count goes up even when a batch is just redelivered. Where does the server compute how many sequence numbers are missing when it writes a batch of a session's events?",
+  "expect": [
+   "Assembler.advanceWatermark"
+  ],
+  "kind": "data",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "After ingest accepts a batch, how do the events get into the Postgres inbox table, how are already-seen event ids counted as duplicates, and how are workers woken up?",
+  "expect": [
+   "Bus.Publish"
+  ],
+  "kind": "data",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "A batch that keeps failing in the assembler loops forever. Where does the Postgres queue put failed batches back with a delay, move them to the dead set after too many attempts, and take back work from a worker that went silent?",
+  "expect": [
+   "Bus.nack",
+   "Bus.runReaper"
+  ],
+  "kind": "data",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "How does the assembler tell the websocket pods that a session got new events? I want to see the message format it packs into the Postgres notification and the code that unpacks it on the other side.",
+  "expect": [
+   "Notifier.flush",
+   "ParseLive"
+  ],
+  "kind": "data",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "A redelivered batch created a second turn row for the same turn. Where are the primary keys for turns, tool calls and file changes built from the event data so that a replay hits the same rows?",
+  "expect": [
+   "derive"
+  ],
+  "kind": "data",
+  "area": "agent-pipeline"
+ },
+ {
+  "prompt": "On the live floor, each running-session card shows the repo but drops the branch when the repo is missing and only the shortened id is shown. Make the card always show the branch, and move the cost to the bottom row.",
+  "expect": [
+   "SessionTile"
+  ],
+  "kind": "frontend",
+  "area": "web-api"
+ },
+ {
+  "prompt": "The 'concurrent sessions, last 24 hours' chart on the floor puts its peak marker on the first maximum when there is a tie, and the left axis label is hardcoded. Make the peak marker use the latest maximum and let callers pass the left label.",
+  "expect": [
+   "Sparkline"
+  ],
+  "kind": "frontend",
+  "area": "web-api"
+ },
+ {
+  "prompt": "The round initials badge next to a person's name produces odd initials for emails like o.brien@acme.io and two people with similar names get the same tint. Which component builds the initials and colour, and can we make it use three letters max?",
+  "expect": [
+   "Avatar"
+  ],
+  "kind": "frontend",
+  "area": "web-api"
+ },
+ {
+  "prompt": "The server started sending a new flag 'context_exhausted' on session cards; it shows up as the raw key in the little yellow badges. Add proper human copy for it.",
+  "expect": [
+   "ATTENTION_COPY",
+   "Attention"
+  ],
+  "kind": "frontend",
+  "area": "web-api"
+ },
+ {
+  "prompt": "The red error banner that appears on failed loads never shows the 'Try again' button for a 503, and the request id copy button is too small. Where is that banner rendered and how does it decide to offer a retry?",
+  "expect": [
+   "ErrorNotice"
+  ],
+  "kind": "frontend",
+  "area": "web-api"
+ },
+ {
+  "prompt": "In a transcript, the tool-approval rows still say 'awaiting' even though the decision event arrived a moment later. Find where the request and decision events are paired and where that row is drawn.",
+  "expect": [
+   "Permission",
+   "foldTimeline"
+  ],
+  "kind": "frontend",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Shell executions in the transcript show a green exit badge even when exit_code is missing, and the stderr panel is labelled 'Output' just like stdout. Fix the badge and give stderr its own label.",
+  "expect": [
+   "Command"
+  ],
+  "kind": "frontend",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Grep tool results in the transcript usually render as a neat path/line/text table, but output containing Windows paths like C:\\src\\a.ts:12:foo falls back to plain text. Where is that line format detected?",
+  "expect": [
+   "parseHits"
+  ],
+  "kind": "frontend",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Our shared GET hook for screens keeps showing stale data for a moment when the query params change, and I'd like it to keep previous data while reloading. Where is that hook and how does it abort on unmount?",
+  "expect": [
+   "useQuery"
+  ],
+  "kind": "frontend",
+  "area": "web-api"
+ },
+ {
+  "prompt": "The live websocket client gives up and switches to timer-based polling after three failed reconnects. Raise that to five and cap the backoff at 15 seconds instead of 30.",
+  "expect": [
+   "RelayLive"
+  ],
+  "kind": "frontend",
+  "area": "web-api"
+ },
+ {
+  "prompt": "In the session view's side rail, the per-turn list shows prompt preview, time, tokens and cost. Add the finish reason as a small badge next to the turn number.",
+  "expect": [
+   "TurnsRail"
+  ],
+  "kind": "frontend",
+  "area": "web-api"
+ },
+ {
+  "prompt": "The bar under each evaluation run counts failed tasks as completed, so a run where everything failed looks 100% finished. Show failed tasks as a separate red segment.",
+  "expect": [
+   "Progress"
+  ],
+  "kind": "frontend",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Add a 'Machines' column to the developer directory table (the one with the 7-day mini chart and spend), which means the list endpoint has to return a machine count per person too.",
+  "expect": [
+   "People",
+   "Server.listUsers"
+  ],
+  "kind": "cross",
+  "area": "web-api"
+ },
+ {
+  "prompt": "When you click a person in the directory, the right-hand drawer shows spend, files touched and top tools. Add 'top languages' to that drawer, end to end.",
+  "expect": [
+   "PersonPanel",
+   "Server.getUserSummary"
+  ],
+  "kind": "cross",
+  "area": "web-api"
+ },
+ {
+  "prompt": "On the fleet coverage overview, the bypass indicator cards say 'Not measurable' even for kinds the fleet does send. Trace whether the 'available' flag is wrong on the server or misread by the page.",
+  "expect": [
+   "Report",
+   "Server.getCoverage"
+  ],
+  "kind": "cross",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Revoking a host from the enrolled-hosts table on the coverage screen succeeds but the row still says 'active' after reload. Check both the table and the DELETE handler.",
+  "expect": [
+   "Machines",
+   "Server.revokeMachine"
+  ],
+  "kind": "cross",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Renaming the organisation on the settings page accepts an empty name. Disable Save in the UI for blank input and reject it with a validation error on the server.",
+  "expect": [
+   "OrgPanel",
+   "Server.updateOrg"
+  ],
+  "kind": "cross",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Notes left on a session transcript sometimes appear twice after a slow network. Look at the note box in the session side rail and the POST handler that stores the note.",
+  "expect": [
+   "CommentsRail",
+   "Server.createSessionComment"
+  ],
+  "kind": "cross",
+  "area": "web-api"
+ },
+ {
+  "prompt": "The 'files changed' tab in the session view shows +0/-0 for files that were rewritten with Write. Is the server rollup wrong or the rail?",
+  "expect": [
+   "FilesRail",
+   "Server.getSessionFiles"
+  ],
+  "kind": "cross",
+  "area": "web-api"
+ },
+ {
+  "prompt": "The new-evaluation form fires the cost estimate on every keystroke; product wants it to also show the number of sessions that would be sampled. Change the form and the estimate endpoint.",
+  "expect": [
+   "Composer",
+   "Server.estimateEvalRun"
+  ],
+  "kind": "cross",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Replying to an assessment on a scored result card clears the textbox but the reply never shows up until a full refresh. Fix the card and check what the reply endpoint returns.",
+  "expect": [
+   "ResultCard",
+   "Server.createEvalResultResponse"
+  ],
+  "kind": "cross",
+  "area": "web-api"
+ },
+ {
+  "prompt": "After entering email and password on the sign-in page, users with 2FA enabled are sometimes sent straight home instead of to the code screen. Where does the page branch on the server's 'next' value, and where does the server decide it?",
+  "expect": [
+   "Login",
+   "Server.login"
+  ],
+  "kind": "cross",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Expanding a large tool output in a transcript shows \"Couldn't load this content.\" when the presigned URL has expired. Check the fallback fetch on our own origin and the handler that serves stored bodies by reference.",
+  "expect": [
+   "useBody",
+   "Server.getBlob"
+  ],
+  "kind": "cross",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Scrolling up in a long transcript stops fetching earlier events after the first page even though there are more. Look at how the client pages backwards with the cursor and how the timeline endpoint sets has_more.",
+  "expect": [
+   "loadOlder",
+   "Server.getSessionTimeline"
+  ],
+  "kind": "cross",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Relative timestamps like '3m' on cards are wrong on laptops with a bad system clock. Where do we correct for the server's clock when formatting elapsed time?",
+  "expect": [
+   "ago",
+   "serverNow"
+  ],
+  "kind": "types",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Money values show as $0.68 but finance wants four decimals everywhere and a dash instead of $0.00 for missing values. Which helper formats dollar strings from the API?",
+  "expect": [
+   "usd"
+  ],
+  "kind": "types",
+  "area": "web-api"
+ },
+ {
+  "prompt": "The token count on session cards and turns doesn't match what Claude Code shows; I suspect cache reads/writes are left out somewhere. Which helper sums the per-row token columns?",
+  "expect": [
+   "allTokens"
+  ],
+  "kind": "types",
+  "area": "web-api"
+ },
+ {
+  "prompt": "On the live floor, sessions are grouped under each developer's name, and sessions without a known owner should land in one 'Unattributed' group. Where is that grouping done, and does it keep freshest-first order?",
+  "expect": [
+   "groupByUser"
+  ],
+  "kind": "types",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Support says the UI shows 'Something went wrong.' for the 'quota_exceeded' error code. Where is the mapping from API error codes to user-facing text?",
+  "expect": [
+   "humanError"
+  ],
+  "kind": "types",
+  "area": "web-api"
+ },
+ {
+  "prompt": "Transcript tool calls from MCP servers should read 'server / tool' and Codex's 'apply_patch' should get the edit glyph instead of the generic one. Where are tool names classified and prettified?",
+  "expect": [
+   "family",
+   "toolTitle"
+  ],
+  "kind": "types",
+  "area": "web-api"
+ }
+]

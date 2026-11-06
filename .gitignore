@@ -1,0 +1,35 @@
+/target
+/target-plugin
+/target*
+.DS_Store
+# bench/: only the tool's harnesses, task definitions and gold sets ship; run outputs, raw
+# transcripts and probes stay local (they hold machine paths and private repo data)
+/bench/**/run*/
+/bench/**/runs/
+/bench/**/probe/
+/bench/transactions/
+/bench/**/*.log
+/bench/**/*_last.*
+/bench/**/last_run.json
+/bench/**/results.json
+/bench/**/analysis*.txt
+/bench/**/embeddings-final.txt
+/bench/**/layer.json
+/bench/**/*.settings.json
+# bench/eval: what setup.sh and the runs generate
+/bench/eval/plugin-frozen/
+/bench/eval/shop.db
+/bench/eval/mcp-*.json
+/bench/eval/mt-skill-now.md
+/bench/eval/results/
+# the coord bench copies a target repo here (private data): never committed
+/bench/coord/repo/
+/bench/coord/plugin/bin/
+# the plugin's binary is built (cargo build --release), not committed
+/plugin/bin/
+.mt/
+node_modules/
+**/.claude-plugin/types/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

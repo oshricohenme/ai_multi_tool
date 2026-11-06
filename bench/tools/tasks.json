@@ -1,0 +1,5 @@
+{
+ "T1": "Which migration creates the table that stores audit log entries, which Go function in the store package inserts rows into it, and which test file covers that function? Give file:line for each. Do not modify anything.",
+ "T2": "Use the humanizer skill's guidance to rewrite this sentence, and reply with only the rewritten sentence: \"In today's rapidly evolving landscape, our platform serves as a testament to seamless, cutting-edge innovation.\"",
+ "T3": "Add a nullable cost_usd NUMERIC(12,6) column to the session table: add a new up and down migration following the repo's numbering convention, and add the field to the Go struct that rows of that table are scanned into. Do not run tests or builds."
+}

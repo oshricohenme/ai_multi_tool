@@ -1,0 +1,344 @@
+[
+  {
+    "prompt": "Session cards keep saying \"thinking\" for an agent that has been sitting there for 90 seconds; where is the human-readable activity label for a card decided, and what idle threshold flips it to \"idle Nm\"?",
+    "expect": [
+      "deriveActivity"
+    ],
+    "where": [
+      "internal/store/sessions.go:112"
+    ],
+    "kind": "single"
+  },
+  {
+    "prompt": "The transcript endpoint reports holes in the event sequence. Which function works out the missing ranges between consecutive items, and does it handle out-of-order items?",
+    "expect": [
+      "computeGaps"
+    ],
+    "where": [
+      "internal/api/sessions.go:220"
+    ],
+    "kind": "single"
+  },
+  {
+    "prompt": "When the event bus is down agents get a retry-after of roughly 5 seconds with a small random spread. Where is that spread computed? I want it widened to plus or minus 30 percent.",
+    "expect": [
+      "jitterRetry"
+    ],
+    "where": [
+      "internal/api/ingest.go:219"
+    ],
+    "kind": "single"
+  },
+  {
+    "prompt": "Search result excerpts: a transcript containing <script> tags renders as escaped text but the highlight marks still show. Where is the escaping that keeps the highlight tags intact?",
+    "expect": [
+      "sanitiseSnippet"
+    ],
+    "where": [
+      "internal/store/search.go:131"
+    ],
+    "kind": "single"
+  },
+  {
+    "prompt": "On every list endpoint, limit=0 gives an invalid-request error while limit=10000 gives a page-too-large error. Where is the limit/cursor query parsing shared by the list handlers?",
+    "expect": [
+      "parsePage"
+    ],
+    "where": [
+      "internal/api/page.go:100"
+    ],
+    "kind": "single"
+  },
+  {
+    "prompt": "A POST from the web app with a matching cookie and header still gets 403 \"origin not allowed\" behind our proxy. Where is the double-submit token check plus the Origin allowlist done for mutating requests?",
+    "expect": [
+      "Server.checkCSRF"
+    ],
+    "where": [
+      "internal/api/server.go:272"
+    ],
+    "kind": "single"
+  },
+  {
+    "prompt": "Signing up an org called \"Ünïcode Labs\" produces a short URL name like \"n-code-labs-x3f9a1\". Where is the org's URL-friendly name generated from the display name?",
+    "expect": [
+      "slugify"
+    ],
+    "where": [
+      "internal/store/org.go:337"
+    ],
+    "kind": "single"
+  },
+  {
+    "prompt": "Identity resolution treats addresses with a trailing @ as having an empty domain. Where is the domain part pulled out of an email address on the ingest side?",
+    "expect": [
+      "emailDomain"
+    ],
+    "where": [
+      "internal/store/ingest.go:510"
+    ],
+    "kind": "single"
+  },
+  {
+    "prompt": "Creating an evaluation template with a numeric scale from 0 to 5 is rejected with \"1 == min < max <= 10\". Where are template name, prompt and rubric dimensions validated before saving?",
+    "expect": [
+      "validateTemplateInput"
+    ],
+    "where": [
+      "internal/api/eval.go:105"
+    ],
+    "kind": "single"
+  },
+  {
+    "prompt": "The user summary sometimes returns all-zero p10/p50/p90 values even though there is data. Which helper turns the percentile array from Postgres into the percentiles struct, and why does it bail out?",
+    "expect": [
+      "pct"
+    ],
+    "where": [
+      "internal/store/people.go:378"
+    ],
+    "kind": "single"
+  },
+  {
+    "prompt": "Revoking a machine that is already revoked, or doesn't exist, returns 204 instead of 404. Fix it in both the HTTP handler and the database update.",
+    "expect": [
+      "Server.revokeMachine",
+      "Store.RevokeMachine"
+    ],
+    "where": [
+      "internal/api/people.go:115",
+      "internal/store/people.go:452"
+    ],
+    "kind": "cross"
+  },
+  {
+    "prompt": "Deleting an enrolment token that was already revoked silently succeeds. Make the delete endpoint return not-found when no active token matched.",
+    "expect": [
+      "Server.deleteEnrollmentToken",
+      "Store.RevokeEnrollmentToken"
+    ],
+    "where": [
+      "internal/api/org.go:196",
+      "internal/store/org.go:250"
+    ],
+    "kind": "cross"
+  },
+  {
+    "prompt": "Cancelling an evaluation run that has already finished returns 200 and the finished run unchanged. It should be a 409 conflict. Where is the cancel endpoint and the query that flips the run status?",
+    "expect": [
+      "Server.cancelEvalRun",
+      "Store.CancelRun"
+    ],
+    "where": [
+      "internal/api/eval.go:264",
+      "internal/store/eval.go:473"
+    ],
+    "kind": "cross"
+  },
+  {
+    "prompt": "PATCHing the org settings only ever merges keys; there's no way to remove one. Add support for null values deleting a settings key, from the handler down to the SQL.",
+    "expect": [
+      "Server.updateOrg",
+      "Store.UpdateOrg"
+    ],
+    "where": [
+      "internal/api/org.go:27",
+      "internal/store/org.go:41"
+    ],
+    "kind": "cross"
+  },
+  {
+    "prompt": "The rollout report (enrolled machines, users with no agent, version spread) is cached per viewer for 30 seconds. Where is that endpoint, and which store query builds the report?",
+    "expect": [
+      "Server.getCoverage",
+      "Store.Coverage"
+    ],
+    "where": [
+      "internal/api/people.go:138",
+      "internal/store/coverage.go:16"
+    ],
+    "kind": "cross"
+  },
+  {
+    "prompt": "Only the person a scorecard is about can reply to it. Managers want to reply to team scorecards too. Where is the subject check and where is the reply saved?",
+    "expect": [
+      "Server.createEvalResultResponse",
+      "Store.GetResultSubject",
+      "Store.AddResultResponse"
+    ],
+    "where": [
+      "internal/api/eval.go:320",
+      "internal/store/eval.go:589",
+      "internal/store/eval.go:574"
+    ],
+    "kind": "cross"
+  },
+  {
+    "prompt": "Agents re-download their config on every poll because the ETag keeps changing. Where is the endpoint agents poll for their settings, and where are that document and its ETag built?",
+    "expect": [
+      "Server.getAgentConfig",
+      "Store.AgentConfig"
+    ],
+    "where": [
+      "internal/api/ingest.go:138",
+      "internal/store/ingest.go:79"
+    ],
+    "kind": "cross"
+  },
+  {
+    "prompt": "The teams page shows median sessions per member over the last 7 days. Make the window configurable through a query parameter, from the endpoint through to the SQL.",
+    "expect": [
+      "Server.listTeams",
+      "Store.ListTeams"
+    ],
+    "where": [
+      "internal/api/people.go:79",
+      "internal/store/people.go:322"
+    ],
+    "kind": "cross"
+  },
+  {
+    "prompt": "Deleting an evaluation schedule leaves it in the list, just turned off. Is that intended? Show me the delete endpoint and what it actually does in the database.",
+    "expect": [
+      "Server.deleteEvalSchedule",
+      "Store.DisableSchedule"
+    ],
+    "where": [
+      "internal/api/eval.go:444",
+      "internal/store/eval.go:716"
+    ],
+    "kind": "cross"
+  },
+  {
+    "prompt": "The per-person summary page (top tools, files touched, cost over a date range) is slow for users with lots of sessions. Where's the handler and the store method that runs those queries?",
+    "expect": [
+      "Server.getUserSummary",
+      "Store.GetUserSummary"
+    ],
+    "where": [
+      "internal/api/people.go:52",
+      "internal/store/people.go:135"
+    ],
+    "kind": "cross"
+  },
+  {
+    "prompt": "Agent heartbeats overwrite the previous health snapshot for a machine, so we lose history. Where is the per-machine health row upserted, and what does that table look like?",
+    "expect": [
+      "machine_health",
+      "Store.RecordHealth"
+    ],
+    "where": [
+      "internal/storage/migrations/0001_init.up.sql:90",
+      "internal/store/ingest.go:193"
+    ],
+    "kind": "data"
+  },
+  {
+    "prompt": "When an agent resends the same batch id, how does the server return the original response instead of reprocessing? Show me the table that remembers batches and the code that inserts or replays them.",
+    "expect": [
+      "ingest_batch",
+      "Store.RecordBatch"
+    ],
+    "where": [
+      "internal/storage/migrations/0001_init.up.sql:153",
+      "internal/store/ingest.go:36"
+    ],
+    "kind": "data"
+  },
+  {
+    "prompt": "Changing a schedule's cadence from daily to weekly doesn't move its next run time. Where is the schedule update query and which table column holds the next run?",
+    "expect": [
+      "eval_schedule",
+      "Store.UpdateSchedule"
+    ],
+    "where": [
+      "internal/storage/migrations/0001_init.up.sql:501",
+      "internal/store/eval.go:689"
+    ],
+    "kind": "data"
+  },
+  {
+    "prompt": "Starting an evaluation run should freeze the exact prompt and rubric that were used. Where is that immutable snapshot table and where is it written when a run is created?",
+    "expect": [
+      "eval_template_version",
+      "Store.CreateRun"
+    ],
+    "where": [
+      "internal/storage/migrations/0001_init.up.sql:401",
+      "internal/store/eval.go:365"
+    ],
+    "kind": "data"
+  },
+  {
+    "prompt": "Comments pinned to a turn number that doesn't exist get rejected with a validation error. Where is a session comment inserted and what columns does the comments table have?",
+    "expect": [
+      "session_comment",
+      "Store.AddComment"
+    ],
+    "where": [
+      "internal/storage/migrations/0001_init.up.sql:340",
+      "internal/store/sessions.go:635"
+    ],
+    "kind": "data"
+  },
+  {
+    "prompt": "The monthly evaluation spend cap falls back to $1000 when the org setting is missing. Where is month-to-date spend summed, and from which table?",
+    "expect": [
+      "eval_run",
+      "Store.monthlySpendTx"
+    ],
+    "where": [
+      "internal/storage/migrations/0001_init.up.sql:412",
+      "internal/store/eval.go:733"
+    ],
+    "kind": "data"
+  },
+  {
+    "prompt": "A manager can see their indirect reports but not reports of a dotted-line relationship. Where is the manager-to-report table defined and where is the recursive lookup over it?",
+    "expect": [
+      "manages",
+      "Store.ListReports"
+    ],
+    "where": [
+      "internal/storage/migrations/0001_init.up.sql:61",
+      "internal/store/people.go:23"
+    ],
+    "kind": "data"
+  },
+  {
+    "prompt": "Failed two-factor codes should lock the sign-in after 5 attempts. Where is the per-login attempt counter stored and where is it incremented?",
+    "expect": [
+      "user_session",
+      "Store.VerifyTOTP"
+    ],
+    "where": [
+      "internal/storage/migrations/0001_init.up.sql:517",
+      "internal/store/auth.go:317"
+    ],
+    "kind": "data"
+  },
+  {
+    "prompt": "The commands tab of a session lists shell runs. Which table are they read from and what filter decides which tool calls count as commands?",
+    "expect": [
+      "tool_call",
+      "Store.SessionCommands"
+    ],
+    "where": [
+      "internal/storage/migrations/0001_init.up.sql:279",
+      "internal/store/sessions.go:591"
+    ],
+    "kind": "data"
+  },
+  {
+    "prompt": "Editing only the name of an evaluation template should not bump its version, but editing the rubric should. Where is that update query and the version column defined?",
+    "expect": [
+      "eval_template",
+      "Store.UpdateTemplate"
+    ],
+    "where": [
+      "internal/storage/migrations/0001_init.up.sql:383",
+      "internal/store/eval.go:109"
+    ],
+    "kind": "data"
+  }
+]

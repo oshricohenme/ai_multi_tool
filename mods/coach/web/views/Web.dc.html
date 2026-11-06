@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dev tools · localhost</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#0e0e10}
+a{color:#93a9c8}a:hover{color:#c3d1e6}
+button,input,select{font:inherit}
+.pal-row:hover{background:#1d1d23}
+</style>
+</helmet>
+<div style="min-height: 900px; height: 100vh; display: flex; flex-direction: column; background: #0e0e10; color: #e4e4e8; font-family: Inter, system-ui, sans-serif; font-size: 13px">
+
+<header style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; min-height: 56px; box-sizing: border-box; padding: 8px 16px; border-bottom: 1px solid #222226; background: #121214">
+<div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap">
+<div style="display: flex; align-items: center; gap: 8px; font-weight: 600">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e2a557" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l5-5-5-5"></path><path d="M12 19h8"></path></svg>
+Claude coach</div>
+<span style="width: 1px; height: 20px; background: #2a2a30"></span>
+<label style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 1px solid #2a2a30; border-radius: 8px; background: #18181b">
+<span style="color: #8b8b94">Session</span>
+<select ref="{{sessionRef}}" onChange="{{onSession}}" aria-label="Session" style="max-width: 320px; border: 0; outline: 0; background: transparent; color: #e4e4e8"></select>
+</label>
+<span style="max-width: 360px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8b8b94">{{metaLine}}</span>
+</div>
+<div style="display: flex; align-items: center; gap: 10px">
+<sc-if value="{{hasLimit}}" hint-placeholder-val="{{ false }}"><span title="{{limitTitle}}" style="display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border-radius: 999px; background: #18181b; border: 1px solid #2a2a30; font-size: 12px; color: #9a9aa3">{{limitLabel}}<span style="width: 56px; height: 5px; border-radius: 3px; background: #26262c; overflow: hidden"><span style="{{limitFill}}"></span></span><span style="{{limitPctStyle}}">{{limitPct}}</span></span></sc-if>
+<span style="{{pillStyle}}"><span style="{{pillDot}}"></span>{{pillText}}</span>
+<button type="button" onClick="{{cycleTheme}}" aria-label="{{themeAria}}" title="{{themeAria}}" style="display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid #2a2a30; border-radius: 8px; background: #18181b; color: #9a9aa3; cursor: pointer"><span style="font-size: 14px; color: #e2a557">{{themeGlyph}}</span>{{themeLabel}}</button>
+<button type="button" onClick="{{openPalette}}" style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border: 1px solid #2a2a30; border-radius: 8px; background: #18181b; color: #9a9aa3; cursor: pointer">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+Search<span style="padding: 1px 6px; border: 1px solid #2a2a30; border-radius: 4px; font-size: 11px">⌘K</span></button>
+</div>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1; min-height: 0">
+<nav aria-label="Views" style="display: flex; flex-direction: column; gap: 4px; flex: 1 1 64px; max-width: 64px; box-sizing: border-box; padding: 10px 8px; border-right: 1px solid #222226; background: #121214">
+<sc-for list="{{views}}" as="v" hint-placeholder-count="5">
+<button type="button" onClick="{{v.pick}}" aria-label="{{v.label}}" title="{{v.label}}" style="{{v.style}}">
+<span style="{{v.iconStyle}}">{{v.glyph}}</span>
+<span style="font-size: 10px">{{v.short}}</span>
+</button>
+</sc-for>
+</nav>
+<main style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; overflow: auto">
+<sc-if value="{{waiting}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; flex: 1; min-height: 600px; color: #8b8b94; font-size: 14px; text-align: center; padding: 24px">
+<span style="font-size: 28px; color: #3a3a42">{{waitGlyph}}</span>
+<span style="color: #e4e4e8; font-weight: 600">{{waitTitle}}</span>
+<span style="max-width: 460px; line-height: 1.5">{{waitText}}</span>
+</div>
+</sc-if>
+<sc-if value="{{isTokens}}" hint-placeholder-val="{{ false }}"><dc-import name="WebTokens" hint-size="100%,844px"></dc-import></sc-if>
+<sc-if value="{{isTurns}}" hint-placeholder-val="{{ false }}"><dc-import name="WebTurns" hint-size="100%,844px"></dc-import></sc-if>
+<sc-if value="{{isTimeline}}" hint-placeholder-val="{{ true }}"><dc-import name="WebTimeline" hint-size="100%,844px"></dc-import></sc-if>
+<sc-if value="{{isContext}}" hint-placeholder-val="{{ false }}"><dc-import name="WebContext" hint-size="100%,844px"></dc-import></sc-if>
+<sc-if value="{{isCache}}" hint-placeholder-val="{{ false }}"><dc-import name="WebCache" hint-size="100%,844px"></dc-import></sc-if>
+<sc-if value="{{isAgents}}" hint-placeholder-val="{{ false }}"><dc-import name="WebAgents" hint-size="100%,844px"></dc-import></sc-if>
+<sc-if value="{{isHabits}}" hint-placeholder-val="{{ false }}"><dc-import name="WebHabits" hint-size="100%,844px"></dc-import></sc-if>
+<sc-if value="{{isSignals}}" hint-placeholder-val="{{ false }}"><dc-import name="WebSignals" hint-size="100%,844px"></dc-import></sc-if>
+<sc-if value="{{isCoach}}" hint-placeholder-val="{{ false }}"><dc-import name="WebCoach" hint-size="100%,844px"></dc-import></sc-if>
+</main>
+</div>
+
+<sc-if value="{{palette}}" hint-placeholder-val="{{ false }}">
+<div onClick="{{closePalette}}" style="position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: rgba(5,5,7,0.6); backdrop-filter: blur(3px)">
+<div role="dialog" aria-label="Search everything" onClick="{{stop}}" style="width: min(720px, calc(100vw - 32px)); max-height: 64vh; display: flex; flex-direction: column; border: 1px solid #2c2c33; border-radius: 14px; background: #141417; box-shadow: 0 30px 80px rgba(0,0,0,0.6); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #222227">
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8b8b94" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<input ref="{{palRef}}" type="text" value="{{palQuery}}" onChange="{{onPalQuery}}" onKeyDown="{{onPalKey}}" placeholder="Prompts, tool calls, file paths, answers, errors…" aria-label="Search" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #e4e4e8; font-size: 15px">
+<span style="font-size: 11px; color: #6e6e78">↑↓ · ↵ open · esc</span>
+</div>
+<div style="overflow-y: auto">
+<sc-for list="{{palRows}}" as="r" hint-placeholder-count="6">
+<button type="button" class="pal-row" onClick="{{r.pick}}" style="{{r.style}}">
+<span style="{{r.badgeStyle}}">{{r.badge}}</span>
+<span style="display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left">
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #e4e4e8">{{r.title}}</span>
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: #8b8b94; font-family: 'JetBrains Mono', monospace">{{r.snippet}}</span>
+</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b8b94">{{r.meta}}</span>
+</button>
+</sc-for>
+<sc-if value="{{palEmpty}}" hint-placeholder-val="{{ false }}"><div style="padding: 22px; text-align: center; color: #6e6e78">Nothing matches.</div></sc-if>
+</div>
+</div>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+var VIEWS = [
+  { id: 'tokens', label: 'Where your tokens go', short: 'Tokens', glyph: '◧' },
+  { id: 'turns', label: 'Turns: every prompt and response, classified', short: 'Turns', glyph: '¶' },
+  { id: 'timeline', label: 'Timeline', short: 'Trace', glyph: '≋' },
+  { id: 'context', label: 'Context X-ray', short: 'Context', glyph: '▤' },
+  { id: 'cache', label: 'Cache health', short: 'Cache', glyph: '◔' },
+  { id: 'agents', label: 'Subagents', short: 'Agents', glyph: '⑂' },
+  { id: 'habits', label: 'Habits & settings', short: 'Habits', glyph: '↗' },
+  { id: 'signals', label: 'Signals: every event, interpreted', short: 'Signals', glyph: '⚡' },
+  { id: 'coach', label: 'Coach: best-practice checks', short: 'Coach', glyph: '✓' }
+];
+var BADGE = { system: 'SYSTEM', context: 'CONTEXT', user: 'USER', assistant: 'CALL', tool: 'TOOL', compact: 'COMPACT' };
+function short(s, n) { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    var v = 'tokens'; try { v = localStorage.getItem('devtools.view2') || v; } catch (e) {}
+    this.state = { view: v, palette: false, palQuery: '', palIdx: 0 };
+  }
+  componentDidMount() {
+    var self = this;
+    this.onKey = function (ev) {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); self.setState({ palette: !self.state.palette, palQuery: '', palIdx: 0 }); }
+    };
+    window.addEventListener('keydown', this.onKey);
+    DT.goto = function (id) { self.setView(id); };
+  }
+  componentWillUnmount() { window.removeEventListener('keydown', this.onKey); }
+  setView(id) { try { localStorage.setItem('devtools.view2', id); } catch (e) {} this.setState({ view: id }); }
+  matches() {
+    var q = this.state.palQuery.toLowerCase().trim(), out = [];
+    var evs = DT.events.slice().reverse();
+    for (var i = 0; i < evs.length && out.length < 40; i++) {
+      var e = evs[i], src = (e.title + '\n' + (e.payload || '') + '\n' + (e.result || '')), hay = src.toLowerCase();
+      if (q && hay.indexOf(q) < 0) continue;
+      var at = q ? hay.indexOf(q) : -1;
+      out.push({ e: e, snippet: at >= 0 ? short(src.slice(Math.max(0, at - 40), at + 100), 140) : short(e.kind === 'assistant' ? e.result : (e.payload || e.result), 140) });
+    }
+    return out;
+  }
+  renderVals() {
+    var self = this, S = this.state, v = S.view, B = DT.base();
+    var hasEvents = DT.events.length > 0, hasCalls = B.calls.some(function (e) { return e.end; });
+    var waiting = null;
+    if (!DT.connected && !hasEvents) waiting = ['◌', 'Waiting for the mod', 'The page reads from the dev-tools mod running in Claude Code. Keep it open: it reconnects by itself.'];
+    else if (!hasCalls && v !== 'habits' && v !== 'signals' && v !== 'coach' && v !== 'turns') waiting = ['◔', 'Nothing to show yet', 'Send Claude a prompt. The first model call appears here as it streams.'];
+    else if (v === 'context' && !DT.contextTree()) waiting = ['▤', 'No context breakdown yet', 'It arrives when the current turn completes.'];
+    else if (v === 'habits' && !DT.habits()) waiting = ['↗', 'No sessions with model calls yet', 'Habits compare this session with your earlier ones, kept in ~/.claude/dev-tools.'];
+    var ctx = DT.meta.context, model = (B.calls[B.calls.length - 1] || {}).model || (ctx && ctx.model) || '';
+    var rl = (DT.meta.limits && DT.meta.limits.rateLimits) || [], lim = rl.slice().sort(function (a, b) { return b.percentUsed - a.percentUsed; })[0];
+    var rows = S.palette ? this.matches() : [];
+    var idx = Math.min(S.palIdx, Math.max(0, rows.length - 1));
+    var open = function (e) {
+      DT.focus = e.agentId ? null : e.id;
+      self.setState({ palette: false });
+      self.setView('timeline');
+    };
+    return {
+      sessionRef: function (el) {
+        if (!el) return;
+        el.__keepChildren = true;
+        var key = DT.sessions.map(function (s) { return s.id + s.usd; }).join(',') + '|' + DT.session;
+        if (el.__key === key) return; el.__key = key;
+        el.innerHTML = '';
+        var list = DT.sessions.length ? DT.sessions : [{ id: DT.current || 'live', cwd: DT.meta.cwd }];
+        list.forEach(function (s) {
+          var o = document.createElement('option'); o.value = s.id;
+          var name = (s.cwd || '').split('/').filter(Boolean).pop() || s.id.slice(0, 8);
+          var when = s.start ? new Date(s.start).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+          o.textContent = name + (when ? ' · ' + when : '') + (s.id === DT.current ? ' · live' : '') + (s.usd ? ' · $' + s.usd.toFixed(2) : '');
+          if (s.id === DT.session) o.selected = true;
+          el.appendChild(o);
+        });
+      },
+      onSession: function (ev) { DT.pick(ev.target.value); },
+      hasLimit: !!lim, limitLabel: lim ? ({ five_hour: '5-hour limit', seven_day: '7-day limit' }[lim.kind] || lim.kind + ' limit') : '', limitPct: lim ? Math.round(lim.percentUsed) + '%' : '',
+      limitTitle: lim ? (DT.meta.limits.rateLimits.map(function (r) { return r.kind + ' ' + Math.round(r.percentUsed) + '%' + (r.resetsAt ? ', resets ' + new Date(r.resetsAt).toLocaleString() : ''); }).join(' · ')) : '',
+      limitFill: lim ? 'display: block; height: 100%; width: ' + Math.min(100, lim.percentUsed) + '%; background: ' + (lim.percentUsed > 80 ? '#f2703f' : lim.percentUsed > 50 ? '#e2a557' : '#6fd3b4') : '',
+      limitPctStyle: "font-family: 'JetBrains Mono', monospace; font-weight: 700; color: " + (lim && lim.percentUsed > 80 ? '#f2703f' : '#e4e4e8'),
+      metaLine: [model, (DT.meta.cwd || '').replace(/^\/Users\/[^/]+/, '~')].filter(Boolean).join(' · '),
+      pillText: !DT.live ? 'Past session · read only' : DT.connected ? 'Live · mod connected' : 'Reconnecting…',
+      pillStyle: 'display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12px; background: ' + (!DT.live ? '#1f1f24' : DT.connected ? '#163029' : '#3d2116') + '; color: ' + (!DT.live ? '#9a9aa3' : DT.connected ? '#6fd3b4' : '#f2703f'),
+      pillDot: 'width: 7px; height: 7px; border-radius: 50%; background: ' + (!DT.live ? '#6e6e78' : DT.connected ? '#6fd3b4' : '#f2703f'),
+      themeGlyph: { system: '◐', light: '☀', dark: '☾' }[DT.theme()], themeLabel: { system: 'System', light: 'Light', dark: 'Dark' }[DT.theme()],
+      themeAria: 'Theme: ' + DT.theme() + ' (click to change)',
+      cycleTheme: function () { DT.setTheme({ system: 'light', light: 'dark', dark: 'system' }[DT.theme()]); },
+      openPalette: function () { self.setState({ palette: true, palQuery: '', palIdx: 0 }); },
+      closePalette: function () { self.setState({ palette: false }); },
+      stop: function (ev) { ev.stopPropagation(); },
+      palette: S.palette, palQuery: S.palQuery,
+      palRef: function (el) { if (el && document.activeElement !== el) el.focus(); },
+      onPalQuery: function (ev) { self.setState({ palQuery: ev.target.value, palIdx: 0 }); },
+      onPalKey: function (ev) {
+        if (ev.key === 'Escape') self.setState({ palette: false });
+        else if (ev.key === 'ArrowDown') { ev.preventDefault(); self.setState({ palIdx: Math.min(rows.length - 1, idx + 1) }); }
+        else if (ev.key === 'ArrowUp') { ev.preventDefault(); self.setState({ palIdx: Math.max(0, idx - 1) }); }
+        else if (ev.key === 'Enter' && rows[idx]) open(rows[idx].e);
+      },
+      palEmpty: S.palette && rows.length === 0,
+      palRows: rows.map(function (r, i) {
+        var e = r.e, on = i === idx;
+        var turn = B.turnNo.get(e.turnId);
+        return {
+          pick: function () { open(e); },
+          style: 'display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 12px; align-items: center; width: 100%; padding: 10px 16px; border: 0; cursor: pointer; color: inherit; background: ' + (on ? '#1d1d23' : 'transparent') + (on ? '; box-shadow: inset 2px 0 0 #f4f4f6' : ''),
+          badge: (e.agentId ? 'SUB · ' : '') + (BADGE[e.kind] || String(e.kind).toUpperCase()),
+          badgeStyle: 'justify-self: start; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; color: ' + (e.isError ? '#ff5c7a' : '#c4c4cb') + '; background: #24242a',
+          title: short(e.title, 120), snippet: r.snippet,
+          meta: (turn ? 'T' + turn + ' · ' : '') + '+' + ((e.start - B.t0) / 1000).toFixed(1) + 's'
+        };
+      }),
+      views: VIEWS.map(function (x) {
+        var on = x.id === v;
+        return {
+          label: x.label, short: x.short, glyph: x.glyph,
+          pick: function () { self.setView(x.id); },
+          style: 'display: flex; flex-direction: column; align-items: center; gap: 2px; width: 48px; height: 48px; justify-content: center; border: 0; border-radius: 10px; cursor: pointer; background: ' + (on ? '#26262c' : 'transparent') + '; color: ' + (on ? '#f4f4f6' : '#8b8b94'),
+          iconStyle: 'font-size: 17px; line-height: 1; color: ' + (on ? '#e2a557' : '#8b8b94')
+        };
+      }),
+      waiting: !!waiting, waitGlyph: waiting ? waiting[0] : '', waitTitle: waiting ? waiting[1] : '', waitText: waiting ? waiting[2] : '',
+      isTokens: !waiting && v === 'tokens', isTurns: !waiting && v === 'turns', isTimeline: !waiting && v === 'timeline', isContext: !waiting && v === 'context', isCache: !waiting && v === 'cache', isAgents: !waiting && v === 'agents', isHabits: !waiting && v === 'habits', isSignals: !waiting && v === 'signals', isCoach: !waiting && v === 'coach'
+    };
+  }
+}
+</script>
+</body>
+</html>

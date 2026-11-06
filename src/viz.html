@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mt live</title>
+<style>
+:root {
+  --bg: #06080c; --panel: rgba(13,17,24,.78); --line: rgba(140,160,190,.14);
+  --text: #d9e1ec; --dim: #7d8a9c; --faint: #4a5566;
+  --accent: #7cf3d0; --warn: #ffb547; --bad: #ff5d73; --hook: #b48cff;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, -apple-system, "Inter", "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 var(--sans); overflow: hidden; }
+canvas#g { position: fixed; inset: 0; width: 100vw; height: 100vh; cursor: grab; }
+canvas#g.drag { cursor: grabbing; }
+.glass { background: var(--panel); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border: 1px solid var(--line); border-radius: 14px; }
+header { position: fixed; top: 14px; left: 14px; right: 14px; display: flex; align-items: center; gap: 18px; padding: 10px 16px; z-index: 3; }
+.brand { font: 600 15px var(--mono); letter-spacing: .5px; display: flex; align-items: center; gap: 10px; }
+.brand b { color: var(--accent); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 0 transparent; transition: background .3s; }
+.dot.up { background: var(--accent); animation: breathe 2.4s ease-in-out infinite; }
+@keyframes breathe { 50% { box-shadow: 0 0 0 6px rgba(124,243,208,.0), 0 0 14px 2px rgba(124,243,208,.55); } }
+.repo { color: var(--dim); font: 12px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 28vw; }
+.stats { display: flex; gap: 22px; margin-left: auto; }
+.stat { display: flex; flex-direction: column; align-items: flex-end; }
+.stat span { font: 600 16px var(--mono); font-variant-numeric: tabular-nums; }
+.stat small { color: var(--dim); font-size: 10.5px; text-transform: uppercase; letter-spacing: .8px; }
+#search { background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 9px; color: var(--text); padding: 7px 10px; font: 12px var(--mono); width: 210px; outline: none; }
+#search:focus { border-color: rgba(124,243,208,.5); }
+aside#feed { position: fixed; top: 84px; right: 14px; bottom: 112px; width: 360px; padding: 12px 0 12px 12px; z-index: 2; display: flex; flex-direction: column; }
+aside h2, #panel h2 { margin: 0 12px 8px 2px; font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: 1.2px; color: var(--dim); display: flex; justify-content: space-between; }
+#events { overflow-y: auto; padding-right: 10px; flex: 1; scrollbar-width: thin; scrollbar-color: #2a3442 transparent; }
+.ev { padding: 8px 10px; border-radius: 10px; margin-bottom: 6px; border: 1px solid transparent; background: rgba(255,255,255,.025); animation: slide .5s cubic-bezier(.2,.9,.3,1.2); cursor: pointer; }
+.ev:hover { border-color: var(--line); background: rgba(255,255,255,.05); }
+@keyframes slide { from { opacity: 0; transform: translateX(24px) scale(.98); } }
+.ev .top { display: flex; gap: 8px; align-items: baseline; font: 12px var(--mono); white-space: nowrap; }
+.ev .top > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ev .k { font-weight: 700; }
+.ev .ms { margin-left: auto; color: var(--dim); font-variant-numeric: tabular-nums; }
+.ev .sub { color: var(--dim); font: 11.5px var(--mono); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev .files { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font: 10.5px var(--mono); padding: 1px 6px; border-radius: 6px; background: rgba(255,255,255,.06); color: var(--text); }
+#panel { position: fixed; left: 14px; top: 84px; width: 330px; max-height: calc(100vh - 210px); padding: 12px; z-index: 2; display: none; overflow: auto; }
+#panel.on { display: block; animation: slide .35s ease-out; }
+#panel .path { font: 600 12.5px var(--mono); word-break: break-all; margin-bottom: 6px; }
+#panel .meta { color: var(--dim); font: 11.5px var(--mono); margin-bottom: 10px; }
+#panel .def { font: 11.5px var(--mono); padding: 3px 4px; border-radius: 5px; display: flex; gap: 8px; }
+#panel .def:hover { background: rgba(255,255,255,.05); }
+#panel .def i { color: var(--dim); font-style: normal; min-width: 64px; }
+#panel .def em { color: var(--faint); font-style: normal; margin-left: auto; }
+#panel .x { cursor: pointer; color: var(--dim); }
+footer { position: fixed; left: 14px; right: 14px; bottom: 14px; height: 84px; padding: 10px 14px; z-index: 2; display: flex; gap: 18px; align-items: stretch; }
+#legend { display: flex; flex-direction: column; flex-wrap: wrap; gap: 3px 16px; min-width: 0; max-width: 46%; overflow: hidden; }
+.lg { display: flex; align-items: center; gap: 6px; font: 11px var(--mono); color: var(--dim); white-space: nowrap; cursor: pointer; }
+.lg:hover { color: var(--text); }
+.lg b { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+#timeline { flex: 1; min-width: 120px; }
+#modes { display: grid; grid-template-columns: repeat(6, auto); gap: 4px; align-content: center; flex: none; }
+#modes button { font: 10.5px var(--mono); background: rgba(255,255,255,.04); border: 1px solid var(--line); color: var(--dim); border-radius: 7px; padding: 3px 8px; cursor: pointer; transition: all .15s; }
+#modes button:hover { color: var(--text); border-color: rgba(124,243,208,.35); }
+#modes button.on { color: #06080c; background: var(--accent); border-color: transparent; font-weight: 700; box-shadow: 0 0 12px rgba(124,243,208,.45); }
+#np { font: 12px var(--mono); color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; align-self: center; text-shadow: 0 0 8px rgba(124,243,208,.45); }
+body[data-mode="graph"] #np { display: none; }
+body:not([data-mode="graph"]) #legend, body:not([data-mode="graph"]) #panel { display: none !important; }
+body:not([data-mode="graph"]) canvas#g { cursor: default; }
+#tip { position: fixed; pointer-events: none; z-index: 5; padding: 6px 9px; font: 11.5px var(--mono); border-radius: 8px; display: none; max-width: 420px; }
+#hint { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); color: var(--dim); font: 13px var(--mono); z-index: 1; text-align: center; }
+.kinds { display: flex; gap: 10px; font: 10.5px var(--mono); color: var(--dim); }
+.kinds b { display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 4px; vertical-align: 0; }
+@media (max-width: 900px) { aside#feed { width: 260px; } .stats .stat:nth-child(n+3) { display: none; } #search { width: 130px; } #legend { display: none; } #modes { grid-template-columns: repeat(4, auto); } }
+@media (prefers-reduced-motion: reduce) { .ev, #panel.on { animation: none; } .dot.up { animation: none; } }
+</style>
+</head>
+<body>
+<canvas id="g" aria-label="Repository graph: files as points, references as lines; points light up when mt reads or writes them"></canvas>
+<div id="hint">loading the graph…</div>
+<header class="glass">
+  <div class="brand"><div class="dot" id="dot" title="daemon"></div><b>mt</b> live</div>
+  <div class="repo" id="repo"></div>
+  <input id="search" placeholder="find a file…  ( / )" autocomplete="off" spellcheck="false">
+  <div class="stats">
+    <div class="stat"><span id="s-req">0</span><small>requests</small></div>
+    <div class="stat"><span id="s-ms">–</span><small>median ms</small></div>
+    <div class="stat"><span id="s-tok">0</span><small>tokens served</small></div>
+    <div class="stat"><span id="s-files">0</span><small>files touched</small></div>
+    <div class="stat"><span id="s-graph">–</span><small>files · defs</small></div>
+  </div>
+</header>
+<aside id="feed" class="glass"><h2><span>activity</span><span class="kinds"><span><b style="background:var(--accent)"></b>read</span><span><b style="background:#ffd36e"></b>write</span><span><b style="background:var(--warn)"></b>reindex</span><span><b style="background:var(--hook)"></b>hook</span></span></h2><div id="events"></div></aside>
+<div id="panel" class="glass"></div>
+<footer class="glass"><div id="modes" role="toolbar" aria-label="visualization"></div><div id="legend"></div><div id="np">▶ waiting for mt…</div><canvas id="timeline" aria-label="events over the last two minutes"></canvas></footer>
+<div id="tip" class="glass"></div>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const cv = $("#g"), ctx = cv.getContext("2d");
+const tl = $("#timeline"), tctx = tl.getContext("2d");
+let W = 0, H = 0, DPR = Math.min(2, window.devicePixelRatio || 1);
+const KIND = { read: [124,243,208], write: [255,211,110], reindex: [255,181,71], hook: [180,140,255], bad: [255,93,115] };
+const PALETTE = ["#7cf3d0","#6fb8ff","#ff8fb3","#ffd36e","#b48cff","#7ee081","#ff9f6e","#5ee1ff","#e7a6ff","#c8e66f","#ff6e8a","#9fb2ff"];
+let nodes = [], byId = new Map(), byPath = new Map(), edges = [], dirs = [], dirColor = new Map();
+let cam = { x: 0, y: 0, k: 1 }, hover = null, selected = null, filterDir = null;
+const effects = [], timeline = [];
+const stats = { req: 0, ms: [], tok: 0, files: new Set() };
+
+function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function topDir(p) { const i = p.indexOf("/"); return i < 0 ? "·" : p.slice(0, i); }
+function fmt(n) { return n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e4 ? Math.round(n/1e3)+"k" : n >= 1e3 ? (n/1e3).toFixed(1)+"k" : String(n); }
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function resize() {
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  const r = tl.getBoundingClientRect(); tl.width = r.width * DPR; tl.height = r.height * DPR;
+}
+addEventListener("resize", resize);
+
+// ---------------------------------------------------------------- layout
+// Each directory is an island: islands are packed on a spiral without overlapping, files are laid
+// out inside their island by a small force simulation (repulsion within the island, springs along
+// references), and references between islands are drawn as arcs.
+let islands = [];
+function layout(g) {
+  const top = new Map();
+  for (const n of g.nodes) { const d = topDir(n.path); top.set(d, (top.get(d) || 0) + 1); }
+  // a directory holding most of the repo is split one level further, so islands stay readable
+  const big = new Set([...top].filter(([, c]) => c > g.nodes.length * 0.4 && c > 60).map(([d]) => d));
+  const key = p => { const d = topDir(p); if (!big.has(d)) return d; const s = p.split("/"); return s.length > 2 ? s[0] + "/" + s[1] : d; };
+  const counts = new Map();
+  for (const n of g.nodes) { const k = key(n.path); counts.set(k, (counts.get(k) || 0) + 1); }
+  dirs = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  // colour by top directory, so a split directory keeps one hue family
+  const tops = [...top.entries()].sort((a, b) => b[1] - a[1]).map(([d]) => d);
+  tops.forEach((d, i) => dirColor.set(d, i < PALETTE.length ? PALETTE[i] : "#8a96a8"));
+  for (const [k] of dirs) if (!dirColor.has(k)) dirColor.set(k, dirColor.get(k.split("/")[0]));
+  const golden = Math.PI * (3 - Math.sqrt(5)), placed = [];
+  islands = dirs.map(([d, c], i) => {
+    const R = 16 + 11 * Math.sqrt(c);
+    let r = 0, a = i * golden, x = 0, y = 0;
+    for (; ; r += 6) { x = Math.cos(a) * r; y = Math.sin(a) * r; if (placed.every(p => Math.hypot(p.x - x, p.y - y) > p.R + R + 26)) break; }
+    const isl = { d, c, R, x, y }; placed.push(isl); return isl;
+  });
+  const islandOf = new Map(islands.map(i => [i.d, i]));
+  nodes = g.nodes.map(n => {
+    const k = key(n.path), isl = islandOf.get(k), a = Math.random() * 6.283, r = Math.sqrt(Math.random()) * isl.R * .9;
+    return { ...n, dir: topDir(n.path), isl, x: isl.x + Math.cos(a) * r, y: isl.y + Math.sin(a) * r, vx: 0, vy: 0, heat: 0, hk: "read",
+      r: 1.8 + Math.min(5.5, Math.sqrt(n.defs) * 0.55), rgb: hexRgb(dirColor.get(k)) };
+  });
+  byId = new Map(nodes.map(n => [n.id, n])); byPath = new Map(nodes.map(n => [n.path, n]));
+  edges = g.edges.map(([a, b, w]) => ({ a: byId.get(a), b: byId.get(b), w })).filter(e => e.a && e.b);
+  const maxW = Math.max(1, ...edges.map(e => e.w));
+  for (const e of edges) { e.s = Math.log1p(e.w) / Math.log1p(maxW); e.inner = e.a.isl === e.b.isl; }
+  simulate(180);
+  fit();
+}
+
+function simulate(iter) {
+  const members = new Map(islands.map(i => [i, []]));
+  for (const n of nodes) members.get(n.isl).push(n);
+  const inner = edges.filter(e => e.inner);
+  for (let it = 0; it < iter; it++) {
+    const alpha = 1 - it / iter;
+    for (const [isl, ms] of members) {
+      const k = isl.R * isl.R / Math.max(1, ms.length) * 0.9;
+      for (let i = 0; i < ms.length; i++) for (let j = i + 1; j < ms.length; j++) {
+        const a = ms[i], b = ms[j]; let x = a.x - b.x, y = a.y - b.y; const d2 = x * x + y * y + 0.5;
+        const f = k / d2 * 0.06 * alpha; a.vx += x * f; a.vy += y * f; b.vx -= x * f; b.vy -= y * f;
+      }
+      for (const n of ms) {
+        const x = n.x - isl.x, y = n.y - isl.y, d = Math.hypot(x, y);
+        if (d > isl.R * .92) { const f = (d - isl.R * .92) / d * .3; n.vx -= x * f; n.vy -= y * f; }
+        n.vx -= x * .002 * alpha; n.vy -= y * .002 * alpha;
+      }
+    }
+    for (const e of inner) {
+      const x = e.b.x - e.a.x, y = e.b.y - e.a.y, d = Math.hypot(x, y) + 0.01;
+      const f = (d - 10) / d * 0.02 * e.s * alpha; e.a.vx += x * f; e.a.vy += y * f; e.b.vx -= x * f; e.b.vy -= y * f;
+    }
+    for (const n of nodes) { n.vx *= 0.55; n.vy *= 0.55; n.x += Math.max(-4, Math.min(4, n.vx)); n.y += Math.max(-4, Math.min(4, n.vy)); }
+  }
+}
+
+function fit() {
+  if (!nodes.length) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const n of nodes) { x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x); y1 = Math.max(y1, n.y); }
+  const usableW = W - (W > 900 ? 400 : 290), usableH = H - 210;
+  cam.k = Math.min(usableW / (x1 - x0 + 40), usableH / (y1 - y0 + 40), 3);
+  cam.x = (x0 + x1) / 2; cam.y = (y0 + y1) / 2;
+  cam.ox = usableW / 2 + 14; cam.oy = 84 + usableH / 2;
+}
+const sx = x => (x - cam.x) * cam.k + (cam.ox ?? W / 2), sy = y => (y - cam.y) * cam.k + (cam.oy ?? H / 2);
+const wx = x => (x - (cam.ox ?? W / 2)) / cam.k + cam.x, wy = y => (y - (cam.oy ?? H / 2)) / cam.k + cam.y;
+
+// ---------------------------------------------------------------- drawing
+let staticKey = "", bg = document.createElement("canvas");
+const MONO = getComputedStyle(document.documentElement).getPropertyValue("--mono") || "monospace";
+function edgePath(c, e) {
+  const ax = sx(e.a.x), ay = sy(e.a.y), bx = sx(e.b.x), by = sy(e.b.y);
+  c.beginPath(); c.moveTo(ax, ay);
+  if (e.inner) c.lineTo(bx, by); else c.quadraticCurveTo((ax + bx) / 2 - (by - ay) * .15, (ay + by) / 2 + (bx - ax) * .15, bx, by);
+}
+// background, islands, every edge and node at rest: batched by colour and strength
+function drawStatic(dimOthers, rk) {
+  bg.width = W * DPR; bg.height = H * DPR;
+  const c = bg.getContext("2d"); c.setTransform(DPR, 0, 0, DPR, 0, 0);
+  c.fillStyle = "#06080c"; c.fillRect(0, 0, W, H);
+  const g = c.createRadialGradient(W * .42, H * .48, 0, W * .42, H * .48, Math.max(W, H) * .7);
+  g.addColorStop(0, "rgba(40,70,90,.20)"); g.addColorStop(.5, "rgba(30,24,60,.10)"); g.addColorStop(1, "rgba(0,0,0,0)");
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  for (const isl of islands) {
+    const x = sx(isl.x), y = sy(isl.y), R = isl.R * cam.k, col = hexRgb(dirColor.get(isl.d));
+    if (x + R * 1.2 < 0 || y + R * 1.2 < 0 || x - R * 1.2 > W || y - R * 1.2 > H) continue;
+    const dim = filterDir && filterDir !== isl.d ? .3 : 1;
+    const gr = c.createRadialGradient(x, y, R * .2, x, y, R * 1.15);
+    gr.addColorStop(0, `rgba(${col},${.05 * dim})`); gr.addColorStop(1, "rgba(0,0,0,0)");
+    c.fillStyle = gr; c.beginPath(); c.arc(x, y, R * 1.15, 0, 6.283); c.fill();
+    c.strokeStyle = `rgba(${col},${.10 * dim})`; c.lineWidth = 1; c.setLineDash([2, 5]);
+    c.beginPath(); c.arc(x, y, R, 0, 6.283); c.stroke(); c.setLineDash([]);
+    if (R > 26) { c.font = `600 ${Math.min(13, 9 + R / 40)}px ${MONO}`; c.textAlign = "center"; c.fillStyle = `rgba(${col},${.55 * dim})`; c.fillText(isl.d + "/", x, y - R - 6); }
+  }
+  // edges: one path per (colour, strength bucket, focus)
+  const buckets = new Map();
+  for (const e of edges) {
+    const lvl = Math.min(3, (e.s * 4) | 0), foc = dimOthers && !(isFocus(e.a) || isFocus(e.b)) ? 0 : 1;
+    const k = e.a.rgb.join(",") + "|" + lvl + "|" + foc + "|" + (e.inner ? 1 : 0);
+    let b = buckets.get(k); if (!b) buckets.set(k, b = []); b.push(e);
+  }
+  c.lineWidth = Math.max(.4, .6 * Math.sqrt(cam.k));
+  for (const [k, es] of buckets) {
+    const [rgb, lvl, foc, inner] = k.split("|");
+    let a = (inner === "1" ? 0.05 : 0.025) + (+lvl + .5) / 4 * 0.06; if (foc === "0") a *= 0.2;
+    c.strokeStyle = `rgba(${rgb},${a})`; c.beginPath();
+    for (const e of es) {
+      const ax = sx(e.a.x), ay = sy(e.a.y), bx = sx(e.b.x), by = sy(e.b.y);
+      c.moveTo(ax, ay);
+      if (e.inner) c.lineTo(bx, by); else c.quadraticCurveTo((ax + bx) / 2 - (by - ay) * .15, (ay + by) / 2 + (bx - ax) * .15, bx, by);
+    }
+    c.stroke();
+  }
+  for (const n of nodes) {
+    const x = sx(n.x), y = sy(n.y); if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
+    c.fillStyle = `rgba(${n.rgb},${dimOthers && !isFocus(n) ? .12 : .55})`;
+    c.beginPath(); c.arc(x, y, n.r * rk, 0, 6.283); c.fill();
+  }
+}
+let lastFrame = 0, lastStatic = 0, bgCam = null;
+function draw(now) {
+  const dt = lastFrame ? Math.min(100, now - lastFrame) : 16; lastFrame = now; window.__f = (window.__f || 0) + 1;
+  tick(dt);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (mode !== "graph") { SCENES[mode].frame(ctx, now, dt); timelineMaybe(now); requestAnimationFrame(draw); return; }
+  // everything at rest comes from a cached layer, redrawn only when the view changes
+  const dimOthers = filterDir || selected, rk = Math.max(.6, Math.sqrt(cam.k));
+  const key = [cam.x, cam.y, cam.k, W, H, filterDir, selected && selected.id].join("|");
+  if (key !== staticKey && (now - lastStatic > (drag ? 180 : 60) || !bgCam)) {
+    drawStatic(dimOthers, rk); staticKey = key; lastStatic = now;
+    bgCam = { x: cam.x, y: cam.y, k: cam.k, ox: cam.ox ?? W / 2, oy: cam.oy ?? H / 2 };
+  }
+  if (key === staticKey) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(bg, 0, 0); }
+  else {
+    // the view is moving: reuse the last layer, moved and scaled, until it settles
+    const s = cam.k / bgCam.k, tx = (bgCam.x - cam.x) * cam.k + (cam.ox ?? W / 2) - bgCam.ox * s, ty = (bgCam.y - cam.y) * cam.k + (cam.oy ?? H / 2) - bgCam.oy * s;
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = "#06080c"; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.setTransform(s, 0, 0, s, tx * DPR, ty * DPR); ctx.drawImage(bg, 0, 0);
+  }
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  // hot edges: lit only between two hot files, the path a request actually walked
+  ctx.lineWidth = Math.max(.6, .9 * Math.sqrt(cam.k));
+  for (const e of edges) {
+    const h = Math.min(e.a.heat, e.b.heat);
+    if (h < 0.04) continue;
+    const c = KIND[e.a.heat > e.b.heat ? e.a.hk : e.b.hk];
+    ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${h * 0.45})`;
+    edgePath(ctx, e); ctx.stroke();
+  }
+  // hot nodes, drawn over their resting dot
+  for (const n of nodes) {
+    if (n.heat < 0.03) continue;
+    const c = KIND[n.hk];
+    ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${.5 + n.heat * .5})`;
+    ctx.beginPath(); ctx.arc(sx(n.x), sy(n.y), n.r * rk * (1 + n.heat * .8), 0, 6.283); ctx.fill();
+  }
+  // glow pass for hot nodes, additive
+  ctx.globalCompositeOperation = "lighter";
+  for (const n of nodes) {
+    if (n.heat < 0.02 && n !== hover && n !== selected) continue;
+    const x = sx(n.x), y = sy(n.y), c = KIND[n.hk], h = Math.max(n.heat, n === hover || n === selected ? .5 : 0);
+    const R = (8 + n.r * 3) * rk * (0.6 + h);
+    const gr = ctx.createRadialGradient(x, y, 0, x, y, R);
+    gr.addColorStop(0, `rgba(${c[0]},${c[1]},${c[2]},${.55 * h})`); gr.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, R, 0, 6.283); ctx.fill();
+  }
+  // effects: rings, comets, labels
+  for (let i = effects.length - 1; i >= 0; i--) {
+    const f = effects[i], t = (now - f.t0) / f.dur;
+    if (t >= 1) { effects.splice(i, 1); continue; }
+    if (t < 0) continue;
+    const c = KIND[f.kind];
+    if (f.type === "ring") {
+      const x = sx(f.n.x), y = sy(f.n.y), R = (4 + 20 * ease(t)) * rk;
+      ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${(1 - t) * .55})`; ctx.lineWidth = 1.2 * (1 - t) + .3;
+      ctx.beginPath(); ctx.arc(x, y, R, 0, 6.283); ctx.stroke();
+    } else if (f.type === "comet") {
+      const e = ease(t), ax = sx(f.a.x), ay = sy(f.a.y), bx = sx(f.b.x), by = sy(f.b.y);
+      // a curved path, so parallel comets don't overlap
+      const mx = (ax + bx) / 2 - (by - ay) * .18, my = (ay + by) / 2 + (bx - ax) * .18;
+      const p = q => [(1-q)*(1-q)*ax + 2*(1-q)*q*mx + q*q*bx, (1-q)*(1-q)*ay + 2*(1-q)*q*my + q*q*by];
+      for (let k = 0; k < 14; k++) {
+        const q = Math.max(0, e - k * .018), [x, y] = p(q), a = (1 - k / 14) * (1 - t * .6);
+        ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${a * .9})`;
+        ctx.beginPath(); ctx.arc(x, y, (2.6 - k * .15) * Math.max(.8, rk * .8), 0, 6.283); ctx.fill();
+      }
+    } else if (f.type === "label") {
+      ctx.globalCompositeOperation = "source-over";
+      const x = sx(f.n.x), y = sy(f.n.y) - 14 - 18 * ease(t);
+      ctx.font = "600 11.5px " + MONO;
+      ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${t < .15 ? t / .15 : 1 - (t - .15) / .85})`;
+      ctx.textAlign = "center"; ctx.fillText(f.text, x, y);
+      ctx.globalCompositeOperation = "lighter";
+    }
+  }
+  ctx.globalCompositeOperation = "source-over";
+  // labels of the hovered / selected file and hottest files when zoomed in
+  ctx.font = "11px " + MONO; ctx.textAlign = "left";
+  const hottest = new Set(nodes.filter(n => n.heat > .35).sort((a, b) => b.heat - a.heat).slice(0, 6));
+  for (const n of nodes) {
+    const show = n === hover || n === selected || hottest.has(n) || (cam.k > 2.2 && n.defs > 6);
+    if (!show) continue;
+    ctx.fillStyle = n === hover || n === selected ? "#e8eef6" : `rgba(217,225,236,${Math.min(1, .3 + n.heat)})`;
+    const name = cam.k > 2.2 || n === hover || n === selected ? n.path : n.path.split("/").pop();
+    ctx.fillText(name, sx(n.x) + n.r * rk + 6, sy(n.y) + 4);
+  }
+  timelineMaybe(now);
+  requestAnimationFrame(draw);
+}
+const ease = t => 1 - Math.pow(1 - t, 3);
+function isFocus(n) { return (filterDir && n.isl.d === filterDir) || (selected && (n === selected || selected.nb?.has(n))); }
+
+function drawTimeline(now) {
+  const w = tl.width, h = tl.height, span = 120000, bins = 120, t1 = Date.now();
+  tctx.clearRect(0, 0, w, h);
+  const cols = Array.from({ length: bins }, () => ({ read: 0, write: 0, reindex: 0, hook: 0, bad: 0 }));
+  for (const e of timeline) { const b = Math.floor((e.t - (t1 - span)) / span * bins); if (b >= 0 && b < bins) cols[b][e.kind]++; }
+  const max = Math.max(3, ...cols.map(c => c.read + c.write + c.reindex + c.hook + c.bad));
+  const bw = w / bins;
+  cols.forEach((c, i) => {
+    let y = h - 14 * DPR;
+    for (const k of ["read", "write", "reindex", "hook", "bad"]) {
+      if (!c[k]) continue;
+      const bh = c[k] / max * (h - 22 * DPR); const col = KIND[k];
+      tctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},.85)`; tctx.fillRect(i * bw + 1, y - bh, Math.max(1, bw - 2), bh); y -= bh;
+    }
+  });
+  tctx.fillStyle = "#4a5566"; tctx.font = `${10 * DPR}px ui-monospace, Menlo, monospace`;
+  tctx.fillText("−2 min", 0, h - 2 * DPR); tctx.textAlign = "right"; tctx.fillText("now", w, h - 2 * DPR); tctx.textAlign = "left";
+}
+
+// ---------------------------------------------------------------- the signal: mt's activity as if it were audio
+// 32 bands, each a slice of the repo (files sorted by island, then path), so neighbouring bands are
+// neighbouring code. A call adds energy to the bands of the files it touched, weighted by its size;
+// every call is a beat; the event rate drives speed. Every scene below is drawn from this alone.
+const B = 32;
+const sig = { band: new Float32Array(B), peak: new Float32Array(B), phase: new Float32Array(B), beat: 0, rate: 0, level: 0, color: KIND.read, kind: "read", words: [], labels: [], np: "" };
+const hsl = (h, s, l, a = 1) => `hsla(${h},${s}%,${l}%,${a})`;
+function assignBands() {
+  const order = new Map(islands.map((s, i) => [s, i]));
+  const sorted = [...nodes].sort((a, b) => order.get(a.isl) - order.get(b.isl) || (a.path < b.path ? -1 : 1));
+  sorted.forEach((n, i) => n.band = Math.min(B - 1, Math.floor(i / sorted.length * B)));
+  sig.labels = Array.from({ length: B }, (_, b) => { const c = new Map(); for (const n of sorted) if (n.band === b) c.set(n.isl.d, (c.get(n.isl.d) || 0) + 1); return [...c].sort((x, y) => y[1] - x[1])[0]?.[0] || ""; });
+}
+function feedSignal(ev, kind, hit, live) {
+  if (!live) return;
+  const w = ev.kind === "request" ? 0.35 + Math.min(0.9, Math.log10(1 + (ev.tokens || 0)) / 4) : 0.45;
+  if (hit.length) for (const n of hit) { const b = n.band ?? 0; sig.band[b] = Math.min(1.25, sig.band[b] + w / Math.sqrt(hit.length) * 1.6); }
+  else { const b = (Math.random() * B) | 0; sig.band[b] = Math.min(1.25, sig.band[b] + w * .6); }
+  sig.beat = 1; sig.rate += 1; sig.kind = kind; sig.color = KIND[kind];
+  const words = hit.map(n => n.path.split("/").pop());
+  if (ev.cmd) words.unshift(ev.cmd); if (ev.kind === "hook") words.unshift(ev.event || "hook");
+  sig.words.push(...words.slice(0, 12)); if (sig.words.length > 300) sig.words.splice(0, sig.words.length - 300);
+  sig.np = label(ev) + (ev.subject ? "  ·  " + String(ev.subject).replace(/\s+/g, " ").slice(0, 140) : "");
+  $("#np").textContent = "▶ " + sig.np;
+  SCENES[mode].event?.(ev, kind, hit);
+}
+// time-based, so every scene runs the same at 60 Hz, 120 Hz or throttled
+function tick(dt) {
+  const s = dt / 1000, fall = Math.pow(0.18, s), t = performance.now();
+  let sum = 0;
+  for (let b = 0; b < B; b++) {
+    const ambient = 0.03 + 0.02 * Math.sin(t / 900 + b * .7); // a faint shimmer, so an idle repo is not a dead screen
+    sig.band[b] = Math.max(ambient, sig.band[b] * fall + ambient * (1 - fall));
+    sig.peak[b] = Math.max(sig.band[b], sig.peak[b] - s * 0.45);
+    sig.phase[b] += s * (1.6 + b * 0.9);
+    sum += sig.band[b];
+  }
+  sig.level = sum / B; sig.beat *= Math.pow(0.03, s); sig.rate *= Math.pow(0.5, s);
+  const k = Math.pow(0.24, s);
+  for (const n of nodes) n.heat *= k;
+}
+// the part of the screen the panels don't cover
+function area() { const r = W > 900 ? 392 : W > 600 ? 290 : 14; return { x: 28, y: 96, w: Math.max(120, W - r - 42), h: Math.max(120, H - 96 - 124) }; }
+function buffer(s, w, h) {
+  if (!s.buf || s.buf.width !== w || s.buf.height !== h) { s.buf = document.createElement("canvas"); s.buf.width = w; s.buf.height = h; s.bctx = s.buf.getContext("2d"); s.bctx.fillStyle = "#06080c"; s.bctx.fillRect(0, 0, w, h); }
+  return s.bctx;
+}
+function clear(c, a = 1) { c.fillStyle = `rgba(6,8,12,${a})`; c.fillRect(0, 0, W, H); }
+function bandLabels(c, A, y) {
+  c.font = "10px " + MONO; c.fillStyle = "rgba(125,138,156,.8)"; c.textAlign = "left";
+  let last = "", lastX = -1e9; const bw = A.w / B;
+  for (let i = 0; i < B; i++) if (sig.labels[i] !== last) { last = sig.labels[i]; const x = A.x + i * bw; if (x - lastX > 56) { c.fillText(last + "/", x, y); lastX = x; } }
+}
+const INFERNO = [[0, [6, 8, 12]], [.18, [40, 11, 84]], [.42, [150, 38, 104]], [.68, [240, 110, 40]], [1, [252, 250, 170]]];
+function inferno(v) {
+  v = Math.max(0, Math.min(1, v));
+  for (let i = 1; i < INFERNO.length; i++) if (v <= INFERNO[i][0]) {
+    const [a, ca] = INFERNO[i - 1], [b, cb] = INFERNO[i], f = (v - a) / (b - a);
+    return `rgb(${ca.map((x, j) => Math.round(x + (cb[j] - x) * f))})`;
+  }
+  return "rgb(252,250,170)";
+}
+
+const SCENES = {
+  graph: { name: "graph", desc: "the repo as a constellation of directory islands; files flare as mt reads and writes them" },
+
+  spectrum: { name: "spectrum", desc: "the classic analyzer: one LED bar per slice of the repo, peaks falling slowly",
+    frame(c) {
+      clear(c);
+      const A = area(), gap = 4, bw = (A.w - gap * (B - 1)) / B, seg = 7, sg = 2, rows = Math.max(4, Math.floor(A.h * .74 / (seg + sg)));
+      const base = A.y + rows * (seg + sg), bottom = A.y + A.h - 16;
+      for (let i = 0; i < B; i++) {
+        const x = A.x + i * (bw + gap), lit = Math.round(Math.min(1, sig.band[i]) * rows), pk = Math.min(rows - 1, Math.round(Math.min(1, sig.peak[i]) * rows));
+        for (let r = 0; r < rows; r++) {
+          const f = r / rows, y = base - (r + 1) * (seg + sg);
+          c.fillStyle = r < lit ? hsl(120 - 120 * f, 95, 52 + 12 * f) : "rgba(255,255,255,.03)";
+          c.fillRect(x, y, bw, seg);
+          const ry = base + 6 + r * (seg + sg);
+          if (r < lit && ry + seg < bottom) { c.fillStyle = hsl(120 - 120 * f, 95, 55, .12 * (1 - r / rows)); c.fillRect(x, ry, bw, seg); }
+        }
+        c.fillStyle = "#eef3fa"; c.fillRect(x, base - (pk + 1) * (seg + sg), bw, 3);
+      }
+      bandLabels(c, A, A.y + A.h);
+    } },
+
+  scope: { name: "scope", desc: "a phosphor oscilloscope: the 32 bands summed into one waveform, coloured by the last call",
+    frame(c) {
+      const A = area(), b = buffer(this, W, H);
+      b.fillStyle = "rgba(6,8,12,.2)"; b.fillRect(0, 0, W, H);
+      const col = sig.color, N = 640, mid = A.y + A.h / 2, amp = A.h * .42;
+      b.lineWidth = 2; b.strokeStyle = `rgba(${col},.95)`; b.shadowColor = `rgba(${col},.9)`; b.shadowBlur = 14;
+      b.beginPath();
+      for (let i = 0; i <= N; i++) {
+        const x = i / N; let y = 0;
+        for (let k = 0; k < B; k++) y += sig.band[k] * Math.sin(6.283 * (1 + k * .45) * x + sig.phase[k] * .6) / (1 + k * .08);
+        y = Math.tanh(y * .9);
+        i ? b.lineTo(A.x + x * A.w, mid - y * amp) : b.moveTo(A.x, mid - y * amp);
+      }
+      b.stroke(); b.shadowBlur = 0;
+      c.drawImage(this.buf, 0, 0, W, H);
+      c.strokeStyle = "rgba(124,243,208,.07)"; c.lineWidth = 1;
+      for (let i = 0; i <= 10; i++) { const x = A.x + A.w * i / 10; c.beginPath(); c.moveTo(x, A.y); c.lineTo(x, A.y + A.h); c.stroke(); }
+      for (let i = 0; i <= 8; i++) { const y = A.y + A.h * i / 8; c.beginPath(); c.moveTo(A.x, y); c.lineTo(A.x + A.w, y); c.stroke(); }
+    } },
+
+  radial: { name: "radial", desc: "a circular spectrum around a core that beats with every call; spins faster when mt is busy",
+    rot: 0,
+    frame(c, now, dt) {
+      clear(c);
+      const A = area(), cx = A.x + A.w / 2, cy = A.y + A.h / 2, m = Math.min(A.w, A.h), r0 = m * .2, L = m * .26, n = B * 2;
+      this.rot += dt / 1000 * (0.08 + sig.rate * 0.12);
+      c.lineCap = "round"; c.lineWidth = Math.max(2, r0 * 6.283 / n * .55);
+      for (let i = 0; i < n; i++) {
+        const b = i < B ? i : n - 1 - i, v = Math.min(1.2, sig.band[b]), a = this.rot + i / n * 6.283, hue = (i / n * 360 + now / 60) % 360;
+        c.strokeStyle = hsl(hue, 90, 62, .9);
+        c.beginPath(); c.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0); c.lineTo(cx + Math.cos(a) * (r0 + 4 + v * L), cy + Math.sin(a) * (r0 + 4 + v * L)); c.stroke();
+        const p = r0 + 10 + Math.min(1.2, sig.peak[b]) * L;
+        c.fillStyle = hsl(hue, 90, 82, .85); c.beginPath(); c.arc(cx + Math.cos(a) * p, cy + Math.sin(a) * p, 1.7, 0, 6.283); c.fill();
+      }
+      c.lineCap = "butt";
+      const col = sig.color, R = r0 * (.62 + sig.beat * .25);
+      const g = c.createRadialGradient(cx, cy, 0, cx, cy, R * 1.6);
+      g.addColorStop(0, `rgba(${col},${.3 + sig.beat * .5})`); g.addColorStop(.6, `rgba(${col},.07)`); g.addColorStop(1, "rgba(0,0,0,0)");
+      c.fillStyle = g; c.beginPath(); c.arc(cx, cy, R * 1.6, 0, 6.283); c.fill();
+      c.strokeStyle = `rgba(${col},.55)`; c.lineWidth = 1.5; c.beginPath(); c.arc(cx, cy, R, 0, 6.283); c.stroke();
+      c.font = "600 13px " + MONO; c.textAlign = "center"; c.fillStyle = "#e8eef6";
+      c.fillText(sig.np.split("  ·  ")[0] || "mt", cx, cy + 4);
+    } },
+
+  starfield: { name: "starfield", desc: "warp speed: the busier mt is, the faster you fly; the files it touches stream past",
+    star() { return { x: (Math.random() - .5) * 2, y: (Math.random() - .5) * 2, z: Math.random() }; },
+    event(ev, kind, hit) { this.w = this.w || []; for (const n of hit.slice(0, 8)) this.w.push({ t: n.path.split("/").pop(), x: (Math.random() - .5) * .9, y: (Math.random() - .5) * .6, z: 1, col: KIND[kind] }); if (this.w.length > 60) this.w.splice(0, this.w.length - 60); },
+    frame(c, now, dt) {
+      if (!this.s) { this.s = Array.from({ length: 700 }, () => this.star()); this.w = this.w || []; clear(c); }
+      clear(c, .35);
+      const A = area(), cx = A.x + A.w / 2, cy = A.y + A.h / 2, F = Math.max(A.w, A.h) * .25, v = (0.06 + sig.rate * .25 + sig.beat * .5) * dt / 1000;
+      for (const s of this.s) {
+        const pz = s.z; s.z -= v;
+        const x = cx + s.x / s.z * F, y = cy + s.y / s.z * F;
+        if (s.z <= .02 || x < 0 || y < 0 || x > W || y > H) { Object.assign(s, this.star()); s.z = 1; continue; }
+        const b = 1 - s.z; c.strokeStyle = `rgba(${200 + 55 * b | 0},${215 + 40 * b | 0},255,${b})`; c.lineWidth = b * 2.2;
+        c.beginPath(); c.moveTo(cx + s.x / pz * F, cy + s.y / pz * F); c.lineTo(x, y); c.stroke();
+      }
+      c.textAlign = "center";
+      for (let i = this.w.length - 1; i >= 0; i--) {
+        const w = this.w[i]; w.z -= dt / 1000 * .35; if (w.z <= .06) { this.w.splice(i, 1); continue; }
+        c.font = `600 ${Math.min(40, 9 / w.z)}px ${MONO}`; c.fillStyle = `rgba(${w.col},${Math.min(1, (1 - w.z) * 1.6)})`;
+        c.fillText(w.t, cx + w.x / w.z * F, cy + w.y / w.z * F);
+      }
+    } },
+
+  tunnel: { name: "tunnel", desc: "MilkDrop-style feedback: each frame is the last one zoomed and turned; calls burst into the vortex",
+    frame(c, now) {
+      const w = Math.ceil(W / 2), h = Math.ceil(H / 2), b = buffer(this, w, h), A = area(), cx = (A.x + A.w / 2) / 2, cy = (A.y + A.h / 2) / 2;
+      if (!this.tmp) this.tmp = document.createElement("canvas");
+      if (this.tmp.width !== w || this.tmp.height !== h) { this.tmp.width = w; this.tmp.height = h; }
+      const t = this.tmp.getContext("2d"); t.drawImage(this.buf, 0, 0);
+      b.fillStyle = "#06080c"; b.fillRect(0, 0, w, h);
+      b.save(); b.globalAlpha = .93; b.translate(cx, cy); b.rotate(.006 + sig.rate * .004 + sig.beat * .02);
+      const z = 1.018 + sig.beat * .03 + sig.level * .05; b.scale(z, z); b.translate(-cx, -cy); b.drawImage(this.tmp, 0, 0); b.restore();
+      const R = Math.min(w, h) * .12 * (1 + sig.beat * .4), hue = (now / 25) % 360;
+      b.globalCompositeOperation = "lighter"; b.lineWidth = 2 + sig.beat * 3; b.strokeStyle = hsl(hue, 95, 60, .85); b.beginPath();
+      for (let i = 0; i <= 96; i++) { const a = i / 96 * 6.283 + now / 1500, rr = R * (1 + sig.band[i % B] * .9); i ? b.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr) : b.moveTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
+      b.stroke();
+      if (sig.beat > .85) { const col = sig.color; for (let i = 0; i < 5; i++) { const a = Math.random() * 6.283, d = R * (1.2 + Math.random()); b.fillStyle = `rgba(${col},.8)`; b.beginPath(); b.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 2 + Math.random() * 4, 0, 6.283); b.fill(); } }
+      b.globalCompositeOperation = "source-over";
+      c.drawImage(this.buf, 0, 0, W, H);
+    } },
+
+  matrix: { name: "matrix", desc: "code rain spelled from the names mt is reading right now",
+    event(ev, kind, hit) { if (!this.cols) return; for (const n of hit.slice(0, 10)) { const s = this.cols[(Math.random() * this.cols.length) | 0]; s.text = n.path.split("/").pop() + "  "; s.i = 0; s.y = Math.random() * -60; s.v = 1.5; s.col = KIND[kind]; } },
+    frame(c, now, dt) {
+      const fs = 15, n = Math.ceil(W / fs);
+      if (!this.cols || this.cols.length !== n) { this.cols = Array.from({ length: n }, () => ({ y: Math.random() * -H, v: .6 + Math.random(), text: "", i: 0, col: null, last: "" })); clear(c); }
+      clear(c, .1);
+      c.font = `600 ${fs}px ${MONO}`; c.textAlign = "center";
+      const sp = (70 + sig.rate * 90 + sig.beat * 140) * dt / 1000, pool = sig.words.length ? sig.words : ["mt", "query", "span", "expand", "apply", "context", "map"];
+      for (let k = 0; k < n; k++) {
+        const s = this.cols[k], x = k * fs + fs / 2;
+        const prev = Math.floor(s.y / fs); s.y += sp * s.v; const cur = Math.floor(s.y / fs);
+        for (let r = prev + 1; r <= cur; r++) {
+          if (!s.text || s.i >= s.text.length) { s.text = pool[(Math.random() * pool.length) | 0] + "  "; s.i = 0; }
+          if (s.last) { c.fillStyle = `rgba(${s.col || [124, 243, 208]},.9)`; c.fillText(s.last, x, (r - 1) * fs); }
+          s.last = s.text[s.i++];
+          c.fillStyle = "rgba(238,255,248,.95)"; c.fillText(s.last, x, r * fs);
+        }
+        if (s.y > H + 40) Object.assign(s, { y: Math.random() * -200, v: .6 + Math.random(), col: null, last: "" });
+      }
+    } },
+
+  waterfall: { name: "waterfall", desc: "a spectrogram: the last 30 seconds scrolling up, one column per slice of the repo",
+    frame(c, now, dt) {
+      const A = area(), rows = 300, b = buffer(this, B, rows);
+      this.acc = (this.acc || 0) + dt;
+      while (this.acc > 100) {
+        this.acc -= 100;
+        b.drawImage(this.buf, 0, -1);
+        for (let i = 0; i < B; i++) { b.fillStyle = inferno(Math.min(1, sig.band[i] * 1.1)); b.fillRect(i, rows - 1, 1, 1); }
+      }
+      clear(c); c.imageSmoothingEnabled = false; c.drawImage(this.buf, A.x, A.y, A.w, A.h - 18); c.imageSmoothingEnabled = true;
+      bandLabels(c, A, A.y + A.h);
+    } },
+
+  fireworks: { name: "fireworks", desc: "each call is a rocket from its slice of the repo; the more files it touched, the bigger the burst",
+    event(ev, kind, hit) {
+      this.r = this.r || []; const A = area(), b = hit[0]?.band ?? ((Math.random() * B) | 0);
+      this.r.push({ x: A.x + (b + .5) / B * A.w, y: A.y + A.h, vy: -A.h * (1.1 + Math.random() * .3), col: KIND[kind], n: Math.min(160, 24 + hit.length * 8), ty: A.y + A.h * (.12 + Math.random() * .35) });
+    },
+    frame(c, now, dt) {
+      this.r = this.r || []; this.p = this.p || [];
+      const s = dt / 1000; clear(c, .22);
+      c.globalCompositeOperation = "lighter";
+      for (let i = this.r.length - 1; i >= 0; i--) {
+        const r = this.r[i]; r.y += r.vy * s;
+        c.fillStyle = `rgba(${r.col},.95)`; c.beginPath(); c.arc(r.x, r.y, 2.2, 0, 6.283); c.fill();
+        if (r.y <= r.ty) { for (let k = 0; k < r.n; k++) { const a = Math.random() * 6.283, v = 40 + Math.random() * 220; this.p.push({ x: r.x, y: r.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col: r.col }); } this.r.splice(i, 1); }
+      }
+      for (let i = this.p.length - 1; i >= 0; i--) {
+        const p = this.p[i]; p.vy += 160 * s; p.vx *= Math.pow(.4, s); p.vy *= Math.pow(.6, s); p.x += p.vx * s; p.y += p.vy * s; p.life -= s * .7;
+        if (p.life <= 0) { this.p.splice(i, 1); continue; }
+        c.fillStyle = `rgba(${p.col},${p.life})`; c.fillRect(p.x - 1, p.y - 1, 2.2, 2.2);
+      }
+      if (this.p.length > 4000) this.p.splice(0, this.p.length - 4000);
+      c.globalCompositeOperation = "source-over";
+    } },
+
+  plasma: { name: "plasma", desc: "demoscene plasma: its speed, brightness and tint follow mt's activity",
+    t: 0,
+    frame(c, now, dt) {
+      const w = Math.ceil(W / 6), h = Math.ceil(H / 6), b = buffer(this, w, h);
+      if (!this.img || this.img.width !== w || this.img.height !== h) this.img = b.createImageData(w, h);
+      this.t += dt / 1000 * (0.6 + sig.rate * .8 + sig.beat * 1.5);
+      const d = this.img.data, t = this.t, col = sig.color, lift = .35 + sig.level * 1.2 + sig.beat * .4;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const v = Math.sin(x * .09 + t) + Math.sin(y * .11 - t * 1.3) + Math.sin((x + y) * .07 + t * .7) + Math.sin(Math.hypot(x - w / 2, y - h / 2) * .12 - t * 2);
+        const q = (v + 4) / 8, i = (y * w + x) * 4;
+        // a vivid cycling palette, pulled toward the colour of the last call; contrast rises with activity
+        const e = Math.pow(Math.sin(q * 9.42 + t * .3) * .5 + .5, 1.6 - Math.min(.9, lift * .5));
+        d[i] = (Math.sin(q * 6.283 + t * .2) * .5 + .5) * 200 * e + col[0] * e * .45;
+        d[i + 1] = (Math.sin(q * 6.283 + 2.1 + t * .2) * .5 + .5) * 170 * e + col[1] * e * .45;
+        d[i + 2] = (Math.sin(q * 6.283 + 4.2 + t * .2) * .5 + .5) * 230 * e + col[2] * e * .45;
+        d[i + 3] = 255;
+      }
+      b.putImageData(this.img, 0, 0);
+      c.drawImage(this.buf, 0, 0, W, H);
+    } },
+
+  leds: { name: "leds", desc: "every indexed file is one LED, grouped by directory; it lights in the colour of what mt did to it",
+    frame(c) {
+      clear(c);
+      const A = area(), N = nodes.length; if (!N) return;
+      const order = this.order || (this.order = [...nodes].sort((a, b) => (a.band - b.band) || (a.path < b.path ? -1 : 1)));
+      const cols = Math.ceil(Math.sqrt(N * A.w / (A.h - 18))), rows = Math.ceil(N / cols), s = Math.min(A.w / cols, (A.h - 18) / rows), r = s * .34;
+      for (let i = 0; i < N; i++) {
+        const n = order[i], x = A.x + (i % cols + .5) * s, y = A.y + (Math.floor(i / cols) + .5) * s, h = n.heat;
+        if (h > .3) { c.fillStyle = `rgba(${KIND[n.hk]},${h * .22})`; c.beginPath(); c.arc(x, y, r * 2.6, 0, 6.283); c.fill(); }
+        c.fillStyle = h > .03 ? `rgba(${KIND[n.hk]},${.35 + h * .65})` : `rgba(${n.rgb},.16)`;
+        c.beginPath(); c.arc(x, y, r * (1 + h * .35), 0, 6.283); c.fill();
+      }
+      const hot = order.filter(n => n.heat > .25).sort((a, b) => b.heat - a.heat).slice(0, 6).map(n => n.path);
+      c.font = "11px " + MONO; c.textAlign = "left"; c.fillStyle = "rgba(217,225,236,.75)";
+      c.fillText(hot.join("   "), A.x, A.y + A.h);
+    } },
+};
+const MODES = Object.keys(SCENES);
+let mode = "graph", autoTimer = null;
+function setMode(m) {
+  if (!SCENES[m]) m = "graph";
+  mode = m; document.body.dataset.mode = m; effects.length = 0; staticKey = "";
+  hover = null; $("#tip").style.display = "none";
+  for (const b of document.querySelectorAll("#modes button[data-m]")) b.classList.toggle("on", b.dataset.m === m);
+  try { localStorage.setItem("mt-viz-mode", m); } catch {}
+  if (location.hash.slice(1) !== m) history.replaceState(null, "", "#" + m);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); clear(ctx);
+}
+function stepMode(d) { setMode(MODES[(MODES.indexOf(mode) + d + MODES.length) % MODES.length]); }
+function toggleAuto() {
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null; } else autoTimer = setInterval(() => stepMode(1), 20000);
+  $("#auto").classList.toggle("on", !!autoTimer);
+}
+function setupModes() {
+  const keys = "1234567890-";
+  $("#modes").innerHTML = MODES.map((m, i) => `<button data-m="${m}" title="${esc(SCENES[m].desc)} · key ${keys[i] || ""}">${esc(SCENES[m].name)}</button>`).join("")
+    + `<button id="auto" title="change scene every 20 s · key a">auto</button>`;
+  for (const b of document.querySelectorAll("#modes button[data-m]")) b.onclick = () => setMode(b.dataset.m);
+  $("#auto").onclick = toggleAuto;
+  let m = location.hash.slice(1);
+  if (!SCENES[m]) { try { m = localStorage.getItem("mt-viz-mode"); } catch { m = null; } }
+  setMode(m || "graph");
+  addEventListener("hashchange", () => { if (location.hash.slice(1) !== mode) setMode(location.hash.slice(1)); });
+}
+let tlLast = 0;
+function timelineMaybe(now) { if (now - tlLast > 250) { tlLast = now; drawTimeline(now); } }
+
+// ---------------------------------------------------------------- events
+function classify(ev) {
+  if (ev.kind === "reindex") return "reindex";
+  if (ev.kind === "hook") return "hook";
+  if (ev.ok === false) return "bad";
+  if (ev.cmd === "apply") return "write";
+  return "read";
+}
+function onEvent(ev, live) {
+  const kind = classify(ev), t = (ev.t || Date.now() / 1000) * 1000;
+  timeline.push({ t, kind }); while (timeline.length && timeline[0].t < Date.now() - 130000) timeline.shift();
+  let paths = (ev.touched || []).map(x => x.path);
+  if (ev.kind === "reindex") paths = [...(ev.changed || []), ...(ev.removed || [])];
+  const hit = [...new Set(paths)].map(p => byPath.get(p)).filter(Boolean);
+  if (ev.kind === "request") {
+    stats.req++; if (ev.ms != null) { stats.ms.push(ev.ms); if (stats.ms.length > 400) stats.ms.shift(); }
+    stats.tok += ev.tokens || 0;
+  }
+  if (ev.kind === "daemon" && ev.files) $("#s-graph").textContent = fmt(ev.files) + " · " + $("#s-graph").textContent.split(" · ")[1];
+  hit.forEach(n => stats.files.add(n.path));
+  feedSignal(ev, kind, hit, live);
+  if (live) {
+    const t0 = performance.now();
+    // calm under load: a file that is still glowing gets no new ring, at most one floating label
+    hit.slice(0, 30).forEach((n, i) => {
+      const d = t0 + i * 40, fresh = n.heat < 0.5;
+      setTimeout(() => { n.heat = 1; n.hk = kind; }, i * 40);
+      if (mode !== "graph") return;
+      if (fresh) effects.push({ type: "ring", n, kind, t0: d, dur: 1100 });
+      if (i > 0 && i < 12) effects.push({ type: "comet", a: hit[i - 1], b: n, kind, t0: d - 30, dur: 650 });
+    });
+    if (mode === "graph" && hit[0] && !effects.some(f => f.type === "label" && performance.now() - f.t0 < f.dur * .6)) {
+      for (let i = effects.length - 1; i >= 0; i--) if (effects[i].type === "label") effects.splice(i, 1);
+      effects.push({ type: "label", n: hit[0], kind, t0, dur: 2200, text: label(ev) });
+    }
+    if (effects.length > 400) effects.splice(0, effects.length - 400);
+    if (ev.kind === "daemon") { const f = nodes.slice(0, 300); f.forEach((n, i) => setTimeout(() => { n.heat = .6; n.hk = "read"; }, i * 4)); }
+  }
+  feedItem(ev, kind, hit);
+  renderStats();
+}
+function label(ev) {
+  if (ev.kind === "reindex") return `reindex ${(ev.changed || []).length + (ev.removed || []).length} file(s) · ${ev.ms} ms`;
+  if (ev.kind === "hook") return `hook ${ev.event}`;
+  return `${ev.cmd} · ${ev.ms} ms · ~${fmt(ev.tokens || 0)} tok`;
+}
+function feedItem(ev, kind, hit) {
+  const box = $("#events"), c = KIND[kind], el = document.createElement("div");
+  el.className = "ev";
+  el.style.borderLeft = `2px solid rgb(${c})`;
+  const when = new Date((ev.t || Date.now() / 1000) * 1000).toLocaleTimeString([], { hour12: false });
+  let head, sub;
+  if (ev.kind === "request") { head = ev.cmd; sub = ev.header || ev.subject || ""; }
+  else if (ev.kind === "reindex") { head = "reindex"; sub = `${(ev.changed || []).length} changed, ${(ev.removed || []).length} removed`; }
+  else if (ev.kind === "hook") { head = "hook " + ev.event; sub = ev.msg || ""; }
+  else if (ev.kind === "daemon") { head = "daemon " + (ev.state || ""); sub = `${ev.files || 0} files in memory, loaded in ${ev.ms || 0} ms`; }
+  else { head = ev.kind; sub = JSON.stringify(ev).slice(0, 160); }
+  const ms = ev.ms != null ? `${ev.ms} ms` : "";
+  el.innerHTML = `<div class="top"><span class="k" style="color:rgb(${c})">${esc(head)}</span><span style="color:var(--faint)">${when}${ev.session ? " · " + esc(ev.session) : ""}</span><span class="ms">${esc(ms)}${ev.tokens ? " · " + fmt(ev.tokens) + " tok" : ""}</span></div>`
+    + (sub ? `<div class="sub" title="${esc(sub)}">${esc(sub)}</div>` : "")
+    + (hit.length ? `<div class="files">${hit.slice(0, 6).map(n => `<span class="chip">${esc(n.path.split("/").pop())}</span>`).join("")}${hit.length > 6 ? `<span class="chip">+${hit.length - 6}</span>` : ""}</div>` : "");
+  el.onclick = () => { hit.forEach(n => { n.heat = 1; n.hk = kind; effects.push({ type: "ring", n, kind, t0: performance.now(), dur: 1200 }); }); if (hit[0]) select(hit[0], false); };
+  box.prepend(el);
+  while (box.children.length > 160) box.lastChild.remove();
+}
+function renderStats() {
+  $("#s-req").textContent = fmt(stats.req);
+  if (stats.ms.length) { const s = [...stats.ms].sort((a, b) => a - b); $("#s-ms").textContent = s[s.length >> 1].toFixed(s[s.length >> 1] < 10 ? 1 : 0); }
+  $("#s-tok").textContent = fmt(stats.tok);
+  $("#s-files").textContent = fmt(stats.files.size);
+}
+
+// ---------------------------------------------------------------- interaction
+function pick(mx, my) {
+  let best = null, bd = 14 * 14;
+  for (const n of nodes) { const x = sx(n.x) - mx, y = sy(n.y) - my, d = x * x + y * y; if (d < bd) { bd = d; best = n; } }
+  return best;
+}
+let drag = null;
+cv.addEventListener("mousedown", e => { drag = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, moved: false }; cv.classList.add("drag"); });
+addEventListener("mouseup", e => {
+  cv.classList.remove("drag");
+  if (drag && !drag.moved && e.target === cv && mode === "graph") { const n = pick(e.clientX, e.clientY); n ? select(n, false) : (selected = null, filterDir = null, $("#panel").classList.remove("on")); }
+  drag = null;
+});
+addEventListener("mousemove", e => {
+  if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true; cam.x = drag.cx - dx / cam.k; cam.y = drag.cy - dy / cam.k; return; }
+  if (e.target !== cv || mode !== "graph") { hover = null; $("#tip").style.display = "none"; return; }
+  hover = pick(e.clientX, e.clientY);
+  const tip = $("#tip");
+  if (hover) { tip.style.display = "block"; tip.style.left = (e.clientX + 14) + "px"; tip.style.top = (e.clientY + 12) + "px";
+    tip.innerHTML = `${esc(hover.path)}<br><span style="color:var(--dim)">${esc(hover.lang || "?")} · ${hover.lines} lines · ${hover.defs} defs${hover.role ? " · " + esc(hover.role) : ""}</span>`; }
+  else tip.style.display = "none";
+});
+cv.addEventListener("wheel", e => {
+  if (mode !== "graph") return;
+  e.preventDefault();
+  const mx = wx(e.clientX), my = wy(e.clientY), f = Math.exp(-e.deltaY * 0.0015);
+  cam.k = Math.max(.08, Math.min(14, cam.k * f));
+  cam.x = mx - (e.clientX - (cam.ox ?? W / 2)) / cam.k; cam.y = my - (e.clientY - (cam.oy ?? H / 2)) / cam.k;
+}, { passive: false });
+addEventListener("keydown", e => {
+  if (e.key === "/" && document.activeElement !== $("#search")) { e.preventDefault(); $("#search").focus(); }
+  if (e.key === "Escape") { selected = null; filterDir = null; $("#panel").classList.remove("on"); $("#search").blur(); }
+  if (document.activeElement === $("#search")) return;
+  if (e.key === "f") fit();
+  const i = "1234567890-".indexOf(e.key);
+  if (i >= 0 && i < MODES.length) setMode(MODES[i]);
+  if (e.key === "m" || e.key === "ArrowRight") stepMode(1);
+  if (e.key === "M" || e.key === "ArrowLeft") stepMode(-1);
+  if (e.key === "a") toggleAuto();
+});
+$("#search").addEventListener("keydown", e => {
+  if (e.key !== "Enter") return;
+  const q = e.target.value.trim().toLowerCase(); if (!q) return;
+  const n = nodes.find(n => n.path.toLowerCase().endsWith(q)) || nodes.find(n => n.path.toLowerCase().includes(q));
+  if (n) select(n, true);
+});
+async function select(n, fly) {
+  selected = n; filterDir = null;
+  n.nb = new Set(); for (const e of edges) { if (e.a === n) n.nb.add(e.b); if (e.b === n) n.nb.add(e.a); }
+  if (fly) { cam.x = n.x; cam.y = n.y; cam.k = Math.max(cam.k, 2.4); }
+  n.heat = 1; n.hk = "read";
+  const p = $("#panel"); p.classList.add("on");
+  p.innerHTML = `<h2><span>file</span><span class="x" onclick="document.querySelector('#panel').classList.remove('on')">close ✕</span></h2><div class="path">${esc(n.path)}</div><div class="meta">${esc(n.lang || "?")} · ${n.lines} lines · ${n.defs} definitions · ${n.nb.size} linked files</div><div id="defs" style="color:var(--dim)">…</div>`;
+  try {
+    const r = await (await fetch("/file?path=" + encodeURIComponent(n.path))).json();
+    $("#defs").innerHTML = (r.defs || []).map(d => `<div class="def"><i>${esc(d.kind || "")}</i><span>${esc(d.name || "")}</span><em>L${d.s}-${d.e}</em></div>`).join("") || "no definitions";
+  } catch { $("#defs").textContent = "could not load"; }
+}
+function legend() {
+  $("#legend").innerHTML = dirs.slice(0, 18).map(([d, c]) => `<div class="lg" data-d="${esc(d)}"><b style="background:${dirColor.get(d)}"></b>${esc(d)} <span style="color:var(--faint)">${c}</span></div>`).join("");
+  for (const el of document.querySelectorAll(".lg")) el.onclick = () => { filterDir = filterDir === el.dataset.d ? null : el.dataset.d; selected = null; };
+}
+
+// ---------------------------------------------------------------- boot
+async function status() {
+  try { const s = await (await fetch("/status")).json(); $("#dot").classList.toggle("up", !!s.daemon); $("#dot").title = s.daemon ? "daemon running: " + s.socket : "daemon not running (it starts on the next mt call)"; } catch { $("#dot").classList.remove("up"); }
+}
+async function boot() {
+  resize();
+  const g = await (await fetch("/graph")).json();
+  if (g.error) { $("#hint").textContent = g.error; return; }
+  $("#repo").textContent = g.root; $("#repo").title = g.root;
+  $("#s-graph").textContent = fmt(g.files) + " · " + fmt(g.defs);
+  layout(g); legend(); assignBands(); setupModes();
+  $("#hint").textContent = nodes.length ? "" : "no indexed files";
+  requestAnimationFrame(draw);
+  status(); setInterval(status, 4000);
+  // the backlog is history (listed, not animated); anything under 3 s old when it arrives is live
+  const es = new EventSource("/events");
+  es.onmessage = m => { try { const ev = JSON.parse(m.data); onEvent(ev, Date.now() / 1000 - (ev.t || 0) < 3); } catch (e) { console.error("mt event", e); } };
+  es.onerror = () => $("#dot").classList.remove("up");
+}
+boot();
+</script>
+</body>
+</html>

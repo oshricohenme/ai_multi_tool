@@ -1,0 +1,334 @@
+[
+ {
+  "prompt": "On the live floor, each running-session card shows the repo but drops the branch when the repo is missing and only the shortened id is shown. Make the card always show the branch, and move the cost to the bottom row.",
+  "expect": [
+   "SessionTile"
+  ],
+  "where": [
+   "web/src/screens/Floor.tsx:251"
+  ],
+  "kind": "frontend"
+ },
+ {
+  "prompt": "The 'concurrent sessions, last 24 hours' chart on the floor puts its peak marker on the first maximum when there is a tie, and the left axis label is hardcoded. Make the peak marker use the latest maximum and let callers pass the left label.",
+  "expect": [
+   "Sparkline"
+  ],
+  "where": [
+   "web/src/components/Sparkline.tsx:1"
+  ],
+  "kind": "frontend"
+ },
+ {
+  "prompt": "The round initials badge next to a person's name produces odd initials for emails like o.brien@acme.io and two people with similar names get the same tint. Which component builds the initials and colour, and can we make it use three letters max?",
+  "expect": [
+   "Avatar"
+  ],
+  "where": [
+   "web/src/components/ui.tsx:50"
+  ],
+  "kind": "frontend"
+ },
+ {
+  "prompt": "The server started sending a new flag 'context_exhausted' on session cards; it shows up as the raw key in the little yellow badges. Add proper human copy for it.",
+  "expect": [
+   "ATTENTION_COPY",
+   "Attention"
+  ],
+  "where": [
+   "web/src/components/ui.tsx:85",
+   "web/src/components/ui.tsx:96"
+  ],
+  "kind": "frontend"
+ },
+ {
+  "prompt": "The red error banner that appears on failed loads never shows the 'Try again' button for a 503, and the request id copy button is too small. Where is that banner rendered and how does it decide to offer a retry?",
+  "expect": [
+   "ErrorNotice"
+  ],
+  "where": [
+   "web/src/components/ErrorNotice.tsx:9"
+  ],
+  "kind": "frontend"
+ },
+ {
+  "prompt": "In a transcript, the tool-approval rows still say 'awaiting' even though the decision event arrived a moment later. Find where the request and decision events are paired and where that row is drawn.",
+  "expect": [
+   "Permission",
+   "foldTimeline"
+  ],
+  "where": [
+   "web/src/components/TimelineRow.tsx:323",
+   "web/src/lib/timeline.ts:24"
+  ],
+  "kind": "frontend"
+ },
+ {
+  "prompt": "Shell executions in the transcript show a green exit badge even when exit_code is missing, and the stderr panel is labelled 'Output' just like stdout. Fix the badge and give stderr its own label.",
+  "expect": [
+   "Command"
+  ],
+  "where": [
+   "web/src/components/TimelineRow.tsx:298"
+  ],
+  "kind": "frontend"
+ },
+ {
+  "prompt": "Grep tool results in the transcript usually render as a neat path/line/text table, but output containing Windows paths like C:\\src\\a.ts:12:foo falls back to plain text. Where is that line format detected?",
+  "expect": [
+   "parseHits"
+  ],
+  "where": [
+   "web/src/components/TimelineRow.tsx:588"
+  ],
+  "kind": "frontend"
+ },
+ {
+  "prompt": "Our shared GET hook for screens keeps showing stale data for a moment when the query params change, and I'd like it to keep previous data while reloading. Where is that hook and how does it abort on unmount?",
+  "expect": [
+   "useQuery"
+  ],
+  "where": [
+   "web/src/hooks/useApi.ts:19"
+  ],
+  "kind": "frontend"
+ },
+ {
+  "prompt": "The live websocket client gives up and switches to timer-based polling after three failed reconnects. Raise that to five and cap the backoff at 15 seconds instead of 30.",
+  "expect": [
+   "RelayLive"
+  ],
+  "where": [
+   "web/src/api/ws.ts:46"
+  ],
+  "kind": "frontend"
+ },
+ {
+  "prompt": "In the session view's side rail, the per-turn list shows prompt preview, time, tokens and cost. Add the finish reason as a small badge next to the turn number.",
+  "expect": [
+   "TurnsRail"
+  ],
+  "where": [
+   "web/src/screens/SessionView.tsx:349"
+  ],
+  "kind": "frontend"
+ },
+ {
+  "prompt": "The bar under each evaluation run counts failed tasks as completed, so a run where everything failed looks 100% finished. Show failed tasks as a separate red segment.",
+  "expect": [
+   "Progress"
+  ],
+  "where": [
+   "web/src/screens/Evaluations.tsx:269"
+  ],
+  "kind": "frontend"
+ },
+ {
+  "prompt": "Add a 'Machines' column to the developer directory table (the one with the 7-day mini chart and spend), which means the list endpoint has to return a machine count per person too.",
+  "expect": [
+   "People",
+   "Server.listUsers"
+  ],
+  "where": [
+   "web/src/screens/People.tsx:14",
+   "internal/api/people.go:16"
+  ],
+  "kind": "cross"
+ },
+ {
+  "prompt": "When you click a person in the directory, the right-hand drawer shows spend, files touched and top tools. Add 'top languages' to that drawer, end to end.",
+  "expect": [
+   "PersonPanel",
+   "Server.getUserSummary"
+  ],
+  "where": [
+   "web/src/screens/People.tsx:100",
+   "internal/api/people.go:52"
+  ],
+  "kind": "cross"
+ },
+ {
+  "prompt": "On the fleet coverage overview, the bypass indicator cards say 'Not measurable' even for kinds the fleet does send. Trace whether the 'available' flag is wrong on the server or misread by the page.",
+  "expect": [
+   "Report",
+   "Server.getCoverage"
+  ],
+  "where": [
+   "web/src/screens/Coverage.tsx:52",
+   "internal/api/people.go:138"
+  ],
+  "kind": "cross"
+ },
+ {
+  "prompt": "Revoking a host from the enrolled-hosts table on the coverage screen succeeds but the row still says 'active' after reload. Check both the table and the DELETE handler.",
+  "expect": [
+   "Machines",
+   "Server.revokeMachine"
+  ],
+  "where": [
+   "web/src/screens/Coverage.tsx:153",
+   "internal/api/people.go:115"
+  ],
+  "kind": "cross"
+ },
+ {
+  "prompt": "Renaming the organisation on the settings page accepts an empty name. Disable Save in the UI for blank input and reject it with a validation error on the server.",
+  "expect": [
+   "OrgPanel",
+   "Server.updateOrg"
+  ],
+  "where": [
+   "web/src/screens/Settings.tsx:33",
+   "internal/api/org.go:27"
+  ],
+  "kind": "cross"
+ },
+ {
+  "prompt": "Notes left on a session transcript sometimes appear twice after a slow network. Look at the note box in the session side rail and the POST handler that stores the note.",
+  "expect": [
+   "CommentsRail",
+   "Server.createSessionComment"
+  ],
+  "where": [
+   "web/src/screens/SessionView.tsx:425",
+   "internal/api/sessions.go:286"
+  ],
+  "kind": "cross"
+ },
+ {
+  "prompt": "The 'files changed' tab in the session view shows +0/-0 for files that were rewritten with Write. Is the server rollup wrong or the rail?",
+  "expect": [
+   "FilesRail",
+   "Server.getSessionFiles"
+  ],
+  "where": [
+   "web/src/screens/SessionView.tsx:376",
+   "internal/api/sessions.go:231"
+  ],
+  "kind": "cross"
+ },
+ {
+  "prompt": "The new-evaluation form fires the cost estimate on every keystroke; product wants it to also show the number of sessions that would be sampled. Change the form and the estimate endpoint.",
+  "expect": [
+   "Composer",
+   "Server.estimateEvalRun"
+  ],
+  "where": [
+   "web/src/screens/Evaluations.tsx:28",
+   "internal/api/eval.go:190"
+  ],
+  "kind": "cross"
+ },
+ {
+  "prompt": "Replying to an assessment on a scored result card clears the textbox but the reply never shows up until a full refresh. Fix the card and check what the reply endpoint returns.",
+  "expect": [
+   "ResultCard",
+   "Server.createEvalResultResponse"
+  ],
+  "where": [
+   "web/src/screens/Evaluations.tsx:297",
+   "internal/api/eval.go:320"
+  ],
+  "kind": "cross"
+ },
+ {
+  "prompt": "After entering email and password on the sign-in page, users with 2FA enabled are sometimes sent straight home instead of to the code screen. Where does the page branch on the server's 'next' value, and where does the server decide it?",
+  "expect": [
+   "Login",
+   "Server.login"
+  ],
+  "where": [
+   "web/src/screens/Login.tsx:36",
+   "internal/api/auth.go:28"
+  ],
+  "kind": "cross"
+ },
+ {
+  "prompt": "Expanding a large tool output in a transcript shows \"Couldn't load this content.\" when the presigned URL has expired. Check the fallback fetch on our own origin and the handler that serves stored bodies by reference.",
+  "expect": [
+   "useBody",
+   "Server.getBlob"
+  ],
+  "where": [
+   "web/src/components/TimelineRow.tsx:15",
+   "internal/api/sessions.go:322"
+  ],
+  "kind": "cross"
+ },
+ {
+  "prompt": "Scrolling up in a long transcript stops fetching earlier events after the first page even though there are more. Look at how the client pages backwards with the cursor and how the timeline endpoint sets has_more.",
+  "expect": [
+   "loadOlder",
+   "Server.getSessionTimeline"
+  ],
+  "where": [
+   "web/src/screens/SessionView.tsx:314",
+   "internal/api/sessions.go:139"
+  ],
+  "kind": "cross"
+ },
+ {
+  "prompt": "Relative timestamps like '3m' on cards are wrong on laptops with a bad system clock. Where do we correct for the server's clock when formatting elapsed time?",
+  "expect": [
+   "ago",
+   "serverNow"
+  ],
+  "where": [
+   "web/src/lib/format.ts:19",
+   "web/src/lib/format.ts:15"
+  ],
+  "kind": "types"
+ },
+ {
+  "prompt": "Money values show as $0.68 but finance wants four decimals everywhere and a dash instead of $0.00 for missing values. Which helper formats dollar strings from the API?",
+  "expect": [
+   "usd"
+  ],
+  "where": [
+   "web/src/lib/format.ts:51"
+  ],
+  "kind": "types"
+ },
+ {
+  "prompt": "The token count on session cards and turns doesn't match what Claude Code shows; I suspect cache reads/writes are left out somewhere. Which helper sums the per-row token columns?",
+  "expect": [
+   "allTokens"
+  ],
+  "where": [
+   "web/src/lib/format.ts:81"
+  ],
+  "kind": "types"
+ },
+ {
+  "prompt": "On the live floor, sessions are grouped under each developer's name, and sessions without a known owner should land in one 'Unattributed' group. Where is that grouping done, and does it keep freshest-first order?",
+  "expect": [
+   "groupByUser"
+  ],
+  "where": [
+   "web/src/lib/format.ts:98"
+  ],
+  "kind": "types"
+ },
+ {
+  "prompt": "Support says the UI shows 'Something went wrong.' for the 'quota_exceeded' error code. Where is the mapping from API error codes to user-facing text?",
+  "expect": [
+   "humanError"
+  ],
+  "where": [
+   "web/src/api/errors.ts:42"
+  ],
+  "kind": "types"
+ },
+ {
+  "prompt": "Transcript tool calls from MCP servers should read 'server / tool' and Codex's 'apply_patch' should get the edit glyph instead of the generic one. Where are tool names classified and prettified?",
+  "expect": [
+   "family",
+   "toolTitle"
+  ],
+  "where": [
+   "web/src/lib/timeline.ts:110",
+   "web/src/lib/timeline.ts:125"
+  ],
+  "kind": "types"
+ }
+]

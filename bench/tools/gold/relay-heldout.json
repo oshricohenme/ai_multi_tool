@@ -1,0 +1,14 @@
+[
+ {"prompt": "a request with a valid session cookie is rejected as unauthenticated", "expect": ["AuthenticateSession"]},
+ {"prompt": "SCIM provisioning creates duplicate users from the identity provider", "expect": ["SCIM"]},
+ {"prompt": "the eval confidence threshold is confirmed too early", "expect": ["confirmThreshold"]},
+ {"prompt": "events from a machine get attributed to the wrong person during ingest", "expect": ["resolveIdentity"]},
+ {"prompt": "after logging in, the new session token is issued with the wrong expiry", "expect": ["issueSession"]},
+ {"prompt": "reading the org's capture policy returns defaults instead of saved values", "expect": ["GetPolicy"]},
+ {"prompt": "the agent daemon's spool loop never drains when offline", "expect": ["Daemon.spoolLoop"]},
+ {"prompt": "the agent cannot read its stored credential from the OS keychain on linux", "expect": ["keyringGet"]},
+ {"prompt": "large tool outputs are not moved out of the event before upload", "expect": ["oversizedField"]},
+ {"prompt": "the toggle switch in settings does not reflect the saved state", "expect": ["Toggle"]},
+ {"prompt": "the install page's code snippet copy button copies nothing", "expect": ["CodeBlock"]},
+ {"prompt": "TOTP setup screen never shows the QR code for a new user", "expect": ["TotpEnroll"]}
+]

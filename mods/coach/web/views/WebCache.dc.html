@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cache health view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit}
+</style>
+</helmet>
+<div style="height: 100%; min-height: 844px; display: flex; flex-direction: column; background: #0b0b0d; color: #e4e4e8; font-family: Inter, system-ui, sans-serif; font-size: 13px">
+
+<div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 16px 20px 12px; border-bottom: 1px solid #1f1f23; background: linear-gradient(#111114, #0d0d10)">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 18px; font-weight: 600">Cache health</h1>
+<p style="margin: 0; color: #9a9aa3">Each row is one model call's prompt, laid out token by token. Mint was read from cache, orange was written fresh. A red seam is where the prefix changed and the cache broke.</p>
+</div>
+<div style="display: flex; gap: 22px">
+<sc-for list="{{kpis}}" as="k" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 3px"><span style="font-size: 11px; color: #8b8b94">{{k.label}}</span><span style="{{k.style}}">{{k.value}}</span></div>
+</sc-for>
+</div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1; min-height: 0">
+<section style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+<div ref="{{scrollRef}}" onWheel="{{onUserScroll}}" style="flex: 1; min-height: 560px; max-height: calc(100vh - 200px); overflow-y: auto">
+<canvas ref="{{tapeRef}}" onMouseMove="{{onMove}}" onMouseLeave="{{onLeave}}" onClick="{{onClick}}" aria-label="Prefix tape: per call, which tokens were cache reads, cache writes and uncached input" style="display: block; width: 100%; height: 560px; cursor: default"></canvas>
+</div>
+<div style="display: flex; gap: 18px; flex-wrap: wrap; padding: 10px 20px; border-top: 1px solid #1f1f23; font-size: 12px; color: #9a9aa3">
+<span><span style="color: #6fd3b4">■</span> {{legendRead}}</span><span><span style="color: #f2703f">■</span> {{legendWrite}}</span><span><span style="color: #e2a557">■</span> {{legendFresh}}</span><span><span style="color: #ff5c7a">┃</span> cache break</span><span>┆ ghost: what the previous call had cached</span>
+</div>
+</section>
+
+<aside aria-label="Selected call" style="flex: 1 1 320px; max-width: 400px; min-width: 290px; border-left: 1px solid #1f1f23; background: #101013; display: flex; flex-direction: column; gap: 16px; padding: 16px">
+<div style="display: flex; align-items: center; gap: 14px">
+<canvas ref="{{ttlRef}}" aria-label="Time left before the cache expires" style="display: block; width: 92px; height: 92px; flex: none"></canvas>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #6e6e78">CACHE TTL</span>
+<span style="font-weight: 600">{{ttlLabel}}</span>
+<span style="font-size: 12px; color: #9a9aa3; line-height: 1.45">{{ttlNote}}</span>
+</div>
+</div>
+<div style="height: 1px; background: #1f1f23"></div>
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="{{sel.badgeStyle}}">{{sel.badge}}</span><span style="color: #9a9aa3">{{sel.where}}</span>
+</div>
+<div style="line-height: 1.5">{{sel.title}}</div>
+<div style="display: grid; grid-template-columns: 110px minmax(0, 1fr); row-gap: 7px; column-gap: 12px; font-size: 12px">
+<sc-for list="{{sel.facts}}" as="f" hint-placeholder-count="5"><span style="color: #8b8b94">{{f.k}}</span><span style="font-family: 'JetBrains Mono', monospace">{{f.v}}</span></sc-for>
+</div>
+<sc-if value="{{sel.isBreak}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: #1f1216; border: 1px solid #4a1f2a">
+<span style="font-weight: 600; color: #ff8aa0">{{sel.cause}}</span>
+<pre style="margin: 0; white-space: pre-wrap; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.55; color: #c9c9cf">{{sel.diff}}</pre>
+<span style="font-size: 12px; color: #c9c9cf; line-height: 1.5">{{sel.fix}}</span>
+</div>
+</sc-if>
+<div style="margin-top: auto; display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 11px; letter-spacing: 0.08em; color: #6e6e78">CACHE BREAKERS THIS SESSION</span>
+<sc-for list="{{breakers}}" as="b" hint-placeholder-count="6">
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 28px 64px; gap: 8px; font-size: 12px; padding: 5px 0; border-top: 1px solid #1a1a1e">
+<span style="color: #c4c4cb">{{b.name}}</span><span style="{{b.nStyle}}">{{b.n}}</span><span style="text-align: right; font-family: 'JetBrains Mono', monospace; color: #9a9aa3">{{b.cost}}</span>
+</div>
+</sc-for>
+</div>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1376,"height":844}}'>
+var C = { bg: '#0b0b0d', text: '#e4e4e8', dim: '#8b8b94', faint: '#55555e', relief: '#6fd3b4', hot: '#f2703f', warm: '#e2a557', error: '#ff5c7a', focus: '#f4f4f6' };
+function hex(c) { return [1, 3, 5].map(function (i) { return parseInt(c.substr(i, 2), 16); }); }
+function rgba(c, a) { var p = hex(c); return 'rgba(' + p[0] + ',' + p[1] + ',' + p[2] + ',' + a + ')'; }
+function rr(g, x, y, w, h, r) { r = Math.max(0, Math.min(r, w / 2, h / 2)); g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+function fk(n) { return DT.fmt.tok(n); }
+function fusd(n) { return DT.fmt.usd(n); }
+function ease(a, b, k) { return a + (b - a) * k; }
+// Live: main-thread model calls, breaks detected and explained in index.html (DT.cache).
+var P = { read: 0.5, fresh: 5, write: 6.25 }, CALLS = [], MAXTOK = 75000, IDLE = 0, LIVE = true, VER = -1;
+function sync() {
+  if (VER === DT.ver) return; VER = DT.ver;
+  var d = DT.cache();
+  P = d.price; CALLS = d.calls; MAXTOK = d.maxTok; IDLE = d.idle; LIVE = d.live;
+  CALLS.forEach(function (c, i) {
+    c.tot = c.inp + c.cr + c.cw;
+    c.cost = (c.cr * P.read + c.inp * P.fresh + c.cw * P.write) / 1e6;
+    var prev = CALLS[i - 1];
+    c.ghost = prev ? prev.cr + prev.cw : 0;
+    // what this call would have cost had the previous prefix still been cached
+    c.lost = c.brk ? Math.max(0, c.cost - (Math.min(c.ghost, c.tot) * P.read + Math.max(0, c.tot - c.ghost) * P.write) / 1e6) : 0;
+  });
+}
+var BREAKERS = [['Tool-result cleanup', 'cleanup'], ['Compaction', 'compact'], ['Model switch', 'model'], ['Idle past 5 min (TTL)', 'ttl'], ['System prompt change (CLAUDE.md, MCP, style)', 'sys']];
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    sync();
+    var brk = CALLS.filter(function (c) { return c.brk; }).pop() || CALLS[CALLS.length - 1] || {};
+    this.state = { sel: brk.id, hover: null, tick: 0 };
+    this.reveal = Math.max(0, CALLS.length - 1.5); this.hits = []; this.mouse = null; this.idle = IDLE; this.ttlShown = 1;
+  }
+  componentDidMount() {
+    var self = this, last = performance.now(), lastS = 0; this.syncedAt = performance.now(); this.lastVer = DT.ver;
+    var loop = function (ts) {
+      var dt = Math.min(0.05, (ts - last) / 1000); last = ts;
+      self.reveal = Math.min(CALLS.length, self.reveal + dt * 2.2);
+      sync();
+      self.idle = LIVE ? IDLE + (performance.now() - self.syncedAt) / 1000 : Infinity;
+      self.draw(ts / 1000);
+      if (ts - lastS > 1000) { lastS = ts; self.setState({ tick: self.state.tick + 1 }); }
+      self.raf = requestAnimationFrame(loop);
+    };
+    this.raf = requestAnimationFrame(loop);
+    // open on the selected call (the latest break), not on call 1 of hundreds; the canvas gets its height on the first draw
+    [120, 450, 1200].forEach(function (ms) { setTimeout(function () { self.scrollToSel(); }, ms); });
+  }
+  scrollToSel() {
+    var sel = this.state.sel, i = CALLS.findIndex(function (c) { return c.id === sel; });
+    if (this.scroller && i > 0 && !this.userScrolled) this.scroller.scrollTop = Math.max(0, 34 + i * 40 - this.scroller.clientHeight / 2);
+  }
+  componentWillUnmount() { cancelAnimationFrame(this.raf); }
+  canvasSize(cv) {
+    var dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    var g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); return { g: g, w: w, h: h };
+  }
+  draw(t) {
+    if (this.lastVer !== DT.ver) { this.lastVer = DT.ver; this.syncedAt = performance.now(); }
+    if (this.tape) this.drawTape(t);
+    if (this.ttl) this.drawTtl(t);
+  }
+  drawTape(t) {
+    var want = Math.max(560, 34 + CALLS.length * 40 + 16) + 'px';
+    if (this.tape.style.height !== want) this.tape.style.height = want;
+    var s = this.canvasSize(this.tape), g = s.g, w = s.w, h = s.h, self = this;
+    var L = 132, R = 150, T = 34, W = w - L - R, n = Math.max(1, CALLS.length);
+    var rowH = Math.min(46, (h - T - 16) / n), barH = Math.min(22, rowH * 0.5);
+    var X = function (tok) { return L + tok / MAXTOK * W; };
+    var hits = [], sel = this.state.sel, hov = this.state.hover;
+    g.clearRect(0, 0, w, h); g.fillStyle = C.bg; g.fillRect(0, 0, w, h);
+    g.font = '10px JetBrains Mono, monospace'; g.textBaseline = 'middle'; g.textAlign = 'center';
+    var step = [10000, 20000, 50000, 100000, 200000, 500000].find(function (s) { return W / (MAXTOK / s) >= 64; }) || 500000;
+    for (var k = 0; k <= MAXTOK; k += step) { g.fillStyle = '#18181c'; g.fillRect(X(k), T - 8, 1, h - T); g.fillStyle = C.faint; g.fillText(k === 0 ? 'token 0' : fk(k), X(k), 16); }
+    g.textAlign = 'left'; g.fillStyle = C.faint; g.fillText('$ / call   hit', w - R + 18, 16);
+
+    CALLS.forEach(function (c, i) {
+      var p = Math.max(0, Math.min(1, self.reveal - i)); if (p <= 0) return;
+      var pe = 1 - Math.pow(1 - p, 3), y = T + i * rowH + (rowH - barH) / 2, cy = y + barH / 2;
+      var on = sel === c.id, ho = hov === c.id;
+      if (on || ho) { g.fillStyle = on ? '#16161b' : '#121216'; g.fillRect(0, T + i * rowH, w, rowH); }
+      if (on) { g.fillStyle = C.focus; g.fillRect(0, T + i * rowH + 4, 2, rowH - 8); }
+      // label
+      g.textAlign = 'left'; g.font = '600 11px Inter, system-ui, sans-serif'; g.fillStyle = c.brk ? C.error : C.text;
+      g.fillText('T' + c.turn + ' · step ' + c.step, 16, cy - 7);
+      g.font = '11px Inter, system-ui, sans-serif'; g.fillStyle = C.dim;
+      var tt = c.title; while (tt.length > 4 && g.measureText(tt).width > L - 30) tt = tt.slice(0, -2); if (tt !== c.title) tt += '…';
+      g.fillText(tt, 16, cy + 8);
+      // ghost of the previous cached prefix
+      if (c.brk && c.ghost) {
+        g.setLineDash([3, 3]); g.strokeStyle = rgba(C.relief, 0.55); g.lineWidth = 1; rr(g, X(0) + 0.5, y - 3.5, X(c.ghost) - X(0), barH + 7, 5); g.stroke(); g.setLineDash([]);
+        g.fillStyle = rgba(C.relief, 0.75); g.font = '10px Inter, system-ui, sans-serif'; g.textAlign = 'right'; g.fillText('previous call had ' + fk(c.ghost) + ' cached', X(c.ghost) - 6, y - 9); g.textAlign = 'left';
+      }
+      // segments grow left to right: read is fast, write is slow
+      var segs = [[c.cr, C.relief], [c.cw, C.hot], [c.inp, C.warm]], x = X(0);
+      g.save(); rr(g, X(0), y, Math.max(2, (X(c.tot) - X(0)) * pe), barH, 4); g.clip();
+      segs.forEach(function (sg) {
+        if (!sg[0]) return;
+        var ww = X(sg[0]) - X(0);
+        var grad = g.createLinearGradient(0, y, 0, y + barH); grad.addColorStop(0, sg[1]); grad.addColorStop(1, rgba(sg[1], 0.7));
+        g.fillStyle = grad; g.fillRect(x, y, ww, barH);
+        x += ww;
+      });
+      // shimmer streaming through the cached part
+      if (c.cr && p >= 1) {
+        var sx = X(0) + ((t * 0.6 + i * 0.13) % 1) * (X(c.cr) - X(0));
+        var sh = g.createLinearGradient(sx - 40, 0, sx + 40, 0); sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(0.5, 'rgba(255,255,255,0.35)'); sh.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = sh; g.fillRect(sx - 40, y, 80, barH);
+      }
+      g.restore();
+      // break seam
+      if (c.brk && p >= 1) {
+        var pulse = 0.55 + 0.45 * Math.sin(t * 5);
+        g.fillStyle = rgba(C.error, 0.18 * pulse); g.fillRect(X(0) - 6, y - 6, 12, barH + 12);
+        g.fillStyle = C.error; g.fillRect(X(0) - 1.5, y - 6, 3, barH + 12);
+        g.font = '700 11px Inter, system-ui, sans-serif'; g.textAlign = 'left';
+        var lbl = ({ cleanup: 'cleanup', compact: 'compaction', model: 'model switch', ttl: 'idle expiry', sys: 'system prompt change' }[c.brk] || 'prefix change') + ' broke the cache · +' + fusd(c.lost);
+        g.fillText(lbl, X(c.tot) + 10, cy);
+      } else if (p >= 1 && c.cw > 5000) {
+        g.font = '600 11px Inter, system-ui, sans-serif'; g.fillStyle = C.hot; g.textAlign = 'left';
+        g.fillText('+' + fk(c.cw) + ' written' + (c.note ? ' · ' + c.note : ''), X(c.tot) + 10, cy);
+      }
+      // right columns
+      if (p >= 1) {
+        var hit = c.tot ? c.cr / c.tot : 0;
+        g.textAlign = 'right'; g.font = '600 12px JetBrains Mono, monospace'; g.fillStyle = C.text;
+        g.fillText(fusd(c.cost), w - R + 74, cy);
+        g.fillStyle = hit > 0.8 ? C.relief : hit > 0.4 ? C.warm : C.hot;
+        g.fillText(c.first ? 'cold' : Math.round(hit * 100) + '%', w - 16, cy);
+        // tiny hit arc
+        g.beginPath(); g.arc(w - R + 90, cy, 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * hit); g.strokeStyle = g.fillStyle; g.lineWidth = 2.5; g.stroke();
+      }
+      hits.push({ id: c.id, y0: T + i * rowH, y1: T + (i + 1) * rowH });
+    });
+    this.hits = hits;
+    // hover tooltip
+    var hc = hov && CALLS.find(function (c) { return c.id === hov; }), m = this.mouse;
+    if (hc && m) {
+      var lines = ['read ' + fk(hc.cr) + '  ·  write ' + fk(hc.cw) + '  ·  uncached ' + fk(hc.inp), 'output ' + fk(hc.o) + '  ·  input total ' + fk(hc.tot), hc.brk ? 'would have cost ' + fusd(hc.cost - hc.lost) + ' without the break' : 'click to inspect'];
+      g.font = '12px Inter, system-ui, sans-serif';
+      var tw = Math.max.apply(null, lines.map(function (l) { return g.measureText(l).width; })) + 24, th = 66;
+      var tx = Math.min(w - tw - 8, m.x + 14), ty = Math.min(h - th - 8, m.y + 14);
+      g.fillStyle = 'rgba(20,20,24,0.96)'; rr(g, tx, ty, tw, th, 8); g.fill(); g.strokeStyle = '#33333a'; g.lineWidth = 1; g.stroke();
+      g.textAlign = 'left';
+      lines.forEach(function (l, i) { g.fillStyle = i === 2 && hc.brk ? C.error : i === 0 ? C.text : C.dim; g.fillText(l, tx + 12, ty + 16 + i * 17); });
+    }
+  }
+  drawTtl(t) {
+    var s = this.canvasSize(this.ttl), g = s.g, w = s.w, h = s.h, cx = w / 2, cy = h / 2, r = Math.min(w, h) / 2 - 8;
+    if (r <= 0) return;
+    var TTL = DT.meta.cacheTtl === '1h' ? 3600 : 300, left = Math.max(0, TTL - this.idle), f = left / TTL;
+    this.ttlShown = ease(this.ttlShown, f, 0.1);
+    g.clearRect(0, 0, w, h);
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.strokeStyle = '#1f1f24'; g.lineWidth = 8; g.stroke();
+    var col = f > 0.4 ? C.relief : f > 0.15 ? C.warm : C.error;
+    var grad = g.createLinearGradient(0, 0, w, h); grad.addColorStop(0, col); grad.addColorStop(1, rgba(col, 0.6));
+    g.beginPath(); g.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * this.ttlShown); g.strokeStyle = grad; g.lineCap = 'round'; g.stroke(); g.lineCap = 'butt';
+    // glowing head
+    var a = -Math.PI / 2 + Math.PI * 2 * this.ttlShown, hx = cx + Math.cos(a) * r, hy = cy + Math.sin(a) * r;
+    g.fillStyle = rgba(col, 0.25 + 0.15 * Math.sin(t * 4)); g.beginPath(); g.arc(hx, hy, 8, 0, Math.PI * 2); g.fill();
+    g.fillStyle = C.text; g.font = '700 15px JetBrains Mono, monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(Math.floor(left / 60) + ':' + String(Math.floor(left % 60)).padStart(2, '0'), cx, cy);
+  }
+  renderVals() {
+    sync();
+    var self = this, S = this.state;
+    var c = CALLS.find(function (x) { return x.id === S.sel; }) || CALLS[CALLS.length - 1];
+    var tot = CALLS.reduce(function (a, x) { return a + x.tot; }, 0), cr = CALLS.reduce(function (a, x) { return a + x.cr; }, 0);
+    var lost = CALLS.reduce(function (a, x) { return a + x.lost; }, 0);
+    var cost = CALLS.reduce(function (a, x) { return a + x.cost; }, 0), noCache = tot * P.fresh / 1e6;
+    var mono = "font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: ";
+    var TTL = DT.meta.cacheTtl === '1h' ? 3600 : 300, left = Math.max(0, TTL - this.idle);
+    var pick = function (ev) {
+      var r = ev.currentTarget.getBoundingClientRect ? ev.currentTarget.getBoundingClientRect() : { left: 0, top: 0 };
+      var y = ev.clientY - r.top; self.mouse = { x: ev.clientX - r.left, y: y };
+      var hit = self.hits.find(function (b) { return y >= b.y0 && y < b.y1; }); return hit ? hit.id : null;
+    };
+    return {
+      kpis: [
+        { label: 'Cache hit', value: Math.round(cr / Math.max(1, tot) * 100) + '%', style: mono + C.relief },
+        { label: 'Saved by caching', value: fusd(noCache - cost), style: mono + C.relief },
+        { label: 'Lost to breaks', value: fusd(lost), style: mono + C.error }
+      ],
+      legendRead: 'cache read · $' + P.read.toFixed(2) + '/M', legendWrite: 'cache write · $' + P.write.toFixed(2) + '/M', legendFresh: 'uncached · $' + P.fresh.toFixed(2) + '/M',
+      tapeRef: function (el) { self.tape = el; }, ttlRef: function (el) { self.ttl = el; }, scrollRef: function (el) { self.scroller = el; if (el) el.__keepChildren = true; /* the canvas is ours to size; re-rendering it reset the scroll every tick */ }, onUserScroll: function () { self.userScrolled = true; },
+      onMove: function (ev) { var id = pick(ev); if (id !== S.hover) self.setState({ hover: id }); },
+      onLeave: function () { self.mouse = null; self.setState({ hover: null }); },
+      onClick: function (ev) { var id = pick(ev); if (id) self.setState({ sel: id }); },
+      ttlNote: DT.meta.cacheTtl ? 'Idle past ' + (DT.meta.cacheTtl === '1h' ? 'an hour' : '5 minutes') + ' (your cache TTL) and the next call rewrites the whole prefix.' : 'Idle past 5 minutes (the default TTL; Claude Code reports yours on a model switch) and the next call rewrites the whole prefix.',
+      ttlLabel: !LIVE ? 'Past session' : left > 0 ? 'Warm · last call ' + Math.floor(this.idle) + 's ago' : 'Expired · next call rewrites ' + fk(CALLS[CALLS.length - 1].cr + CALLS[CALLS.length - 1].cw),
+      sel: {
+        badge: c.brk ? 'CACHE BREAK' : c.first ? 'COLD START' : 'CALL',
+        badgeStyle: 'padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: ' + (c.brk ? C.error : C.relief) + '; background: ' + rgba(c.brk ? C.error : C.relief, 0.14),
+        where: 'Turn ' + c.turn + ' · Step ' + c.step, title: c.title,
+        facts: [
+          { k: 'Cache read', v: fk(c.cr) + ' · ' + fusd(c.cr * P.read / 1e6) },
+          { k: 'Cache write', v: fk(c.cw) + ' · ' + fusd(c.cw * P.write / 1e6) },
+          { k: 'Uncached', v: fk(c.inp) + ' · ' + fusd(c.inp * P.fresh / 1e6) },
+          { k: 'Hit rate', v: c.tot ? Math.round(c.cr / c.tot * 100) + '%' : '—' },
+          { k: 'Call input', v: fusd(c.cost) + (c.lost ? '  (+' + fusd(c.lost) + ' from the break)' : '') }
+        ],
+        isBreak: !!c.brk, cause: c.cause || '', diff: c.diff || '', fix: c.fix || ''
+      },
+      breakers: BREAKERS.map(function (b) {
+        var hitsB = CALLS.filter(function (x) { return x.brk === b[1]; });
+        var n = hitsB.length, l = hitsB.reduce(function (a, x) { return a + x.lost; }, 0);
+        return { name: b[0], n: String(n), cost: n ? fusd(l) : '—', nStyle: 'text-align: right; font-family: \'JetBrains Mono\', monospace; font-weight: 700; color: ' + (n ? C.error : '#4a4a52') };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>
