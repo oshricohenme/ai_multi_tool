@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Coach view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+.co-ev:hover{background:#1D1D22}
+</style>
+</helmet>
+<div style="height: 100%; min-height: 844px; display: flex; flex-direction: column; background: #0E0E11; color: #ECECEF; font-family: Inter, system-ui, sans-serif; font-size: 14px">
+<main style="flex: 1; min-height: 0; overflow-y: auto; box-sizing: border-box; padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">Coach</h1>
+<span style="color: #A0A0AA">{{summary}}</span>
+</div>
+
+<sc-if value="{{hasChips}}" hint-placeholder-val="{{ true }}">
+<div role="group" aria-label="Filter findings" style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{chips}}" as="c" hint-placeholder-count="4">
+<button type="button" onClick="{{c.pick}}" aria-pressed="{{c.on}}" style="{{c.style}}">{{c.label}}<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; opacity: 0.8">{{c.count}}</span></button>
+</sc-for>
+</div>
+</sc-if>
+
+<div style="display: flex; flex-direction: column; gap: 12px; max-width: 980px">
+<sc-for list="{{findings}}" as="f" hint-placeholder-count="6">
+<article style="display: flex; flex-direction: column; gap: 12px; padding: 20px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<span style="{{f.sevStyle}}">{{f.sev}}</span>
+<span style="font-size: 12px; color: #8A8A94; text-transform: uppercase; letter-spacing: 0.06em">{{f.cat}}</span>
+<span style="flex: 1"></span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A0A0AA">{{f.where}}</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px">
+<h2 style="margin: 0; font-size: 17px; font-weight: 600">{{f.name}}</h2>
+<span title="What the flagged calls processed or cost; an upper bound on what a fix saves" style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #F3C48A">{{f.save}}</span>
+</div>
+<p style="margin: 0; color: #C9C9D0; line-height: 1.55">{{f.evidence}}</p>
+<sc-if value="{{f.hasEv}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; border: 1px solid #222228; border-radius: 8px; overflow: hidden">
+<sc-for list="{{f.ev}}" as="e" hint-placeholder-count="3">
+<button type="button" class="co-ev" onClick="{{e.open}}" title="{{e.hint}}" style="{{e.style}}">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8A8A94; white-space: nowrap">{{e.label}}</span>
+<span style="min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; color: #C9C9D0">{{e.text}}</span>
+<span style="color: #8A8A94">{{e.go}}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+<p style="margin: 0; color: #A0A0AA; line-height: 1.55; font-size: 13px">{{f.why}} <a href="{{f.src}}" target="_blank" rel="noopener">Source</a></p>
+<sc-if value="{{f.hasFix}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 8px; background: #0F0F12; border: 1px solid #222228">
+<span style="font-size: 12px; font-weight: 600; color: #8FD6A4; padding-top: 2px">Fix</span>
+<code style="flex: 1; min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.6; color: #ECECEF; white-space: pre-wrap">{{f.fix}}</code>
+<button type="button" onClick="{{f.copy}}" aria-label="Copy fix" style="flex: none; min-height: 40px; padding: 0 12px; border: 1px solid #2E2E36; border-radius: 6px; background: #1D1D22; color: #C9C9D0; cursor: pointer; font-size: 12px">{{f.copyLabel}}</button>
+</div>
+</sc-if>
+</article>
+</sc-for>
+<sc-if value="{{empty}}" hint-placeholder-val="{{ false }}">
+<div style="padding: 32px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A; color: #A0A0AA; line-height: 1.55">{{emptyText}}</div>
+</sc-if>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+var SEV = { high: ['High', 'background: #33203A; color: #E3B2F0'], medium: ['Medium', 'background: #3A2A16; color: #F3C48A'], low: ['Low', 'background: #1E2433; color: #A9C3EE'] };
+var SEVW = { high: 0, medium: 1, low: 2 };
+// What the flagged calls processed (fresh input + cache writes + output) or cost: an upper bound on a fix's saving.
+function findingsOf() {
+  var key = DT.session + ':' + DT.events.length + ':' + DT.sigs.length + ':' + DT.ver;
+  if (findingsOf.key === key) return findingsOf.val;
+  var B = DT.base(), byId = new Map(B.ev.map(function (e) { return [e.id, e]; }));
+  var list = COACH.run({ events: DT.events, sigs: DT.sigs, meta: DT.meta }, null).filter(function (r) { return !r.llm && (r.status === 'fail' || r.status === 'warn'); });
+  list.forEach(function (r) {
+    var calls = new Map();
+    (r.evidence || []).forEach(function (ev) {
+      var e = ev.id && byId.get(ev.id); if (!e) return;
+      if (e.kind === 'assistant') calls.set(e.id, e);
+      else B.calls.forEach(function (c) { if (c.turnId === e.turnId && !c.agentId) calls.set(c.id, c); });
+    });
+    r.tok = 0; r.usd = 0;
+    calls.forEach(function (c) { r.tok += (c.inTok || 0) + (c.cacheWrite || 0) + (c.outTok || 0); r.usd += B.costOf(c); });
+    var turns = [];
+    (r.evidence || []).forEach(function (ev) { var m = /Turn (\d+)/.exec(ev.label || ''); if (m && turns.indexOf(+m[1]) < 0) turns.push(+m[1]); });
+    turns.sort(function (a, b) { return a - b; });
+    r.where = turns.length && turns.length <= 3 ? (turns.length > 1 ? 'turns ' : 'turn ') + turns.join(', ') : turns.length ? turns.length + ' turns' : (r.evidence || []).length ? (r.evidence.length + (r.evidence.length > 1 ? ' places' : ' place')) : '';
+  });
+  var api = DT.billing() === 'api', stake = function (r) { return api ? r.usd : r.tok; };
+  list.sort(function (a, b) { return (a.status === 'fail' ? 0 : 1) - (b.status === 'fail' ? 0 : 1) || SEVW[a.sev] - SEVW[b.sev] || stake(b) - stake(a); });
+  findingsOf.key = key; findingsOf.val = { list: list, api: api };
+  return findingsOf.val;
+}
+// Savings are shown only for findings about tokens or cost: the Context & cost, Setup and Delegation groups, plus status-polling.
+// Safety, steering and verification findings (destructive commands, secrets, unverified claims...) touch calls too, but fixing them saves nothing.
+function isCostFinding(r) { return r.group === 'Context & cost' || r.group === 'Setup' || r.group === 'Delegation' || r.id === 'status-polling'; }
+function saveText(r, api) { var v = api ? r.usd : r.tok; return isCostFinding(r) && v > 0 ? (api ? '≈ ' + DT.fmt.usd(v) : '≈ ' + DT.fmt.tok(v) + ' tokens') : ''; }
+function copyText(t) {
+  try { if (navigator.clipboard) return navigator.clipboard.writeText(t); } catch (e) {}
+  var a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); try { document.execCommand('copy'); } catch (e) {} a.remove();
+}
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { cat: 'all', copied: null }; }
+  renderVals() {
+    var self = this, S = this.state, has = DT.events.length > 0;
+    var F = has ? findingsOf() : { list: [], api: false }, api = F.api;
+    var cats = [];
+    F.list.forEach(function (r) { if (cats.indexOf(r.group) < 0) cats.push(r.group); });
+    var cat = S.cat !== 'all' && cats.indexOf(S.cat) < 0 ? 'all' : S.cat;
+    var chips = [['all', 'All']].concat(cats.map(function (c) { return [c, c]; })).map(function (c) {
+      var on = cat === c[0], n = c[0] === 'all' ? F.list.length : F.list.filter(function (r) { return r.group === c[0]; }).length;
+      return { label: c[1], count: String(n), on: on ? 'true' : 'false', pick: function () { self.setState({ cat: c[0] }); },
+        style: 'display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 999px; cursor: pointer; border: 1px solid ' + (on ? '#E8A558' : '#2E2E36') + '; background: ' + (on ? '#2A2116' : '#16161A') + '; color: ' + (on ? '#ECECEF' : '#A0A0AA') };
+    });
+    var top2 = F.list.slice(0, 2), save2 = top2.reduce(function (a, r) { return a + (isCostFinding(r) ? (api ? r.usd : r.tok) : 0); }, 0);
+    var summary = !has ? 'No session yet. Send Claude a prompt and the checks run here.' : !F.list.length ? 'Nothing to flag in this session.'
+      : F.list.length + ' finding' + (F.list.length > 1 ? 's' : '') + ' in this session.' + (top2.length > 1 && save2 > 0 ? ' The top two touched ' + (api ? DT.fmt.usd(save2) : DT.fmt.tok(save2) + ' tokens') + ' of work.' : '');
+    var shown = F.list.filter(function (r) { return cat === 'all' || r.group === cat; });
+    return {
+      summary: summary, hasChips: F.list.length > 1, chips: chips, empty: !shown.length,
+      emptyText: !has ? 'Waiting for the first prompt.' : 'The best-practice checks found nothing to fix here.',
+      findings: shown.map(function (r) {
+        var sv = SEV[r.sev] || SEV.low;
+        return {
+          sev: sv[0], sevStyle: 'padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; ' + sv[1],
+          cat: r.group, where: r.where, name: r.name, save: saveText(r, api), evidence: r.headline, why: r.why, src: r.src,
+          hasEv: (r.evidence || []).length > 0,
+          ev: (r.evidence || []).slice(0, 6).map(function (e) {
+            return { label: e.label, text: e.text, go: e.id ? '→' : '', hint: e.id ? 'Open in the Trace' : '', open: function () { if (e.id) { DT.focus = e.id; if (DT.goto) DT.goto('timeline'); } },
+              style: 'display: grid; grid-template-columns: 128px minmax(0, 1fr) 16px; gap: 10px; align-items: center; min-height: 40px; padding: 4px 12px; border: 0; border-bottom: 1px solid #1F1F25; background: transparent; color: inherit; font-size: 12px; cursor: ' + (e.id ? 'pointer' : 'default') };
+          }),
+          hasFix: !!r.fix, fix: r.fix || '',
+          copyLabel: S.copied === r.id ? 'Copied' : 'Copy',
+          copy: function () { copyText(r.fix); self.setState({ copied: r.id }); setTimeout(function () { if (self.state.copied === r.id) self.setState({ copied: null }); }, 1500); }
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

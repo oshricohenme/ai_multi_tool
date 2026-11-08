@@ -21,12 +21,61 @@ button{font:inherit}
 <h1 style="margin: 0; font-size: 18px; font-weight: 600">Subagents</h1>
 <p style="margin: 0; color: #9a9aa3">Where the work went, and what the subagents kept out of your main context.</p>
 </div>
-<div style="display: flex; gap: 22px; flex-wrap: wrap">
-<sc-for list="{{kpis}}" as="k" hint-placeholder-count="4">
-<div style="display: flex; flex-direction: column; gap: 3px"><span style="font-size: 11px; color: #8b8b94">{{k.label}}</span><span style="{{k.style}}">{{k.value}}</span></div>
+</div>
+
+<sc-if value="{{hasAgents}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-wrap: wrap; gap: 16px; padding: 16px 20px">
+<section aria-labelledby="kept" style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 18px 22px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<h2 id="kept" style="margin: 0; font-size: 16px; font-weight: 600">Main context: actual vs done inline</h2>
+<div style="display: flex; flex-direction: column; gap: 6px"><div style="display: flex; justify-content: space-between; font-size: 13px"><span style="color: #A0A0AA">Actual</span><span style="font-family: 'JetBrains Mono', monospace">{{kept.actual}}</span></div><div style="height: 12px; border-radius: 3px; background: #1F1F25; overflow: hidden"><div style="{{kept.actualBar}}"></div></div></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><div style="display: flex; justify-content: space-between; font-size: 13px"><span style="color: #A0A0AA">{{kept.inlineLabel}}</span><span style="font-family: 'JetBrains Mono', monospace">{{kept.inline}}</span></div><div style="height: 12px; border-radius: 3px; background: #1F1F25; overflow: hidden"><div style="height: 12px; width: 100%; background: #4A4A56"></div></div></div>
+<p style="margin: 0; color: #C9C9D0; font-size: 13px; line-height: 1.5">{{kept.note}}</p>
+</section>
+<div style="flex: 1 1 420px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+<sc-for list="{{tiles}}" as="k" hint-placeholder-count="4"><div style="display: flex; flex-direction: column; gap: 6px; padding: 16px 20px; border: 1px solid #27272E; border-radius: 12px; background: #16161A"><span style="color: #A0A0AA; font-size: 13px">{{k.label}}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 26px">{{k.value}}</span><span style="color: #8A8A94; font-size: 13px">{{k.sub}}</span></div></sc-for>
+</div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; padding: 0 20px 16px">
+<section aria-label="Subagents" style="flex: 999 1 560px; min-width: 0; border: 1px solid #27272E; border-radius: 12px; background: #16161A; overflow: hidden">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 20px; border-bottom: 1px solid #27272E"><span style="font-weight: 600">Subagents</span>
+<div role="group" aria-label="Group by" style="display: flex; gap: 4px; padding: 3px; border-radius: 9px; background: #151518; border: 1px solid #222227"><sc-for list="{{groupModes}}" as="m" hint-placeholder-count="2"><button type="button" onClick="{{m.pick}}" aria-pressed="{{m.on}}" style="{{m.style}}">{{m.label}}</button></sc-for></div></div>
+<div style="overflow-x: auto"><div style="min-width: 880px">
+<div style="display: grid; grid-template-columns: 90px 120px 96px 72px minmax(200px, 1fr) 150px 70px; gap: 12px; padding: 10px 20px; border-bottom: 1px solid #27272E; font-size: 12px; color: #8A8A94"><span>Status</span><span>Type</span><span>Model</span><span>Effort</span><span>Task</span><span>Read → returned</span><span style="text-align: right">Took</span></div>
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+<div style="padding: 8px 20px; background: #121215; border-bottom: 1px solid #1F1F25; font-size: 12px; color: #A0A0AA">{{g.title}}</div>
+<sc-for list="{{g.rows}}" as="r" hint-placeholder-count="4">
+<button type="button" onClick="{{r.pick}}" aria-pressed="{{r.on}}" style="{{r.rowStyle}}">
+<span style="{{r.stStyle}}">{{r.st}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #C7B6F2; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{r.type}}</span>
+<span style="font-size: 13px; color: #C9C9D0; text-align: left">{{r.model}}</span>
+<span style="{{r.effStyle}}">{{r.effort}}</span>
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left">{{r.task}}</span>
+<span style="display: flex; flex-direction: column; gap: 4px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A0A0AA; text-align: left">{{r.io}}</span><span style="height: 4px; border-radius: 2px; background: #27272E; overflow: hidden"><span style="{{r.ioBar}}"></span></span></span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A0A0AA; text-align: right">{{r.took}}</span>
+</button>
 </sc-for>
+<sc-if value="{{g.more}}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{g.showAll}}" style="display: block; width: 100%; min-height: 40px; border: 0; border-bottom: 1px solid #1F1F25; background: transparent; color: #E8A558; cursor: pointer; font-size: 12px">{{g.moreLabel}}</button></sc-if>
+</sc-for>
+</div></div>
+</section>
+<aside aria-labelledby="ad" style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 20px 22px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<span style="font-size: 12px; color: #8A8A94; text-transform: uppercase; letter-spacing: 0.06em">{{d.type}} · {{d.turn}}</span>
+<h2 id="ad" style="margin: 0; font-size: 16px; font-weight: 600">{{d.task}}</h2>
+<dl style="margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px">
+<div><dt style="font-size: 12px; color: #8A8A94">Model</dt><dd style="margin: 0; font-family: 'JetBrains Mono', monospace">{{d.model}}</dd></div>
+<div><dt style="font-size: 12px; color: #8A8A94">Effort</dt><dd style="margin: 0; font-family: 'JetBrains Mono', monospace">{{d.effort}}</dd></div>
+<div><dt style="font-size: 12px; color: #8A8A94">Read</dt><dd style="margin: 0; font-family: 'JetBrains Mono', monospace">{{d.read}}</dd></div>
+<div><dt style="font-size: 12px; color: #8A8A94">Returned</dt><dd style="margin: 0; font-family: 'JetBrains Mono', monospace">{{d.ret}}</dd></div>
+<div><dt style="font-size: 12px; color: #8A8A94">Tool calls</dt><dd style="margin: 0; font-family: 'JetBrains Mono', monospace">{{d.tools}}</dd></div>
+<div><dt style="font-size: 12px; color: #8A8A94">Took</dt><dd style="margin: 0; font-family: 'JetBrains Mono', monospace">{{d.took}}</dd></div>
+</dl>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #8A8A94">What it handed back</span>
+<pre style="margin: 0; padding: 12px 14px; border-radius: 8px; background: #0F0F12; border: 1px solid #222228; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; color: #C9C9D0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto">{{d.result}}</pre></div>
+</aside>
 </div>
-</div>
+</sc-if>
+<sc-if value="{{noAgents}}" hint-placeholder-val="{{ false }}"><div style="padding: 16px 20px; color: #8A8A94">No subagents this session. Explore agents keep big searches out of your context.</div></sc-if>
 
 <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 10px 20px">
 <span style="font-size: 12px; color: #8b8b94">{{crumb}}</span>
@@ -49,8 +98,8 @@ button{font:inherit}
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1376,"height":844}}'>
-var C = { bg: '#0b0b0d', text: '#e4e4e8', dim: '#8b8b94', faint: '#55555e', relief: '#6fd3b4', hot: '#f2703f', warm: '#e2a557', error: '#ff5c7a', focus: '#f4f4f6', steel: '#4d6b8f', mist: '#93a9c8' };
-var RAMP = [[0, '#4d6b8f'], [0.45, '#93a9c8'], [0.72, '#e2a557'], [1, '#f2703f']];
+var C = { bg: '#0b0b0d', text: '#e4e4e8', dim: '#8b8b94', faint: '#55555e', relief: '#6fd3b4', hot: '#E8A558', warm: '#e2a557', error: '#E3B2F0', focus: '#f4f4f6', steel: '#4d6b8f', mist: '#93a9c8' };
+var RAMP = [[0, '#4d6b8f'], [0.45, '#93a9c8'], [0.72, '#e2a557'], [1, '#E8A558']];
 function hex(c) { return [1, 3, 5].map(function (i) { return parseInt(c.substr(i, 2), 16); }); }
 function mix(a, b, t) { var pa = hex(a), pb = hex(b); return '#' + pa.map(function (v, i) { return Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0'); }).join(''); }
 function rgba(c, a) { var p = hex(c); return 'rgba(' + p[0] + ',' + p[1] + ',' + p[2] + ',' + a + ')'; }
@@ -76,11 +125,36 @@ function sync() {
   CROSS = null;
   if (AGENTS.length) for (var t = 0; t < END; t += END / 600) if (ctxAt(t) + extra(t) >= AUTO) { CROSS = t; break; }
 }
+var ST = { running: ['Running', '#16241B', '#8FD6A4'], done: ['Done', '#1A1F2B', '#A9C3EE'], failed: ['Failed', '#33203A', '#E3B2F0'] };
+var EFF = { low: ['#1D1D22', '#B4B4BD'], medium: ['#1E2433', '#A9C3EE'], high: ['#24202F', '#C7B6F2'], max: ['#24202F', '#C7B6F2'] };
+// "claude-opus-5-5[1m]" -> "Opus 5.5"
+function shortModel(m) { return DT.fmt.model(m); }
+function jparse(t) { try { return JSON.parse(t); } catch (e) { return {}; } }
+function agentRows() {
+  var B = DT.base();
+  return B.agents.map(function (a) {
+    var inp = a.tool ? jparse(a.tool.payload) : {};
+    var last = a.calls.filter(function (e) { return e.model; }).pop() || {};
+    var running = a.tool ? !a.tool.end : a.list.some(function (e) { return !e.end; });
+    var failed = !running && !!(a.tool && a.tool.isError);
+    var res = a.tool ? String(a.tool.result || '') : '';
+    var ans = (res.match(/ANSWER\n([\s\S]*?)(\n\nTOOL USES\n|\n\nSERVER TOOLS\n|$)/) || [])[1];
+    return { a: a, id: a.id, st: running ? 'running' : failed ? 'failed' : 'done', type: inp.subagent_type || 'general-purpose', task: inp.description || a.name, model: shortModel(last.model), effort: DT.effortOf(last),
+      turn: a.tool ? B.turnNo.get(a.tool.turnId) : null, tools: a.list.filter(function (e) { return e.kind === 'tool'; }).length, sec: Math.max(0, (a.end - a.start) / 1000), start: a.start, endMs: a.end,
+      tok: a.calls.reduce(function (s, e) { return s + (e.inTok || 0) + (e.cacheRead || 0) + (e.cacheWrite || 0) + (e.outTok || 0); }, 0),
+      result: running ? '(still running)' : String(ans || res || '(no result text)').trim().slice(0, 1200) };
+  });
+}
+function maxParallel(rows) {
+  var ev = []; rows.forEach(function (r) { ev.push([r.start, 1], [r.endMs, -1]); });
+  ev.sort(function (p, q) { return p[0] - q[0] || p[1] - q[1]; });
+  var c = 0, m = 0; ev.forEach(function (x) { c += x[1]; m = Math.max(m, c); }); return m;
+}
 class Component extends DCLogic {
   constructor(props) {
     super(props);
     sync();
-    this.state = { mode: 'tok', focus: 'root', hover: null };
+    this.state = { mode: 'tok', focus: 'root', hover: null, group: 'status', sel: null, open: {} };
     this.cur = {}; this.hits = []; this.mouse = null; this.parts = []; this.cfP = 0;
   }
   componentDidMount() {
@@ -242,7 +316,27 @@ class Component extends DCLogic {
     sync();
     var self = this, S = this.state, f = IDX[S.focus] || ROOT;
     var read = AGENTS.reduce(function (a, x) { return a + x.read; }, 0), ret = AGENTS.reduce(function (a, x) { return a + x.ret; }, 0);
-    var mono = "font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: ";
+    var AR = agentRows(), selR = AR.find(function (r) { return r.id === S.sel; }) || AR.slice().sort(function (p, q) { return q.a.read - p.a.read; })[0];
+    var actual = CTX.length ? CTX[CTX.length - 1][1] : 0, inline = actual + read, maxRead = Math.max(1, Math.max.apply(null, AR.map(function (r) { return r.a.read; }).concat([1])));
+    var running = AR.filter(function (r) { return r.st === 'running'; }).length;
+    var pill = function (bg, fg) { return 'justify-self: start; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; background: ' + bg + '; color: ' + fg; };
+    var keyOf = function (r) { return S.group === 'type' ? r.type : r.st; };
+    var order = S.group === 'type' ? [] : ['running', 'failed', 'done'];
+    AR.forEach(function (r) { if (order.indexOf(keyOf(r)) < 0) order.push(keyOf(r)); });
+    var groups = order.map(function (k) {
+      var list = AR.filter(function (r) { return keyOf(r) === k; }); if (!list.length) return null;
+      var all = !!S.open[k], vis = all ? list : list.slice(0, 4);
+      return { title: (S.group === 'type' ? k : ST[k][0]) + ' · ' + list.length, more: list.length > 4 && !all, moreLabel: 'Show all ' + list.length,
+        showAll: function () { var o = Object.assign({}, S.open); o[k] = true; self.setState({ open: o }); },
+        rows: vis.map(function (r) {
+          var on = selR && r.id === selR.id, e = EFF[r.effort] || EFF.low;
+          return { st: ST[r.st][0], stStyle: pill(ST[r.st][1], ST[r.st][2]), type: r.type, model: r.model || '—', effort: r.effort || '—', effStyle: r.effort ? pill(e[0], e[1]) : 'color: #8A8A94', task: r.task,
+            io: fk(r.a.read) + ' → ' + (r.a.ret ? fk(r.a.ret) : '…'), ioBar: 'display: block; height: 4px; width: ' + (r.a.read / maxRead * 100).toFixed(0) + '%; background: #7AA2E3', took: DT.fmt.dur(r.sec * 1000), on: on ? 'true' : 'false',
+            pick: function () { self.setState({ sel: r.id }); },
+            rowStyle: 'display: grid; grid-template-columns: 90px 120px 96px 72px minmax(200px, 1fr) 150px 70px; gap: 12px; align-items: center; width: 100%; min-height: 52px; padding: 6px 20px; border: 0; border-bottom: 1px solid #1F1F25; cursor: pointer; color: #ECECEF; background: ' + (on ? '#1F1C17' : 'transparent') + '; box-shadow: ' + (on ? 'inset 0 0 0 1px #E8A558' : 'none') };
+        }) };
+    }).filter(Boolean);
+    var d = selR ? { type: selR.type, turn: selR.turn ? 'turn ' + selR.turn : 'background', task: selR.task, model: selR.model || '—', effort: selR.effort || '—', read: fk(selR.a.read), ret: selR.a.ret ? fk(selR.a.ret) : '—', tools: String(selR.tools), took: DT.fmt.dur(selR.sec * 1000), result: selR.result } : { type: '', turn: '', task: '', model: '', effort: '', read: '', ret: '', tools: '', took: '', result: '' };
     var path = []; for (var p = f; p; p = p.parent) path.unshift(p.name);
     var at = function (ev) {
       var r = ev.currentTarget.getBoundingClientRect ? ev.currentTarget.getBoundingClientRect() : { left: 0, top: 0 };
@@ -251,12 +345,16 @@ class Component extends DCLogic {
       return hit ? IDX[hit.id] : null;
     };
     return {
-      kpis: [
-        { label: 'Read by subagents', value: fk(read), style: mono + C.mist },
-        { label: 'Returned to you', value: fk(ret), style: mono + C.relief },
-        { label: 'Kept out of context', value: fk(Math.max(0, read - ret)), style: mono + C.relief },
-        { label: 'Subagent cost', value: fusd(AGENTS.reduce(function (a, x) { return a + x.usd; }, 0)), style: mono + C.text }
+      hasAgents: AR.length > 0, noAgents: AR.length === 0, d: d, groups: groups,
+      kept: { actual: fk(actual), actualBar: 'height: 12px; background: #7AA2E3; width: ' + (inline ? (actual / inline * 100).toFixed(1) : 100) + '%', inline: fk(inline),
+        inlineLabel: 'If the ' + AR.length + ' subagent' + (AR.length === 1 ? '' : 's') + '\u2019 reading had happened here', note: 'Subagents read ' + fk(read) + ' tokens and handed back ' + fk(ret) + '. Every later turn would have re-sent the difference.' },
+      tiles: [
+        { label: 'Subagents', value: String(AR.length), sub: running + ' running now' },
+        { label: 'Read vs returned', value: ret ? Math.round(read / ret) + ' : 1' : '—', sub: fk(read) + ' in, ' + fk(ret) + ' back' },
+        { label: 'Their tokens', value: fk(AR.reduce(function (s, r) { return s + r.tok; }, 0)), sub: 'not in the main context' },
+        { label: 'Ran in parallel', value: maxParallel(AR) + ' max', sub: 'at the same time' }
       ],
+      groupModes: [['status', 'By status'], ['type', 'By type']].map(function (x) { var on = S.group === x[0]; return { label: x[1], on: on ? 'true' : 'false', pick: function () { self.setState({ group: x[0] }); }, style: 'height: 28px; padding: 0 12px; border: 0; border-radius: 6px; cursor: pointer; background: ' + (on ? '#2a2a31' : 'transparent') + '; color: ' + (on ? C.focus : C.dim) }; }),
       crumb: path.join('  ›  ') + (S.focus === 'root' ? '  ·  click a block to zoom' : '  ·  click the top bar to zoom out'),
       modes: [['tok', 'Tokens'], ['sec', 'Time'], ['usd', 'Cost']].map(function (x) {
         var on = S.mode === x[0];

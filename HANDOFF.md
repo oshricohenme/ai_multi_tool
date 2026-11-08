@@ -20,9 +20,9 @@ logs, JSON, MCP results) is compressed and kept out of context, then queried (`m
 | `tests/` | integration tests: speed, compression, map, briefing, virtual context, coord, ops, search |
 | `plugin/` | the Claude Code plugin: `hooks/hooks.json` (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SessionEnd → `mt hook ...`), `skills/mt` (a symlink to `../../skills/mt`), `bin/mt` (you provide it; see Build) |
 | `skills/mt/SKILL.md` | the reference the model reads. Delivered in parts by the hooks (see Gotchas) |
-| `.claude-plugin/marketplace.json` | the marketplace: two plugins, `mt` (`./plugin`) and `coach` (`./mods/coach`). `claude-coach` is a reserved name (no `claude-` prefix for third parties) |
+| `.claude-plugin/marketplace.json` | the marketplace: two plugins, `mt` (`./plugin`) and `coach` (`./coach`). `claude-coach` is a reserved name (no `claude-` prefix for third parties) |
 | `plugin/hooks/register.tsx` | the former mt-activity mod, folded into the mt plugin: status line and `/mt-activity` pane, from `mt activity --json`; tests in `plugin/tests` |
-| `mods/coach/` | Claude coach (was `dev-tools`; command `/coach`, was `/devtools`): inspects every model call and tool call (reasoning, actions, tokens, cost, timing, context, cache, habits, coach nudges) in a pane and in a local web app (`server/server.mjs`, first free port from 7777, data in `~/.claude/dev-tools/sessions/`). Fully local, separate from Relay by design |
+| `coach/` | Claude coach (was `dev-tools`; command `/coach`, was `/devtools`): inspects every model call and tool call (reasoning, actions, tokens, cost, timing, context, cache, habits, coach nudges) in a pane and in a local web app (`server/server.mjs`, first free port from 7777, data in `~/.claude/dev-tools/sessions/`). Fully local, separate from Relay by design |
 | `bench/eval/` | the A/B harness behind the DEVLOG numbers: run scripts, analyzers, task lists, a SQLite MCP fixture. Its own README |
 | `bench/tools/`, `bench/coord/` | the tool-graph bench (gold sets) and the multi-agent coordination bench |
 | `docs/` | `USAGE.md`, `RESEARCH.md` (evidence and methods), `HISTORY.md` (index of the DEVLOG) |
@@ -61,7 +61,7 @@ cargo build --release                          # Rust 1.85+, edition 2024; --fea
 ln -sf "$PWD/target/release/mt" plugin/bin/mt-$(rustc -vV | sed -n "s/host: //p")  # a symlink, or rm + cp (never cp over an existing binary: see Gotchas)
 ln -sf "$PWD/target/release/mt" ~/.local/bin/mt
 claude --plugin-dir "$PWD/plugin"              # mt plugin
-claude --plugin-dir "$PWD/plugin" --plugin-dir "$PWD/mods/coach"
+claude --plugin-dir "$PWD/plugin" --plugin-dir "$PWD/coach"
 ```
 
 - Status line without the mod: `{"statusLine": {"type": "command", "command": "mt activity --statusline"}}`.

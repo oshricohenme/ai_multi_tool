@@ -304,7 +304,9 @@ const ftok = n => { n = Number(n) || 0; const a = Math.abs(n); return a >= 1e6 ?
 const fusd = n => { n = Number(n) || 0; const a = Math.abs(n); return (n < 0 ? '−$' : '$') + (a >= 1 ? a.toFixed(2) : a >= 0.01 ? a.toFixed(3) : a === 0 ? '0.00' : a.toFixed(4).replace(/0$/, '')); };
 const fdur = ms => { ms = Math.max(0, Number(ms) || 0); return ms < 1000 ? Math.round(ms) + 'ms' : ms < 60000 ? (ms / 1000).toFixed(1) + 's' : ms < 3600e3 ? Math.floor(ms / 60000) + 'm ' + String(Math.round(ms % 60000 / 1000)).padStart(2, '0') + 's' : Math.floor(ms / 3600e3) + 'h ' + String(Math.round(ms % 3600e3 / 60000)).padStart(2, '0') + 'm'; };
 const fkk = ftok;
-DT.fmt = { tok: ftok, usd: fusd, dur: fdur };
+// claude-opus-5-5[1m] -> "Opus 5.5"; an id it cannot read comes back unchanged
+const fmodel = id => { const x = /(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?/i.exec(id || ''); return x ? x[1][0].toUpperCase() + x[1].slice(1).toLowerCase() + ' ' + x[2] + (x[3] && x[3].length < 3 ? '.' + x[3] : '') : (id || ''); };
+DT.fmt = { tok: ftok, usd: fusd, dur: fdur, model: fmodel };
 const inTot = e => (e.inTok || 0) + (e.cacheRead || 0) + (e.cacheWrite || 0);
 const AGENT_TOOLS = ['Agent', 'Task'];
 function argSummary(tool, payload) {
@@ -328,7 +330,8 @@ DT.base = function () {
     calls.forEach(e => { if (e.usd > 0) { num += e.usd; den += (e.inTok || 0) + 0.1 * (e.cacheRead || 0) + 1.25 * (e.cacheWrite || 0) + 5 * (e.outTok || 0); } });
     const p = den > 0 ? num / den : 5e-6;
     const costOf = e => e.usd !== undefined && e.usd !== null ? e.usd : p * ((e.inTok || 0) + 0.1 * (e.cacheRead || 0) + 1.25 * (e.cacheWrite || 0) + 5 * (e.outTok || 0));
-    const window = this.meta.window || (this.meta.context && this.meta.context.max) || 200000;
+    const lastMain = calls.filter(e => !e.agentId && e.model).pop();
+    const window = this.windowOf(lastMain ? lastMain.model : (this.meta.context && this.meta.context.model) || this.meta.model);
     const autoAt = (this.meta.context && this.meta.context.autoCompactAt) || Math.round(window * 0.835);
     // subagents: group by agentId, tie each to the main thread's Agent tool call
     const groups = new Map();
@@ -365,6 +368,80 @@ DT.base = function () {
 };
 
 // Timeline (trace explorer)
+// ── shared data layer (phase 1). API for the views ──────────────────────────────────────────
+//  DT.billing()        'subscription' | 'api'. subscription if any session.measure sig carries rateLimits
+//                      (five_hour / seven_day plan windows; only plan accounts report them) or meta.limits does;
+//                      else 'api' once any money is recorded (measure cost.usd > 0 or an event usd > 0); else
+//                      'subscription' (tokens-first is the safe default, and it flips to 'api' as soon as spend shows).
+//  DT.windowOf(model)  context window: meta.window / meta.context.max when the data reports it, else by model id
+//                      (haiku → 200k; opus, sonnet, fable or a [1m] suffix → 1M; unknown → 200k). DT.base().window uses it.
+//  DT.effortOf(e)      'low'|'medium'|'high'|'max'|'' from e.effort (plain, JSON {"level":..}, or object); xhigh → 'max'.
+//  DT.deltas()         { byCall: Map(eventId → d), byTurn: Map(turnId → d), byTool: Map(toolEventId → {add, rem:0}) }
+//                      d = { add, rem, cacheW, cacheLost } in tokens (all >= 0). Each agent thread (main or one agentId) is
+//                      walked in time order; context of a call = inTok + cacheRead + cacheWrite. add/rem = the change vs the
+//                      thread's previous context (first call: add = its whole context). A compact event is a step of its own
+//                      (rem = previous context − after; byCall has an entry keyed by the compact id) and its rem is also
+//                      credited to the turn of the next main call. cacheW = cacheWrite; cacheLost = cached prefix of the
+//                      previous call (cacheRead + cacheWrite) not read back now (only counted when > 1k tokens and > 2%).
+//                      byTool: a tool result's est tokens, the context it adds when read by the next call.
+//  DT.fmt.delta(d)     → { add: '+3.4k', rem: '−0', cache: '+3.4k' | '−104k' | '±0' } (cache: lost wins, else written).
+DT.windowOf = function (model) {
+  const m = this.meta || {};
+  const reported = m.window || (m.context && m.context.max);
+  if (reported) return reported;
+  return /haiku/i.test(model || '') ? 200000 : /\[1m\]|opus|sonnet|fable/i.test(model || '') ? 1000000 : 200000;
+};
+DT.billing = function () {
+  return this.memo('billing', () => {
+    const rl = r => Array.isArray(r) && r.length > 0;
+    if (this.meta.limits && rl(this.meta.limits.rateLimits)) return 'subscription';
+    let usd = 0;
+    for (const g of this.sigs) if (g.ev === 'session.measure' && g.sum) { if (rl(g.sum.rateLimits)) return 'subscription'; usd = Math.max(usd, (g.sum.cost && g.sum.cost.usd) || 0); }
+    if (!usd) for (const e of this.events) if ((e.usd || 0) > 0) { usd = e.usd; break; }
+    return usd > 0 ? 'api' : 'subscription';
+  });
+};
+DT.effortOf = function (e) {
+  let v = e && e.effort;
+  if (typeof v === 'string') { const j = parse(v); if (j !== null && typeof j === 'object') v = j; else if (j !== null && typeof j === 'string') v = j; }
+  if (v && typeof v === 'object') v = v.level || v.effort || v.value;
+  v = String(v || '').toLowerCase().trim();
+  if (v === 'xhigh' || v === 'max') return 'max';
+  return v === 'low' || v === 'medium' || v === 'high' ? v : '';
+};
+DT.deltas = function () {
+  return this.memo('deltas', () => {
+    const B = this.base();
+    const byCall = new Map(), byTurn = new Map(), byTool = new Map();
+    const bump = (m, k, d) => { const t = m.get(k) || { add: 0, rem: 0, cacheW: 0, cacheLost: 0 }; t.add += d.add; t.rem += d.rem; t.cacheW += d.cacheW; t.cacheLost += d.cacheLost; m.set(k, t); };
+    const prev = new Map(); // thread → { ctx, cached }
+    let carry = null;       // a main-thread compact waiting for the next main call's turn
+    B.ev.forEach(e => {
+      const th = e.agentId || '';
+      if (e.kind === 'tool') { if (e.est) byTool.set(e.id, { add: e.est, rem: 0 }); return; }
+      if (e.kind === 'compact') {
+        const p = prev.get(th) || { ctx: e.before || 0, cached: 0 };
+        const d = { add: 0, rem: Math.max(0, p.ctx - (e.after || 0)), cacheW: 0, cacheLost: p.cached };
+        byCall.set(e.id, d); prev.set(th, { ctx: e.after || 0, cached: 0 });
+        if (!th) carry = d;
+        return;
+      }
+      if (e.kind !== 'assistant' || e.inTok === undefined) return;
+      const ctx = inTot(e), p = prev.get(th) || { ctx: 0, cached: 0 };
+      const lost = p.cached - (e.cacheRead || 0);
+      const d = { add: Math.max(0, ctx - p.ctx), rem: Math.max(0, p.ctx - ctx), cacheW: e.cacheWrite || 0, cacheLost: lost > 1000 && lost > 0.02 * p.cached ? lost : 0 };
+      byCall.set(e.id, d); bump(byTurn, e.turnId, d);
+      if (carry) { bump(byTurn, e.turnId, { add: 0, rem: carry.rem, cacheW: 0, cacheLost: carry.cacheLost }); carry = null; }
+      prev.set(th, { ctx, cached: (e.cacheRead || 0) + (e.cacheWrite || 0) });
+    });
+    return { byCall, byTurn, byTool };
+  });
+};
+DT.fmt.delta = d => {
+  d = d || {};
+  return { add: '+' + ftok(d.add), rem: '−' + ftok(d.rem), cache: d.cacheLost > 0 ? '−' + ftok(d.cacheLost) : d.cacheW > 0 ? '+' + ftok(d.cacheW) : '±0' };
+};
+
 DT.timeline = function () {
   return this.memo('timeline', () => {
     const B = this.base(), S = B.S, now = B.nowMs;

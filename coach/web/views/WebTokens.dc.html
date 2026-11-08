@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Overview</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="height: 100%; min-height: 844px; display: flex; flex-direction: column; background: #0E0E11; color: #ECECEF; font-family: Inter, system-ui, sans-serif; font-size: 14px">
+<main style="flex: 1; min-height: 0; overflow-y: auto; box-sizing: border-box; padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">{{title}}</h1>
+<span style="color: #A0A0AA">{{subtitle}}</span>
+</div>
+
+<sc-if value="{{has}}" hint-placeholder-val="{{ true }}">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 18px 20px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<span style="color: #A0A0AA; font-size: 13px">{{k1.label}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 30px; font-weight: 500">{{k1.value}}</span>
+<span style="color: #8A8A94; font-size: 13px">{{k1.sub}}</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 18px 20px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<span style="color: #A0A0AA; font-size: 13px">{{k2.label}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 30px; font-weight: 500">{{k2.value}}</span>
+<span style="color: #8A8A94; font-size: 13px">{{k2.sub}}</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 18px 20px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<span style="color: #A0A0AA; font-size: 13px">Context window</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 30px; font-weight: 500">{{ctx.used}}<span style="font-size: 16px; color: #8A8A94"> / {{ctx.max}}</span></span>
+<div role="img" aria-label="{{ctx.aria}}" style="height: 6px; border-radius: 3px; background: #27272E; overflow: hidden"><div style="{{ctx.barStyle}}"></div></div>
+<span style="color: #8A8A94; font-size: 13px">{{ctx.sub}}</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 18px 20px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<span style="color: #A0A0AA; font-size: 13px">Cache</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 30px; font-weight: 500">{{cache.value}}<span style="font-size: 16px; color: #8A8A94"> {{cache.unit}}</span></span>
+<span style="color: #8A8A94; font-size: 13px">{{cache.sub}}</span>
+</div>
+</div>
+
+<sc-if value="{{hasLever}}" hint-placeholder-val="{{ true }}">
+<section aria-labelledby="lever" style="display: flex; flex-wrap: wrap; align-items: center; gap: 20px; padding: 20px 24px; border: 1px solid #4A3A22; border-radius: 12px; background: #1E1912">
+<div style="flex: 999 1 420px; display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #F3C48A">Biggest lever</span>
+<h2 id="lever" style="margin: 0; font-size: 18px; font-weight: 600">{{lever.name}}</h2>
+<p style="margin: 0; color: #C9C9D0; line-height: 1.55">{{lever.text}}</p>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #F3C48A">{{lever.save}}</span>
+</div>
+<button type="button" onClick="{{toCoach}}" style="flex: 1 1 180px; display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 18px; border: 0; border-radius: 8px; background: #E8A558; color: #1A1206; font-weight: 600; cursor: pointer; font-size: 14px">{{leverCta}}</button>
+</section>
+</sc-if>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<section aria-labelledby="where" style="flex: 1 1 440px; min-width: 0; display: flex; flex-direction: column; gap: 18px; padding: 20px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<h2 id="where" style="margin: 0; font-size: 16px; font-weight: 600">Where your tokens go</h2>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 13px; color: #A0A0AA">{{split.tokLabel}}</span>
+<div role="img" aria-label="{{split.tokAria}}" style="display: flex; height: 14px; border-radius: 4px; overflow: hidden; gap: 2px">
+<sc-for list="{{split.tokBars}}" as="b" hint-placeholder-count="4"><div style="{{b.style}}"></div></sc-for>
+</div>
+</div>
+<sc-if value="{{isApi}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 13px; color: #A0A0AA">{{split.usdLabel}}</span>
+<div role="img" aria-label="{{split.usdAria}}" style="display: flex; height: 14px; border-radius: 4px; overflow: hidden; gap: 2px">
+<sc-for list="{{split.usdBars}}" as="b" hint-placeholder-count="4"><div style="{{b.style}}"></div></sc-for>
+</div>
+</div>
+</sc-if>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; font-size: 13px">
+<sc-for list="{{legend}}" as="l" hint-placeholder-count="4">
+<div style="display: flex; align-items: center; gap: 8px"><span style="{{l.dot}}"></span><span style="flex: 1">{{l.name}}</span><span style="font-family: 'JetBrains Mono', monospace; color: #A0A0AA">{{l.val}}</span></div>
+</sc-for>
+</div>
+<p style="margin: 0; padding-top: 14px; border-top: 1px solid #27272E; color: #A0A0AA; font-size: 13px; line-height: 1.5">{{whereNote}}</p>
+</section>
+
+<section aria-labelledby="perturn" style="flex: 1 1 440px; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 20px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap">
+<h2 id="perturn" style="margin: 0; font-size: 16px; font-weight: 600">{{chart.title}}</h2>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8A8A94">{{chart.peak}}</span>
+</div>
+<div role="img" aria-label="{{chart.aria}}" style="display: flex; align-items: flex-end; gap: 3px; height: 150px; padding-bottom: 4px; border-bottom: 1px solid #27272E">
+<sc-for list="{{bars}}" as="b" hint-placeholder-count="38"><div title="{{b.tip}}" style="{{b.style}}"></div></sc-for>
+</div>
+<div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8A8A94"><sc-for list="{{axis}}" as="a" hint-placeholder-count="5"><span>{{a.n}}</span></sc-for></div>
+<div style="display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: #A0A0AA">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #E8A558"></span>Cache lost</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #4A4A56"></span>Normal</span>
+</div>
+</section>
+</div>
+
+<section aria-labelledby="recent" style="display: flex; flex-direction: column; gap: 12px; padding: 20px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px">
+<h2 id="recent" style="margin: 0; font-size: 16px; font-weight: 600">Recent turns</h2>
+<button type="button" onClick="{{toTrace}}" style="min-height: 40px; padding: 0 4px; border: 0; background: none; color: #E8A558; cursor: pointer; font-size: 13px">Open in trace</button>
+</div>
+<div style="overflow-x: auto">
+<div style="min-width: 880px; font-size: 13px">
+<div style="color: #8A8A94; font-size: 13px; display: grid; grid-template-columns: 50px minmax(200px, 1fr) 150px 80px 190px 70px 90px; column-gap: 0; align-items: baseline;">
+<div style="padding: 8px 12px 8px 0; font-weight: 500">Turn</div>
+<div style="padding: 8px 12px; font-weight: 500">You asked</div>
+<div style="padding: 8px 12px; font-weight: 500">Tools</div>
+<div style="padding: 8px 12px; font-weight: 500; text-align: right">Context</div>
+<div style="padding: 8px 12px; font-weight: 500; text-align: right">+ctx −ctx cache</div>
+<div style="padding: 8px 12px; font-weight: 500; text-align: right">Time</div>
+<div style="padding: 8px 0 8px 12px; font-weight: 500; text-align: right">{{lastCol}}</div>
+</div>
+<sc-for list="{{turns}}" as="t" hint-placeholder-count="5">
+<div style="border-top: 1px solid #222228; display: grid; grid-template-columns: 50px minmax(200px, 1fr) 150px 80px 190px 70px 90px; column-gap: 0; align-items: baseline;">
+<div style="padding: 12px 12px 12px 0; font-family: 'JetBrains Mono', monospace; color: #A0A0AA">{{t.n}}</div>
+<div style="padding: 12px; min-width: 0">{{t.ask}}</div>
+<div style="padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A0A0AA">{{t.tools}}</div>
+<div style="padding: 12px; text-align: right; font-family: 'JetBrains Mono', monospace">{{t.ctx}}</div>
+<div style="padding: 12px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px; white-space: nowrap"><span style="color: #ECECEF">{{t.add}}</span> <span style="color: #8FD6A4">{{t.rem}}</span> <span style="color: #7AA2E3">{{t.cache}}</span></div>
+<div style="padding: 12px; text-align: right; font-family: 'JetBrains Mono', monospace; color: #A0A0AA">{{t.time}}</div>
+<div style="{{t.lastStyle}}">{{t.last}}</div>
+</div>
+</sc-for>
+</div>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{waiting}}" hint-placeholder-val="{{ false }}">
+<div style="padding: 32px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A; color: #A0A0AA; line-height: 1.55">No model calls yet. This page fills in as Claude answers.</div>
+</sc-if>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1180}}'>
+var ACCENT = '#E8A558';
+var SEVW = { high: 0, medium: 1, low: 2 };
+// What the flagged calls processed (fresh input + cache writes + output) or cost: an upper bound on a fix's saving.
+function findingsOf() {
+  var key = DT.session + ':' + DT.events.length + ':' + DT.sigs.length + ':' + DT.ver;
+  if (findingsOf.key === key) return findingsOf.val;
+  var B = DT.base(), byId = new Map(B.ev.map(function (e) { return [e.id, e]; }));
+  var list = COACH.run({ events: DT.events, sigs: DT.sigs, meta: DT.meta }, null).filter(function (r) { return !r.llm && (r.status === 'fail' || r.status === 'warn'); });
+  list.forEach(function (r) {
+    var calls = new Map();
+    (r.evidence || []).forEach(function (ev) {
+      var e = ev.id && byId.get(ev.id); if (!e) return;
+      if (e.kind === 'assistant') calls.set(e.id, e);
+      else B.calls.forEach(function (c) { if (c.turnId === e.turnId && !c.agentId) calls.set(c.id, c); });
+    });
+    r.tok = 0; r.usd = 0;
+    calls.forEach(function (c) { r.tok += (c.inTok || 0) + (c.cacheWrite || 0) + (c.outTok || 0); r.usd += B.costOf(c); });
+    var turns = [];
+    (r.evidence || []).forEach(function (ev) { var m = /Turn (\d+)/.exec(ev.label || ''); if (m && turns.indexOf(+m[1]) < 0) turns.push(+m[1]); });
+    turns.sort(function (a, b) { return a - b; });
+    r.where = turns.length && turns.length <= 3 ? (turns.length > 1 ? 'turns ' : 'turn ') + turns.join(', ') : turns.length ? turns.length + ' turns' : (r.evidence || []).length ? (r.evidence.length + (r.evidence.length > 1 ? ' places' : ' place')) : '';
+  });
+  var api = DT.billing() === 'api', stake = function (r) { return api ? r.usd : r.tok; };
+  list.sort(function (a, b) { return (a.status === 'fail' ? 0 : 1) - (b.status === 'fail' ? 0 : 1) || SEVW[a.sev] - SEVW[b.sev] || stake(b) - stake(a); });
+  findingsOf.key = key; findingsOf.val = { list: list, api: api };
+  return findingsOf.val;
+}
+// Savings are shown only for findings about tokens or cost: the Context & cost, Setup and Delegation groups, plus status-polling.
+// Safety, steering and verification findings (destructive commands, secrets, unverified claims...) touch calls too, but fixing them saves nothing.
+function isCostFinding(r) { return r.group === 'Context & cost' || r.group === 'Setup' || r.group === 'Delegation' || r.id === 'status-polling'; }
+function saveText(r, api) { var v = api ? r.usd : r.tok; return isCostFinding(r) && v > 0 ? (api ? '≈ ' + DT.fmt.usd(v) : '≈ ' + DT.fmt.tok(v) + ' tokens') : ''; }
+function short(s, n) { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+function pct(a, b) { return b > 0 ? a / b * 100 : 0; }
+function p0(x) { return x > 0 && x < 1 ? '<1%' : Math.round(x) + '%'; }
+function modelName(m) { return DT.fmt.model(m) || 'model'; }
+class Component extends DCLogic {
+  renderVals() {
+    var go = function (v) { return function () { if (DT.goto) DT.goto(v); }; };
+    var B = DT.base(), main = B.mainCalls.filter(function (e) { return e.inTok !== undefined; });
+    var empty = { has: false, waiting: true, title: 'No session yet', subtitle: '', toCoach: go('coach'), toTrace: go('timeline'), isApi: false, k1: {}, k2: {}, ctx: {}, cache: {}, hasLever: false, lever: {}, leverCta: '', split: { tokBars: [], usdBars: [] }, legend: [], whereNote: '', chart: {}, bars: [], axis: [], turns: [], lastCol: '' };
+    if (!main.length) return empty;
+    var api = DT.billing() === 'api', f = DT.fmt, D = DT.deltas();
+    var inTot = function (e) { return (e.inTok || 0) + (e.cacheRead || 0) + (e.cacheWrite || 0); };
+    var fresh = function (e) { return inTot(e) + (e.outTok || 0); };
+    // session totals: every model call, subagents included
+    var T = { cr: 0, cw: 0, inp: 0, out: 0, usd: 0 };
+    B.calls.forEach(function (e) { if (e.inTok === undefined) return; T.cr += e.cacheRead || 0; T.cw += e.cacheWrite || 0; T.inp += e.inTok || 0; T.out += e.outTok || 0; T.usd += B.costOf(e); });
+    var tokAll = T.cr + T.cw + T.inp + T.out, inAll = T.cr + T.cw + T.inp;
+    var spent = B.totalUsd > 0 ? B.totalUsd : ((DT.meta.limits && DT.meta.limits.cost && DT.meta.limits.cost.usd) || 0);
+    // turns, in order, main thread
+    var order = [...B.turnNo.entries()].sort(function (a, b) { return a[1] - b[1]; });
+    var per = order.map(function (o) {
+      var calls = main.filter(function (e) { return e.turnId === o[0]; }), d = D.byTurn.get(o[0]);
+      return { id: o[0], n: o[1], calls: calls, tok: calls.reduce(function (a, e) { return a + fresh(e); }, 0), usd: calls.reduce(function (a, e) { return a + B.costOf(e); }, 0), d: d, lost: !!(d && d.cacheLost > 0) };
+    }).filter(function (t) { return t.calls.length; });
+    var nTurns = per.length || 1;
+    // header
+    var cur = DT.sessions.find(function (s) { return s.id === DT.session; });
+    var firstAsk = B.ev.find(function (e) { return e.kind === 'user' && !e.agentId; });
+    var title = (cur && cur.title) || short(firstAsk && firstAsk.title, 80) || (DT.meta.cwd || '').split('/').filter(Boolean).pop() || 'Session';
+    var lastEnd = main.reduce(function (m, e) { return Math.max(m, e.end || e.start); }, 0);
+    var subtitle = 'Started ' + new Date(B.t0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' · ' + f.dur(B.nowMs - B.t0) + ' · ' + (DT.live ? 'last call ' + f.dur(B.nowMs - lastEnd) + ' ago' : 'ended ' + new Date(lastEnd).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }));
+    // KPIs
+    var readPct = Math.round(pct(T.cr, inAll)) + '% read from cache';
+    var k1 = api ? { label: 'Spent this session', value: f.usd(spent), sub: f.usd(spent / nTurns) + ' per turn on average' } : { label: 'Tokens this session', value: f.tok(tokAll), sub: readPct };
+    var k2 = api ? { label: 'Tokens processed', value: f.tok(tokAll), sub: readPct } : { label: 'Tokens per turn', value: f.tok(tokAll / nTurns), sub: 'average across ' + nTurns + ' turn' + (nTurns > 1 ? 's' : '') };
+    var last = main.slice().sort(function (a, b) { return a.start - b.start; }).pop(), used = inTot(last), win = B.window, cp = pct(used, win);
+    var ctx = { used: f.tok(used), max: f.tok(win), aria: Math.round(cp) + ' percent full', sub: modelName(last.model) + ' · ' + p0(cp) + ' used', barStyle: 'width: ' + Math.min(100, cp).toFixed(1) + '%; height: 6px; background: ' + ACCENT };
+    var ttl = DT.meta.cacheTtl === '1h' ? 3600 : 300, left = ttl - (B.nowMs - (last.end || last.start)) / 1000;
+    var misses = DT.cache().calls.filter(function (r) { return r.brk && r.brk !== 'compact'; }).length;
+    var cacheSub = (ttl === 3600 ? '1-hour' : '5-minute') + ' TTL · ' + misses + ' miss' + (misses === 1 ? '' : 'es') + ' this session';
+    var cache = DT.live && left > 0 ? { value: Math.floor(left / 60) + ':' + String(Math.floor(left % 60)).padStart(2, '0'), unit: 'left', sub: cacheSub } : { value: DT.live ? 'Cold' : '—', unit: DT.live ? 'expired' : '', sub: cacheSub };
+    // biggest lever: the top Coach finding
+    var F = findingsOf(), top = F.list.filter(function (r) { return saveText(r, api); })[0] || F.list[0];
+    var lever = top ? { name: top.name, text: top.headline, save: saveText(top, api) } : {};
+    // where the tokens go
+    var C = { read: '#7AA2E3', write: ACCENT, inp: '#C4C4CC', out: '#A48BEA' };
+    var wts = { read: 0.1 * T.cr, write: 1.25 * T.cw, inp: T.inp, out: 5 * T.out }, wsum = wts.read + wts.write + wts.inp + wts.out || 1;
+    var toks = { read: T.cr, write: T.cw, inp: T.inp, out: T.out }, usd = {};
+    Object.keys(wts).forEach(function (k) { usd[k] = wts[k] / wsum * T.usd; });
+    var NAMES = { read: 'Cache read', write: 'Cache write', inp: 'Uncached input', out: 'Output + thinking' };
+    var KEYS = ['read', 'write', 'inp', 'out'];
+    var bar = function (src, tot) { return KEYS.map(function (k) { return { style: 'width: ' + pct(src[k], tot) + '%; background: ' + C[k] }; }); };
+    var aria = function (src, tot) { return KEYS.map(function (k) { return NAMES[k] + ' ' + Math.round(pct(src[k], tot)) + ' percent'; }).join(', '); };
+    var rp = pct(T.cr, tokAll), ru = pct(usd.read, T.usd), op = pct(T.out, tokAll), ou = pct(usd.out, T.usd);
+    var whereNote = api ? 'Cache reads are ' + p0(rp) + ' of the tokens but ' + p0(ru) + ' of the cost. Output is ' + p0(op) + ' of the tokens and ' + p0(ou) + ' of the cost.'
+      : rp >= 50 ? 'Cache reads are ' + p0(rp) + ' of the tokens: the context re-sent on every request. A smaller context is the biggest lever on usage.'
+      : 'Cache reads are only ' + p0(rp) + ' of the tokens, so most of this session was processed fresh. Frequent cache losses are the thing to look at.';
+    // per-turn chart
+    var series = per.map(function (t) { return api ? t.usd : t.tok; }), peak = Math.max.apply(null, [1e-9].concat(series)), pi = series.indexOf(Math.max.apply(null, series));
+    var bars = per.map(function (t, i) {
+      var v = series[i];
+      return { tip: 'Turn ' + t.n + ' · ' + (api ? f.usd(v) : f.tok(v) + ' tokens') + (t.lost ? ' · cache lost ' + f.tok(t.d.cacheLost) : ''), style: 'flex: 1; min-width: 2px; border-radius: 2px 2px 0 0; height: ' + Math.max(1, Math.round(v / peak * 140)) + 'px; background: ' + (t.lost ? ACCENT : '#4A4A56') };
+    });
+    var axis = [0, 0.25, 0.5, 0.75, 1].map(function (x) { return per[Math.round(x * (per.length - 1))].n; }).filter(function (n, i, a) { return a.indexOf(n) === i; }).map(function (n) { return { n: String(n) }; });
+    // recent turns
+    var turns = per.slice(-8).reverse().map(function (t) {
+      var u = B.ev.find(function (e) { return e.kind === 'user' && !e.agentId && e.turnId === t.id; });
+      var cnt = {}; B.ev.forEach(function (e) { if (e.kind === 'tool' && !e.agentId && e.turnId === t.id) cnt[e.tool] = (cnt[e.tool] || 0) + 1; });
+      var tools = Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; }).slice(0, 4).map(function (k) { return k + ' ×' + cnt[k]; }).join(' · ') || '—';
+      var end = t.calls.reduce(function (m, e) { return Math.max(m, e.end || e.start); }, 0), dl = f.delta(t.d);
+      return { n: String(t.n), ask: short(u && u.title, 90) || '—', tools: tools, ctx: f.tok(inTot(t.calls[t.calls.length - 1])), add: dl.add, rem: dl.rem, cache: dl.cache,
+        time: f.dur(end - (u ? u.start : t.calls[0].start)), last: api ? f.usd(t.usd) : f.tok(t.tok),
+        lastStyle: 'padding: 12px 0 12px 12px; text-align: right; font-family: \'JetBrains Mono\', monospace; color: ' + (api ? '#F68C84' : '#ECECEF') };
+    });
+    return {
+      has: true, waiting: false, title: title, subtitle: subtitle, k1: k1, k2: k2, ctx: ctx, cache: cache, isApi: api,
+      hasLever: !!top, lever: lever, leverCta: F.list.length > 1 ? 'See all ' + F.list.length + ' findings' : 'Open Coach', toCoach: go('coach'), toTrace: go('timeline'),
+      split: { tokLabel: 'Tokens · ' + f.tok(tokAll), tokBars: bar(toks, tokAll), tokAria: aria(toks, tokAll), usdLabel: 'Cost · ' + f.usd(T.usd), usdBars: bar(usd, T.usd), usdAria: aria(usd, T.usd) },
+      legend: KEYS.map(function (k) { return { name: NAMES[k], val: f.tok(toks[k]) + (api ? ' · ' + f.usd(usd[k]) : ''), dot: 'width: 10px; height: 10px; border-radius: 2px; background: ' + C[k] }; }),
+      whereNote: whereNote,
+      chart: { title: api ? 'Cost per turn' : 'Tokens per turn', peak: 'peak ' + (api ? f.usd(peak) : f.tok(peak)) + ' · turn ' + per[pi].n, aria: (api ? 'Cost' : 'Tokens') + ' per turn across ' + per.length + ' turns. Turns that lost the cache are highlighted.' },
+      bars: bars, axis: axis, turns: turns, lastCol: api ? 'Cost' : 'Tokens'
+    };
+  }
+}
+</script>
+</body>
+</html>

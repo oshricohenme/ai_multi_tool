@@ -39,6 +39,22 @@ kbd{font-family:'JetBrains Mono',monospace;font-size:10px;padding:1px 5px;border
 </div>
 </div>
 
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 20px; border-bottom: 1px solid #1f1f23">
+<div style="display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 360px">
+<button type="button" onClick="{{th.prev}}" aria-label="Previous turn" style="width: 40px; height: 40px; flex: none; border: 1px solid #27272E; border-radius: 8px; background: #16161A; color: #C9C9D0; cursor: pointer">‹</button>
+<span style="flex: none; font-size: 18px; font-weight: 600">{{th.title}} <span style="color: #8A8A94; font-weight: 400">{{th.of}}</span></span>
+<button type="button" onClick="{{th.next}}" aria-label="Next turn" style="width: 40px; height: 40px; flex: none; border: 1px solid #27272E; border-radius: 8px; background: #16161A; color: #C9C9D0; cursor: pointer">›</button>
+<span title="{{th.prompt}}" style="min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #A0A0AA">{{th.prompt}}</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A0A0AA">
+<span><span style="color: #ECECEF">{{th.calls}}</span> model calls</span><span><span style="color: #ECECEF">{{th.tools}}</span> tool calls</span><span style="color: #ECECEF">{{th.dur}}</span><span><span style="color: #F68C84">{{th.cost}}</span> spent</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #F0625A"></span>Model call · spend</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #7AA2E3"></span>Read</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #5BC27E"></span>Edit</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #C4C4CC"></span>Shell</span>
+</div>
+</div>
+
 <div style="position: relative; flex: none; height: 452px; border-bottom: 1px solid #1f1f23">
 <canvas ref="{{traceRef}}" onMouseMove="{{onMove}}" onMouseDown="{{onDown}}" onMouseLeave="{{onLeave}}" onDoubleClick="{{onDbl}}" aria-label="Session trace. Scroll to zoom, drag to pan, click a span to inspect it." style="display: block; width: 100%; height: 452px; cursor: crosshair"></canvas>
 </div>
@@ -91,7 +107,7 @@ kbd{font-family:'JetBrains Mono',monospace;font-size:10px;padding:1px 5px;border
 <span style="text-align: right">{{r.inS}}</span>
 <span style="text-align: right; color: #6fd3b4">{{r.crS}}</span>
 <span style="text-align: right">{{r.outS}}</span>
-<span style="{{r.deltaStyle}}">{{r.deltaS}}</span>
+<span style="text-align: right; white-space: nowrap"><span style="color: #ECECEF">{{r.cAdd}}</span> <span style="color: #8FD6A4">{{r.cRem}}</span> <span style="color: #7AA2E3">{{r.cCache}}</span></span>
 <span style="text-align: right; color: #8b8b94">{{r.durS}}</span>
 </button>
 </sc-for>
@@ -103,7 +119,7 @@ kbd{font-family:'JetBrains Mono',monospace;font-size:10px;padding:1px 5px;border
 <div style="display: flex; align-items: center; gap: 10px; padding: 14px 16px 6px">
 <span style="{{sel.badgeStyle}}">{{sel.label}}</span>
 <span style="color: #9a9aa3">{{sel.where}}</span>
-<sc-for list="{{sel.chips}}" as="c" hint-placeholder-count="1"><span style="padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; color: #f2703f; background: #3d2116">{{c.label}}</span></sc-for>
+<sc-for list="{{sel.chips}}" as="c" hint-placeholder-count="1"><span style="padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; color: #E8A558; background: #2A2116">{{c.label}}</span></sc-for>
 </div>
 <div style="padding: 0 16px 10px; line-height: 1.5; color: #e4e4e8">{{sel.title}}</div>
 <div style="flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 14px">
@@ -111,7 +127,7 @@ kbd{font-family:'JetBrains Mono',monospace;font-size:10px;padding:1px 5px;border
 <div style="display: flex; flex-direction: column; gap: 6px">
 <div style="display: flex; justify-content: space-between; font-size: 11px; color: #8b8b94"><span>Input {{sel.inTotal}}</span><span>Output {{sel.outS}}</span></div>
 <div style="display: flex; height: 12px; border-radius: 4px; overflow: hidden; background: #222227"><div style="{{sel.barRead}}"></div><div style="{{sel.barUncached}}"></div><div style="{{sel.barWrite}}"></div></div>
-<div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #9a9aa3"><span><span style="color: #6fd3b4">■</span> cache read {{sel.crS}}</span><span><span style="color: #e2a557">■</span> uncached {{sel.inS}}</span><span><span style="color: #f2703f">■</span> cache write {{sel.cwS}}</span></div>
+<div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #9a9aa3"><span><span style="color: #6fd3b4">■</span> cache read {{sel.crS}}</span><span><span style="color: #e2a557">■</span> uncached {{sel.inS}}</span><span><span style="color: #C7B6F2">■</span> cache write {{sel.cwS}}</span></div>
 </div>
 </sc-if>
 <div style="display: grid; grid-template-columns: 104px minmax(0, 1fr); row-gap: 7px; column-gap: 12px; font-size: 12px">
@@ -134,8 +150,8 @@ kbd{font-family:'JetBrains Mono',monospace;font-size:10px;padding:1px 5px;border
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"speed":{"editor":"range","min":0.5,"max":4,"step":0.5,"default":1,"section":"Playback"},"$preview":{"width":1376,"height":844}}'>
-var C = { bg: '#0b0b0d', grid: '#1a1a1e', text: '#e4e4e8', dim: '#8b8b94', faint: '#55555e', relief: '#6fd3b4', reliefBg: '#163029', error: '#ff5c7a', focus: '#f4f4f6', hot: '#f2703f', hotBg: '#3d2116', warm: '#e2a557' };
-var RAMP = [[0, '#4d6b8f'], [0.45, '#93a9c8'], [0.72, '#e2a557'], [1, '#f2703f']];
+var C = { bg: '#0b0b0d', grid: '#1a1a1e', text: '#e4e4e8', dim: '#8b8b94', faint: '#55555e', relief: '#6fd3b4', reliefBg: '#163029', error: '#E3B2F0', focus: '#f4f4f6', hot: '#C7B6F2', hotBg: '#2A2116', warm: '#E8A558', money: '#F0625A', moneyText: '#F68C84', read: '#7AA2E3', edit: '#5BC27E', shell: '#C4C4CC', agent: '#A48BEA' };
+var RAMP = [[0, '#4d6b8f'], [0.45, '#93a9c8'], [0.72, '#e2a557'], [1, '#E8A558']];
 function hex(c) { return [1, 3, 5].map(function (i) { return parseInt(c.substr(i, 2), 16); }); }
 function mix(a, b, t) { var pa = hex(a), pb = hex(b); return '#' + pa.map(function (v, i) { return Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0'); }).join(''); }
 function rgba(c, a) { var p = hex(c); return 'rgba(' + p[0] + ',' + p[1] + ',' + p[2] + ',' + a + ')'; }
@@ -154,7 +170,17 @@ function fk(n) { if (n === undefined || n === null) return '—'; return DT.fmt.
 function fs(s) { return DT.fmt.dur(s * 1000); }
 function inTot(e) { return e.inp + e.cr + e.cw; }
 function weightOf(e) { return e.k === 'assistant' ? e.inp + e.cw + e.o : (e.est || 0); }
-function colorOf(e) { return e.err ? C.error : (e.before !== undefined || e.k === 'agent') ? C.relief : e.k === 'sub' ? (e.isCall ? '#6a8aa8' : heatOf(e.est)) : heatOf(weightOf(e)); }
+// red means money: model calls and compactions. Tools keep their own colours; errors are purple.
+function toolColor(title) { var w = String(title || '').split(' ')[0].toLowerCase(); return /^(read|grep|glob|ls|webfetch|websearch|toolsearch)$/.test(w) ? C.read : /^(edit|write|multiedit|notebookedit)$/.test(w) ? C.edit : /^(bash|shell|powershell)$/.test(w) ? C.shell : '#8A8A94'; }
+function colorOf(e) { return e.err ? C.error : e.k === 'agent' ? C.agent : (e.k === 'assistant' || e.k === 'compact' || (e.k === 'sub' && e.isCall)) ? C.money : e.before !== undefined ? C.relief : (e.k === 'tool' || e.k === 'sub') ? toolColor(e.title) : heatOf(weightOf(e)); }
+// +ctx -ctx cache for any span, from DT.deltas(); null for spans that are not part of the context (prompts, system)
+function deltaOf(e) {
+  var D = DT.deltas(), d;
+  if (e.k === 'assistant' || e.k === 'compact' || (e.k === 'sub' && e.isCall)) d = D.byCall.get(e.id);
+  else if (e.k === 'tool' || e.k === 'agent' || e.k === 'sub') { var t = D.byTool.get(e.id); d = t && { add: t.add, rem: 0, cacheW: 0, cacheLost: 0 }; if (!d && e.k !== 'sub') d = { add: 0, rem: 0, cacheW: 0, cacheLost: 0 }; }
+  else if (e.k === 'cleanup') d = { add: 0, rem: Math.max(0, e.before - e.after), cacheW: 0, cacheLost: 0 };
+  return d ? DT.fmt.delta(d) : null;
+}
 function prevCtx(i) { for (var j = i - 1; j >= 0; j--) { var e = EVENTS[j]; if (e.k === 'assistant') return e.ctx; if (e.after !== undefined) return e.after; } return 0; }
 function groupOf(e) { return e.k === 'assistant' ? 'call' : e.k === 'tool' ? 'tool' : e.k === 'agent' ? 'agent' : e.before !== undefined ? null : 'input'; }
 function rr(g, x, y, w, h, r) { r = Math.max(0, Math.min(r, w / 2, h / 2)); g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
@@ -204,8 +230,8 @@ function moneyVals(self) {
     hasCarry: !!M.ctx,
     carryNote: M.ctx ? fk(M.ctx.total) + ' of ' + fk(M.ctx.max) + ' (' + Math.round(M.ctx.total / M.ctx.max * 100) + '%) · from the latest /context' : '',
     carry: M.ctx ? M.ctx.cats.map(function (c, i) {
-      var col = ['#4d6b8f', '#5f7da0', '#e2a557', '#93a9c8', '#7a93b6', '#6a84a6', '#f2703f', '#b39ddb'][i % 8];
-      if (c.name === 'Messages') col = '#f2703f';
+      var col = ['#4d6b8f', '#5f7da0', '#e2a557', '#93a9c8', '#7a93b6', '#6a84a6', '#A48BEA', '#b39ddb'][i % 8];
+      if (c.name === 'Messages') col = '#A48BEA';
       return { name: c.name, tok: fk(c.tokens), title: c.name + ': ' + fk(c.tokens) + ' tokens', bar: 'display: block; height: 100%; width: ' + (c.tokens / M.ctx.max * 100) + '%; background: ' + col + '; border-right: 1px solid #0b0b0d', dot: 'display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: ' + col };
     }) : []
   };
@@ -464,6 +490,7 @@ class Component extends DCLogic {
     else if (e.before !== undefined) lines.push(fk(e.before) + ' → ' + fk(e.after) + '  ·  freed ' + fk(e.before - e.after));
     else if (e.k === 'agent') lines.push('read ' + fk(e.read) + '  ·  returned ' + fk(e.est) + '  ·  $' + e.cost.toFixed(3));
     else lines.push((e.est ? '~' + fk(e.est) + ' tokens  ·  ' : '') + (e.d ? fs(e.d) : 'instant'));
+    var td = deltaOf(e); if (td) lines.push(td.add + '  ' + td.rem + '  cache ' + td.cache);
     g.font = '12px Inter, system-ui, sans-serif';
     var tw = Math.min(380, Math.max.apply(null, lines.map(function (l) { return g.measureText(l).width; })) + 24);
     var th = 20 + lines.length * 18 + (isCall ? 18 : 0);
@@ -489,7 +516,7 @@ class Component extends DCLogic {
     var arrived = EVENTS.filter(function (e) { return e.t <= now; });
     var running = function (e) { return e.t + e.d > now; };
     var calls = arrived.filter(function (e) { return e.k === 'assistant'; });
-    var lastCtx = 0; arrived.forEach(function (e) { if (e.k === 'assistant') lastCtx = e.ctx; else if (e.after !== undefined) lastCtx = e.after; });
+    var lastCtx = 0; arrived.forEach(function (e) { if (e.k === 'assistant') { if (e.ctx > 0) lastCtx = e.ctx; } else if (e.after !== undefined) lastCtx = e.after; });
     var sumIn = calls.reduce(function (a, e) { return a + inTot(e); }, 0), sumCr = calls.reduce(function (a, e) { return a + e.cr; }, 0);
     var cost = arrived.reduce(function (a, e) { return a + (e.cost || 0); }, 0);
     var mono = 'font-family: JetBrains Mono, monospace; font-size: 16px; font-weight: 600; color: ';
@@ -505,19 +532,18 @@ class Component extends DCLogic {
 
     var rows = arrived.map(function (e) {
       var i = EVENTS.indexOf(e), isCall = e.k === 'assistant', on = S.sel === e.id;
-      var delta = isCall ? e.ctx - prevCtx(i) : e.before !== undefined ? e.after - e.before : undefined;
+      var fd = deltaOf(e);
       var gk = groupOf(e);
       return {
         pick: function () { self.setState({ sel: e.id }); },
-        rowStyle: 'display: grid; width: 100%; min-width: 820px; grid-template-columns: 64px 96px minmax(0, 1fr) 64px 66px 56px 66px 64px; column-gap: 10px; align-items: center; height: 32px; padding: 0 16px; border: 0; border-bottom: 1px solid #16161a; cursor: pointer; text-align: left; font-family: JetBrains Mono, monospace; font-size: 12px; color: #e4e4e8; background: ' + (on ? '#1b1b21' : 'transparent') + (on ? '; box-shadow: inset 2px 0 0 #f4f4f6' : ''),
+        rowStyle: 'display: grid; width: 100%; min-width: 920px; grid-template-columns: 64px 96px minmax(0, 1fr) 64px 66px 56px 170px 64px; column-gap: 10px; align-items: center; height: 32px; padding: 0 16px; border: 0; border-bottom: 1px solid #16161a; cursor: pointer; text-align: left; font-family: JetBrains Mono, monospace; font-size: 12px; color: #e4e4e8; background: ' + (on ? '#1b1b21' : 'transparent') + (on ? '; box-shadow: inset 2px 0 0 #f4f4f6' : ''),
         time: '+' + e.t.toFixed(1) + 's', label: LABEL[e.k],
         badgeStyle: 'justify-self: end; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; ' + (e.before !== undefined || e.k === 'agent' ? 'color: #6fd3b4; background: #163029' : 'color: #c4c4cb; background: #24242a'),
         heatStyle: 'display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: ' + colorOf(e),
         above: isAbove(e), aboveTip: gk && avg[gk] !== Infinity ? (weightOf(e) / avg[gk]).toFixed(1) + '× the average ' + gk : '', aboveStyle: 'margin-right: 6px; color: ' + colorOf(e),
         title: e.title, arrow: e.arrow || '',
         inS: isCall ? fk(inTot(e)) : e.est !== undefined ? '~' + fk(e.est) : '—', crS: isCall ? fk(e.cr) : '—', outS: isCall ? (running(e) ? '…' : fk(e.o)) : '—',
-        deltaS: delta === undefined ? '—' : (delta > 0 ? '+' : delta < 0 ? '−' : '') + fk(Math.abs(delta)),
-        deltaStyle: 'text-align: right; color: ' + (delta === undefined ? '#6e6e78' : delta < 0 ? C.relief : heatOf(delta)),
+        cAdd: fd ? fd.add : '—', cRem: fd ? fd.rem : '', cCache: fd ? fd.cache : '',
         durS: running(e) ? 'running' : e.d ? fs(e.d) : '—'
       };
     });
@@ -525,11 +551,12 @@ class Component extends DCLogic {
     var e = ALL.find(function (x) { return x.id === S.sel; }) || calls[calls.length - 1] || EVENTS[EVENTS.length - 1];
     var isCall = e.k === 'assistant', it = isCall ? inTot(e) : 0, pct = function (n, of) { return (of ? n / of * 100 : 0).toFixed(1) + '%'; };
     var facts = [];
-    if (isCall) facts = [{ k: 'model', v: (e.model || '—') + (e.effort ? ' · ' + e.effort : '') }, { k: 'first token', v: fs(e.ttft) }, { k: 'duration', v: fs(e.d) }, { k: 'throughput', v: running(e) ? 'streaming' : (e.o / Math.max(0.1, e.d - e.ttft)).toFixed(0) + ' tok/s' }, { k: 'cache hit', v: pct(e.cr, it) }, { k: 'context', v: fk(e.ctx) + ' / ' + fk(CTX_MAX) }, { k: 'cost', v: fmtUsd(e.cost) }].concat(e.note ? [{ k: 'note', v: e.note }] : []);
+    if (isCall) facts = [{ k: 'model', v: (DT.fmt.model(e.model) || '—') + (e.effort ? ' · ' + e.effort : '') }, { k: 'first token', v: fs(e.ttft) }, { k: 'duration', v: fs(e.d) }, { k: 'throughput', v: running(e) ? 'streaming' : (e.o / Math.max(0.1, e.d - e.ttft)).toFixed(0) + ' tok/s' }, { k: 'cache hit', v: pct(e.cr, it) }, { k: 'context', v: fk(e.ctx) + ' / ' + fk(CTX_MAX) }, { k: 'cost', v: fmtUsd(e.cost) }].concat(e.note ? [{ k: 'note', v: e.note }] : []);
     else if (e.before !== undefined) facts = [{ k: 'before', v: fk(e.before) }, { k: 'after', v: fk(e.after) }, { k: 'freed', v: fk(e.before - e.after) + ' (' + pct(e.before - e.after, e.before) + ')' }, { k: 'duration', v: fs(e.d) }];
     else if (e.k === 'agent') facts = [{ k: 'read', v: fk(e.read) + ' in its own context' }, { k: 'returned', v: fk(e.est) + ' to main' }, { k: 'kept out', v: fk(Math.max(0, e.read - e.est)) + (e.est ? ' (' + Math.round(e.read / e.est) + '×)' : '') }, { k: 'internal steps', v: String(e.kids.length) }, { k: 'cost', v: fmtUsd(e.cost) }];
     else facts = [{ k: 'tokens', v: e.est ? '~' + fk(e.est) : '—' }, { k: 'duration', v: e.d ? fs(e.d) : 'instant' }].concat(e.parent ? [{ k: 'inside', v: (EVENTS.find(function (x) { return x.id === e.parent; }) || {}).title || 'subagent' }] : []);
-    var gk = groupOf(e);
+    var gk = groupOf(e), sd = deltaOf(e);
+    if (sd) facts.push({ k: 'ctx · cache', v: sd.add + '  ' + sd.rem + '  cache ' + sd.cache });
     if (gk && avg[gk] !== Infinity && isAbove(e)) facts.unshift({ k: '♨ above avg', v: (weightOf(e) / avg[gk]).toFixed(1) + '× the average ' + gk });
     var chips = []; if (hotIn && hotIn.id === e.id) chips.push({ label: '▲ TOP IN' }); if (hotOut && hotOut.id === e.id) chips.push({ label: '▲ TOP OUT' });
     // Explain: computed from the trace itself, no model call
@@ -541,7 +568,7 @@ class Component extends DCLogic {
       var big = since.slice().sort(function (a, b) { return (b.est || 0) - (a.est || 0); })[0];
       explainLines.push({ text: pct(e.cr, it) + ' of ' + fk(it) + ' input came from cache; ' + fk(fresh) + ' was paid fresh' + (e.cw ? ' (' + fk(e.cw) + ' written to the cache for later calls)' : '') + '.', style: 'color: #e4e4e8' });
       if (big && big.est > 2000) explainLines.push({ text: 'The biggest new input was ' + big.title + ' at ~' + fk(big.est) + ' tokens. It rides along on every later call until cleared or compacted.', style: 'color: #c4c4cb' });
-      if (prevCall && e.cr === 0 && prevCall.cr + prevCall.cw > 2000) explainLines.push({ text: 'Cache miss: the previous call had ' + fk(prevCall.cr + prevCall.cw) + ' cached. See the Cache view for the cause.', style: 'color: #f2703f' });
+      if (prevCall && e.cr === 0 && prevCall.cr + prevCall.cw > 2000) explainLines.push({ text: 'Cache miss: the previous call had ' + fk(prevCall.cr + prevCall.cw) + ' cached. See the Cache view for the cause.', style: 'color: #C7B6F2' });
       if (e.o > 2000) explainLines.push({ text: fk(e.o) + ' output tokens: output costs about 5× input per token.', style: 'color: #c4c4cb' });
       if (gk && avg[gk] !== Infinity && isAbove(e)) explainLines.push({ text: (weightOf(e) / avg[gk]).toFixed(1) + '× the weight of an average call this session.', style: 'color: #c4c4cb' });
     } else if (e.k === 'tool' && e.est > 10000) explainLines.push({ text: '~' + fk(e.est) + ' tokens entered the context. Narrow it next time: a path, head_limit, files_with_matches, or Read with offset and limit.', style: 'color: #e4e4e8' });
@@ -553,13 +580,21 @@ class Component extends DCLogic {
       return { label: label, pick: function () { self.setState({ bottom: id }); }, style: 'height: 30px; padding: 0 12px; border-radius: 7px; cursor: pointer; font-size: 12px; border: 1px solid ' + (on ? '#3a3a42' : 'transparent') + '; background: ' + (on ? '#202026' : 'transparent') + '; color: ' + (on ? '#f4f4f6' : '#9a9aa3') };
     };
 
+    var tn = e.turn || TURNS[TURNS.length - 1], ti = TURNS.indexOf(tn), tev = EVENTS.filter(function (x) { return x.turn === tn && x.k !== 'sub'; });
+    var tUser = tev.find(function (x) { return x.k === 'user'; }), tT0 = tev.length ? Math.min.apply(null, tev.map(function (x) { return x.t; })) : 0, tT1 = tev.length ? Math.max.apply(null, tev.map(function (x) { return x.t + x.d; })) : 0;
+    var goTurn = function (k) { var n = TURNS[ti + k]; var f = n && EVENTS.find(function (x) { return x.turn === n && x.k !== 'sub'; }); if (f) { self.setState({ sel: f.id }); self.focusOn(f); } };
+    var th = { title: tn ? 'Turn ' + tn : 'No turns yet', of: TURNS.length ? 'of ' + TURNS[TURNS.length - 1] : '', prompt: tUser ? tUser.title : '',
+      calls: String(tev.filter(function (x) { return x.k === 'assistant'; }).length), tools: String(tev.filter(function (x) { return x.k === 'tool' || x.k === 'agent'; }).length),
+      dur: fs(Math.max(0, tT1 - tT0)), cost: fmtUsd(tev.reduce(function (a, x) { return a + (x.cost || 0); }, 0)),
+      prev: function () { goTurn(-1); }, next: function () { goTurn(1); } };
     return {
+      th: th,
       kpis: [
         { label: 'Context', value: fk(lastCtx) + ' / ' + fk(CTX_MAX), style: mono + heatOf(lastCtx / CTX_MAX * 60000) },
         { label: 'Cache hit', value: pct(sumCr, sumIn), style: mono + C.relief },
         { label: 'Input', value: fk(sumIn), style: mono + '#e4e4e8' },
         { label: 'Output', value: fk(calls.reduce(function (a, x) { return a + x.o; }, 0)), style: mono + '#e4e4e8' },
-        { label: 'Cost', value: fmtUsd(cost), style: mono + '#e4e4e8' }
+        { label: 'Cost', value: fmtUsd(cost), style: mono + C.moneyText }
       ],
       followLabel: S.follow ? 'Following live' : 'Exploring · press f',
       followDot: 'width: 7px; height: 7px; border-radius: 50%; background: ' + (S.follow ? C.relief : '#6e6e78'),
@@ -601,7 +636,7 @@ class Component extends DCLogic {
         ev.preventDefault();
       },
       bottomTabs: [tab('flow', 'Tokens & cost'), tab('events', 'Events · ' + arrived.length)],
-      bottomNote: S.bottom === 'flow' ? 'whole session, subagents included · from each call\'s recorded usage and cost' : 'main thread · newest at the bottom · follows live',
+      bottomNote: S.bottom === 'flow' ? 'whole session, subagents included · from each call\'s recorded usage and cost' : '+ctx added · −ctx removed · cache written (+) or dropped (−) · newest at the bottom',
       isFlow: S.bottom === 'flow', isEvents: S.bottom === 'events',
       ...moneyVals(self),
       rows: rows,

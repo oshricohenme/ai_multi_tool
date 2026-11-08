@@ -1,0 +1,19 @@
+# Validate the marketplace and the coach plugin, and syntax-check coach's JavaScript.
+name: validate-plugins
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npm i -g @anthropic-ai/claude-code
+      - run: claude plugin validate .
+      - run: claude plugin validate coach
+      - run: node --check coach/server/server.mjs && node --check coach/server/transcripts.mjs && node --check coach/web/coach.js && node --check coach/web/classify.js

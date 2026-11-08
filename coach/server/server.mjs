@@ -84,6 +84,9 @@ function ingest(op) {
 
 // ── past sessions: a small summary each, cached by mtime ──
 const summaries = new Map()
+// context window of a model: what the data reports wins; else 1M for Opus/Sonnet/Fable (and any [1m] id), 200k for Haiku/unknown
+const windowOf = (model, meta) => meta.window || (meta.context && meta.context.max) || (/haiku/i.test(model || '') ? 2e5 : /\[1m\]|opus|sonnet|fable/i.test(model || '') ? 1e6 : 2e5)
+const alive = pid => { try { process.kill(pid, 0); return true } catch (e) { return e.code === 'EPERM' } }
 function summary(file) {
   const st = fs.statSync(file)
   const hit = summaries.get(file)
@@ -92,9 +95,21 @@ function summary(file) {
   const calls = s.events.filter(e => e.kind === 'assistant')
   const tok = k => calls.reduce((a, e) => a + (e[k] || 0), 0)
   const input = tok('inTok') + tok('cacheRead') + tok('cacheWrite')
+  const main = calls.filter(e => !e.agentId && e.inTok !== undefined), lastMain = main.at(-1) // last call that has usage (an in-flight one has none yet)
+  const act = ['classic.PostToolUse', 'classic.PermissionDenied', 'classic.UserPromptSubmit', 'classic.Stop']
+  const askAt = Math.max(0, ...s.sigs.filter(g => g.ev === 'classic.PermissionRequest' || (g.ev === 'classic.Notification' && g.sum && g.sum.notification_type !== 'idle_prompt')).map(g => g.at))
+  const stopped = new Set(s.sigs.filter(g => g.ev === 'classic.SubagentStop' && g.sum).map(g => g.sum.agent_id))
+  const agentLast = new Map()
+  for (const e of s.events) if (e.agentId) agentLast.set(e.agentId, Math.max(agentLast.get(e.agentId) || 0, e.end || e.start || 0))
+  const firstPrompt = s.events.find(e => e.kind === 'user' && !e.agentId && !/^\s*</.test(e.payload || e.title || '')) || s.events.find(e => e.kind === 'user' && !e.agentId)
   const v = {
+    // fresh-per-request fields (live/port/agents.running/status) are added in sessionOut
+    lastAt: Math.max(0, ...s.events.map(e => e.end || e.start || 0), ...s.sigs.filter(g => act.includes(g.ev)).map(g => g.at)) || null,
+    title: firstPrompt ? (firstPrompt.payload || firstPrompt.title || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) : '',
+    ctxPct: lastMain ? Math.round((lastMain.inTok + lastMain.cacheRead + lastMain.cacheWrite || 0) / windowOf(lastMain.model, s.meta) * 100) : null,
+    _askAt: askAt, _agents: [...agentLast].map(([id, last]) => ({ id, last, stopped: stopped.has(id) })),
     id: path.basename(file, '.jsonl'),
-    cwd: s.meta.cwd, model: s.meta.model, start: s.events[0]?.start, end: s.events.at(-1)?.end ?? s.events.at(-1)?.start,
+    cwd: s.meta.cwd, model: s.meta.model || lastMain?.model || [...s.events].reverse().find(e => e.kind === 'assistant' && e.model)?.model, start: s.events[0]?.start, end: s.events.at(-1)?.end ?? s.events.at(-1)?.start,
     turns: new Set(s.events.filter(e => e.kind === 'user' && !e.agentId).map(e => e.turnId)).size,
     calls: calls.length, input, cacheRead: tok('cacheRead'), output: tok('outTok'),
     usd: calls.reduce((a, e) => a + (e.usd || 0), 0) + s.events.filter(e => e.kind === 'compact').reduce((a, e) => a + (e.usd || 0), 0),
@@ -110,6 +125,21 @@ function summary(file) {
   }
   summaries.set(file, { mtime: st.mtimeMs, v })
   return v
+}
+
+// per-request view of a cached summary: the live/status fields change without the log changing
+function sessionOut(v) {
+  const { _askAt, _agents, ...o } = v
+  let rec = null
+  try { rec = JSON.parse(fs.readFileSync(path.join(DIR, `${v.id}.server.json`), 'utf8')) } catch {}
+  o.live = !!(rec && rec.pid && alive(rec.pid)) // its <id>.server.json exists and the pid answers
+  if (o.live) o.port = rec.port
+  const now = Date.now()
+  // running agent: no SubagentStop for its id, session live, and some activity in the last 30 min
+  o.agents = { total: _agents.length, running: o.live ? _agents.filter(a => !a.stopped && now - a.last < 30 * 60e3).length : 0 }
+  // needs: live and the latest permission request / non-idle notification is newer than any other activity; running: live and active < 2 min ago; idle: live, quiet; done: not live
+  o.status = !o.live ? 'done' : _askAt && _askAt > (o.lastAt || 0) ? 'needs' : now - (o.lastAt || 0) < 120e3 ? 'running' : 'idle'
+  return o
 }
 
 // ── ingest socket ──
@@ -151,9 +181,9 @@ const webServer = http.createServer((req, res) => {
   }
   if (url.pathname === '/api/sessions') {
     const files = fs.readdirSync(DIR).filter(f => f.endsWith('.jsonl')).map(f => path.join(DIR, f))
-    const list = files.map(f => { try { return summary(f) } catch { return null } }).filter(Boolean)
+    const list = files.map(f => { try { return sessionOut(summary(f)) } catch { return null } }).filter(Boolean)
     list.sort((a, b) => (b.start || 0) - (a.start || 0))
-    return json(res, { current: SID, sessions: list.slice(0, 60) })
+    return json(res, { current: SID, sessions: list })
   }
   const script = url.pathname.match(/^\/(coach|classify)\.js$/)
   if (script) {
