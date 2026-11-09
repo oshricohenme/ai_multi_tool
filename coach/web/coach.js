@@ -24,6 +24,11 @@
   const FAILOUT = /\b(FAIL|failed|failing|Error:|✗)\b|\b[1-9]\d* (failing|failed)\b/;
   const MUTATE = /\bsed -i|\bperl -pi|>\s*[\w.\/-]+\.\w+\b|\btee\b|\bmv\b|\brm\b|git (checkout|reset|restore)\b/;
 
+  const TESTFILE = /(^|\/)(__tests__|tests?|specs?)\/|[._-](test|spec)\.\w+$|_test\.\w+$|\.snap$|(^|\/)test_[^/]*\.py$/i;
+  const SKIPADD = /\b(xit|xdescribe|xtest|it\.skip|test\.skip|describe\.skip|it\.only|test\.only|describe\.only|fit|fdescribe)\(|@Ignore\b|pytest\.mark\.(skip|xfail)|\bt\.Skip\(|#\[ignore\]/;
+  const STYLEASK = /\b(shorter|be (brief|concise|terse)|more concise|keep it (short|brief)|no preamble|skip the (preamble|intro|summary)|explain (each|every) change|less verbose|tl;?dr|too (long|verbose|wordy))\b/i;
+  const FMT = /(^|[;&|]\s*|\bnpx\s+|\bpnpm\s+(exec\s+)?|\byarn\s+|\buv run\s+|\bpython3? -m\s+)(prettier|biome (format|check)|black|ruff format|gofmt|rustfmt|cargo fmt|swiftformat|clang-format)\b/;
+  const GENDIR = /(^|\/)(node_modules|dist|build|vendor)\/|\.min\.(js|css)$|(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|poetry\.lock)$/;
   function fmtT(ms) { ms = Math.max(0, ms); return ms < 60000 ? Math.round(ms / 1000) + 's' : ms < 3600e3 ? Math.floor(ms / 60000) + 'm' + String(Math.round(ms % 60000 / 1000)).padStart(2, '0') : (ms / 3600e3).toFixed(1) + 'h'; }
 
   // One pass over the session, shared by every check.
@@ -51,7 +56,16 @@
     // the Turns classifier's view of the same session (browser only; skipped where it isn't loaded)
     const CL = globalThis.CLASSIFY;
     const tturns = CL ? CL.fromEvents(ev, '', '') : [], tcls = CL ? CL.classifyAll(tturns) : [];
-    return { ev, meta, sigs, users, turnNo, calls, main, tools, mainTools, p, costOf, window, ttlMs, t0, turnOf, label, byTurn, turns, agents, ctxAt, tturns, tcls, hasCL: !!CL };
+    // slash commands: prompt.submit carries {name,args}; command.run only the name; a user event may carry <command-name>
+    const slash = [];
+    sigs.filter(g => g.ev === 'prompt.submit' && g.sum && g.sum.command).forEach(g => { const c = parse(g.sum.command); if (c.name) slash.push({ at: g.at, name: String(c.name).replace(/^\//, ''), args: String(c.args || '') }); });
+    sigs.filter(g => g.ev === 'command.run' && g.sum && g.sum.command).forEach(g => { const n = String(g.sum.command).replace(/^\//, ''); if (!slash.some(x => x.name === n && Math.abs(x.at - g.at) < 3000)) slash.push({ at: g.at, name: n, args: '' }); });
+    users.forEach(u => { const m = String(u.payload || '').match(/<command-name>\/?([^<\s]+)<\/command-name>/) || String(u.payload || '').match(/^\/([\w:-]+)(?:\s+([\s\S]*))?$/); if (m && !slash.some(x => x.name === m[1] && Math.abs(x.at - u.start) < 3000)) slash.push({ at: u.start, name: m[1], args: m[2] || '' }); });
+    slash.sort((a, b) => a.at - b.at);
+    const modes = sigs.filter(g => g.sum && g.sum.permission_mode).map(g => ({ at: g.at, mode: g.sum.permission_mode }));
+    const effc = {}; calls.forEach(e => { if (e.effort) effc[e.effort] = (effc[e.effort] || 0) + 1; });
+    const efforts = Object.entries(effc).sort((a, b) => b[1] - a[1]);
+    return { setup: S.setup || null, efforts, slash, modes, ev, meta, sigs, users, turnNo, calls, main, tools, mainTools, p, costOf, window, ttlMs, t0, turnOf, label, byTurn, turns, agents, ctxAt, tturns, tcls, hasCL: !!CL };
   }
   const evd = (C, e, text) => ({ id: e.id, at: e.start, label: C.label(e), text: clip(text, 160) });
   const sigEvd = (C, g, text) => ({ at: g.at, label: g.at >= C.t0 ? '+' + fmtT(g.at - C.t0) : new Date(g.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), text: clip(text, 160) });
@@ -60,6 +74,11 @@
   const fileOf = e => { const a = parse(e.payload); return String(a.file_path || a.path || a.notebook_path || ''); };
   const say = e => e.payload || e.title || '';
   const pl = (n, w, ws) => n + ' ' + (n === 1 ? w : ws || w + 's');
+  const normCmd = e => (e.tool || '') + '|' + (cmdOf(e) || String(e.payload || '')).replace(/\s+/g, ' ').slice(0, 300);
+  const editText = e => { const a = parse(e.payload), sub = a.edits || []; return { old: String(a.old_string || '') + sub.map(x => x.old_string || '').join('\n'), neu: String(a.new_string != null ? a.new_string : a.content || '') + sub.map(x => x.new_string || '').join('\n') }; };
+  const countAsserts = t => (String(t).match(/\b(assert\w*|expect)\b\s*[(.]|^\s*assert\b/gm) || []).length;
+  const toks = t => new Set(String(t).toLowerCase().match(/[a-z][a-z0-9_-]{2,}/g) || []);
+  const pathArg = e => { const a = parse(e.payload); return String(a.file_path || a.path || ''); };
   const NA = h => ({ status: 'na', headline: h });
   const PASS = (h, evidence) => ({ status: 'pass', headline: h, evidence: evidence || [] });
   const permKey = (tool, input) => {
@@ -116,8 +135,11 @@
       run(C) {
         if (C.main.length < 2) return NA('Too few model calls.');
         const hits = [];
-        C.sigs.filter(g => g.ev === 'classic.PreModelSwitch' && g.sum && (g.sum.context_tokens || 0) >= 50000).forEach(g => hits.push(sigEvd(C, g, g.sum.from_model + ' → ' + g.sum.to_model + ' · ' + k(g.sum.context_tokens) + ' ctx · ≈$' + (+g.sum.estimated_cache_write_usd || 0).toFixed(2))));
+        C.sigs.filter(g => g.ev === 'classic.PreModelSwitch' && g.sum && (g.sum.context_tokens || 0) >= 50000).forEach(g => hits.push(sigEvd(C, g, (/opusplan/.test(JSON.stringify(g.sum)) ? '[opusplan] ' : '') + g.sum.from_model + ' → ' + g.sum.to_model + ' · ' + k(g.sum.context_tokens) + ' ctx · ≈$' + (+g.sum.estimated_cache_write_usd || 0).toFixed(2))));
         if (!hits.length) for (let i = 1; i < C.main.length; i++) { const a = C.main[i - 1], b = C.main[i]; if (a.model && b.model && a.model !== b.model && b.start - (a.end || a.start) < C.ttlMs && (b.cacheWrite || 0) >= 0.5 * ctx(b) && ctx(b) >= 50000) hits.push(evd(C, b, a.model + ' → ' + b.model + ' · re-wrote ' + k(b.cacheWrite) + ' · ' + usd(C.costOf(b)))); }
+        // an effort change breaks the cache only on models older than the 5.5 / Fable 5.1 generation
+        const SAFE = /claude-(opus|sonnet|haiku)-5-5|claude-fable-5-1/;
+        for (let i = 1; i < C.main.length; i++) { const a = C.main[i - 1], b = C.main[i]; if (a.effort && b.effort && a.effort !== b.effort && a.model === b.model && !SAFE.test(b.model || '') && ctx(b) >= 50000 && (b.cacheWrite || 0) >= 0.5 * ctx(b)) hits.push(evd(C, b, 'effort ' + a.effort + ' → ' + b.effort + ' on ' + b.model + ' · re-wrote ' + k(b.cacheWrite))); }
         if (hits.length) return { status: hits.length >= 3 ? 'fail' : 'warn', headline: pl(hits.length, 'switch', 'switches') + ' with 50k+ tokens in context' + (hits.length >= 3 ? ' (toggling)' : '') + '.', evidence: hits,
           fix: 'Pick model and effort at the start of the session. For cheap side work, delegate to a subagent with model: haiku instead of /model. Toggling plan mode often? Drop opusplan.' };
         return PASS('No costly model switches.');
@@ -151,6 +173,10 @@
           return e.trigger !== 'auto' && prev && e.start - (prev.end || prev.start) > C.ttlMs || /idle/.test(e.trigger || '');
         });
         const manual = cs.filter(e => e.trigger === 'manual');
+        // a bare /compact on a large context: the prompt.submit signal carries the args
+        const bare = manual.filter(e => (e.before || 0) >= 100000 && C.slash.some(x => x.name === 'compact' && !x.args.trim() && x.at <= e.start + 5000 && e.start - x.at < 120000));
+        if (!hits.length && manual.length < 3 && bare.length) return { status: 'warn', headline: pl(bare.length, 'manual /compact') + ' with no focus on a ' + k(bare[0].before) + '-token context.', evidence: bare.map(e => evd(C, e, '/compact · ' + k(e.before || 0) + ' → ' + k(e.after || 0))),
+          fix: 'Say what to keep: /compact keep the API changes, the failing test and the file list.' };
         if (hits.length || manual.length >= 3) return { status: 'warn', headline: hits.length ? pl(hits.length, 'compaction') + ' of 200k+ tokens on a cold cache.' : manual.length + ' manual compactions in one session.', evidence: (hits.length ? hits : manual).map(e => evd(C, e, (e.trigger || '?') + ' · ' + k(e.before || 0) + ' → ' + k(e.after || 0))),
           fix: 'New work: /clear. Abandoning a path: /rewind. Otherwise compact at a break while the cache is warm: /compact keep the API changes and test commands.\nTo stop idle compaction: "idleCompaction": false.' };
         return PASS('Compactions ran on a warm cache.');
@@ -200,7 +226,7 @@
         const hits = C.turns.filter(t => t.user && t.calls.reduce((a, e) => a + (e.thinkingChars || 0), 0) >= 20000 && t.tools.filter(e => EDIT.test(e.tool || '')).length <= 1 && t.calls.reduce((a, e) => a + (e.outTok || 0), 0) < 800 && !t.tools.some(e => TESTCMD.test(cmdOf(e))));
         if (!C.calls.some(e => e.thinkingChars)) return NA('No thinking recorded.');
         if (hits.length >= 5) return { status: 'warn', headline: pl(hits.length, 'small turn') + ' with 20k+ characters of thinking each.', evidence: hits.slice(0, 8).map(t => evd(C, t.user, k(t.calls.reduce((a, e) => a + (e.thinkingChars || 0), 0)) + ' chars thinking · ' + say(t.user))),
-          fix: '/effort low for sketching and renames, /effort medium as the default; one hard question: write "ultrathink" in that prompt instead of raising effort for the session.' };
+          fix: '/effort low for sketching and renames' + (C.efforts.length ? ' (this session ran at ' + C.efforts[0][0] + ')' : '') + '; one hard question: write "ultrathink" in that prompt instead of raising effort for the session.' };
         return PASS('Thinking matched the size of the work.');
       } },
 
@@ -243,10 +269,13 @@
       why: '"think hard" and "be thorough" are plain text; only ultrathink or /effort change reasoning. "Keep going / don\'t be lazy" tends to cause over-work.',
       run(C) {
         if (!C.users.length) return NA('No prompts.');
-        const eff = C.users.filter(u => /\b(think (hard|harder|more|deeply)|think step by step|be thorough|megathink)\b/i.test(say(u)) && !/ultrathink/i.test(say(u)));
-        const per = C.users.filter(u => /\b(keep going|don'?t stop|don'?t be lazy|loop until|never give up)\b/i.test(say(u)));
+        // ultrathink, ultracode and "be ambitious" still work: strip them before matching
+        const plain = u => say(u).replace(/\b(ultrathink|ultracode|be ambitious)\b/gi, '');
+        const eff = C.users.filter(u => /\b(think (hard|harder|more|deeply)|think step by step|be thorough|megathink|budget_tokens)\b/i.test(plain(u)) && !/ultrathink/i.test(say(u)));
+        const shout = u => plain(u).split('\n').some(l => { const t = l.trim(); return t.length >= 12 && t.split(/\s+/).length >= 3 && /[A-Z]{3}/.test(t) && t === t.toUpperCase() && !/[`\/\\{}<>=]|https?:/.test(t); });
+        const per = C.users.filter(u => /\b(keep going( until (done|finished|complete))?|don'?t stop|don'?t be lazy|loop until|never give up)\b/i.test(plain(u)) || shout(u));
         if (eff.length || per.length) return { status: 'warn', headline: [eff.length && pl(eff.length, 'effort phrase'), per.length && pl(per.length, 'persistence phrase')].filter(Boolean).join(' and ') + ' Claude treats as plain text.', evidence: eff.concat(per).map(u => evd(C, u, say(u))),
-          fix: (eff.length ? 'Effort: /effort high for the session, or "ultrathink" in one prompt.\n' : '') + (per.length ? 'Persistence: give a check instead, "run the auth tests and keep going until they pass", or /goal <condition>.' : '') };
+          fix: (eff.length ? 'Effort: /effort high for the session, or "ultrathink" in one prompt. (budget_tokens is gone; effort is the control.)\n' : '') + (per.length ? 'Persistence: give a check instead, "run the auth tests and keep going until they pass", or /goal <condition>.' : '') };
         return PASS('No placebo phrases.');
       } },
     { id: 'late-interrupt', group: 'Steering', name: 'Drift caught late', sev: 'low', src: BP,
@@ -371,7 +400,7 @@
         const per = {}; asks.forEach(a => (per[permKey(a.sum.tool_name || '?', a.sum.input)] = per[permKey(a.sum.tool_name || '?', a.sum.input)] || []).push(a));
         const rep = Object.entries(per).filter(([, l]) => l.length >= 3).sort((a, b) => b[1].length - a[1].length);
         if (rep.length) return { status: 'fail', headline: rep.slice(0, 3).map(([r, l]) => r + ' ×' + l.length).join(', ') + '.', evidence: rep[0][1].slice(0, 6).map(g => sigEvd(C, g, g.sum.tool_name + ' · ' + clip(inputText(g.sum.input), 120))),
-          fix: 'In .claude/settings.json:\n{ "permissions": { "allow": [' + rep.slice(0, 4).map(([r]) => JSON.stringify(r)).join(', ') + '] } }\n\nOr Shift+Tab into auto mode, or run /fewer-permission-prompts.' };
+          fix: 'In .claude/settings.json:\n{ "permissions": { "allow": [' + rep.slice(0, 4).map(([r]) => JSON.stringify(r.replace(/ \*\)$/, ':*)'))).join(', ') + '] } }\n\n' + (rep[0][1].some(g => /^(default|acceptEdits)$/.test(g.sum.permission_mode || '')) ? 'You are in Manual mode: run /fewer-permission-prompts to build the list from your history, or Shift+Tab into auto mode.' : 'Or Shift+Tab into auto mode, or run /fewer-permission-prompts.') };
         return PASS(pl(asks.length, 'prompt') + ', none repeated three times.');
       } },
     { id: 'permission-idle', group: 'Permissions & flow', name: 'Claude sat waiting for approval', sev: 'low', src: BP,
@@ -427,7 +456,7 @@
         const per = {}; tools.forEach(t => { const s = t.server || String(t.name || '').split('__')[1] || '?'; const x = per[s] = per[s] || { tok: 0, loaded: 0 }; x.tok += t.tokens || 0; if (t.isLoaded !== false) x.loaded += t.tokens || 0; });
         const idle = Object.entries(per).filter(([s]) => !used.has(s)).sort((a, b) => b[1].tok - a[1].tok);
         const loaded = idle.reduce((a, [, x]) => a + x.loaded, 0);
-        if (idle.length) return { status: loaded > 5000 ? 'warn' : 'pass', headline: pl(idle.length, 'server') + ' never called' + (loaded > 5000 ? ', ' + k(loaded) + ' tokens of definitions loaded on every request (tool search looks off).' : ' (definitions deferred, small cost).'), evidence: idle.slice(0, 8).map(([s, x]) => ({ at: C.t0, label: 'MCP', text: s + ' · ' + k(x.tok) + ' tokens' + (x.loaded ? ' loaded' : ' deferred') })),
+        if (idle.length) return { status: loaded > 15000 ? 'warn' : 'pass', headline: pl(idle.length, 'server') + ' never called' + (loaded > 15000 ? ', ' + k(loaded) + ' tokens of definitions loaded on every request (tool search looks off).' : ' (definitions deferred, small cost).'), evidence: idle.slice(0, 8).map(([s, x]) => ({ at: C.t0, label: 'MCP', text: s + ' · ' + k(x.tok) + ' tokens' + (x.loaded ? ' loaded' : ' deferred') })),
           fix: 'Disable them in /mcp, or scope each server to the project that needs it (.mcp.json) instead of user scope.' };
         return PASS('Every connected server was used.');
       } },
@@ -511,10 +540,13 @@
       run(C) {
         if (!C.hasCL) return NA('Needs the Turns classifier.');
         const hits = [];
-        C.tcls.forEach((c, i) => c.actions.forEach(a => { const m = String(a.arg || '').match(/\brm -rf\b[^;&|]*|\bgit (reset --hard|push (-f|--force)|clean -fd)[^;&|]*|\bpkill\b[^;&|]*|\bkillall\b[^;&|]*/); if (m) hits.push({ t: C.tturns[i], cmd: m[0] }); }));
+        C.tcls.forEach((c, i) => c.actions.forEach(a => { const m = String(a.arg || '').match(/\brm -rf\b[^;&|]*|\bgit (reset --hard|push (-f|--force)|clean -fd)[^;&|]*|\bpkill\b[^;&|]*|\bkillall\b[^;&|]*|\bgit (commit|push)\b[^;&|]*--no-verify[^;&|]*/); if (m) hits.push({ t: C.tturns[i], cmd: m[0] }); }));
+        // dirty tree: a file edit since the last commit, so the command can lose work
+        const dirty = h => { let d = false; C.mainTools.forEach(e => { if (e.start >= h.t.ts) return; if (EDIT.test(e.tool || '')) { if (!/^(\/private)?\/tmp\/|\/scratchpad\//.test(fileOf(e))) d = true; } else if (/\bgit commit\b/.test(cmdOf(e))) d = false; }); return d; };
+        hits.forEach(h => { h.dirty = /git (reset --hard|clean -fd|push (-f|--force))/.test(h.cmd) && dirty(h); });
         if (!C.tturns.length) return NA('No turns.');
-        if (hits.length) return { status: 'warn', headline: hits.length + ' destructive command' + (hits.length > 1 ? 's' : '') + ' ran.', evidence: hits.slice(0, 8).map(x => ({ id: x.t.id, at: x.t.ts, label: '+' + fmtT(x.t.ts - C.t0), text: x.cmd })),
-          fix: 'If any surprised you, add them to permissions.ask (or deny) in .claude/settings.json:\n{ "permissions": { "ask": ["Bash(rm -rf:*)", "Bash(git reset --hard:*)", "Bash(git push --force:*)"] } }' };
+        if (hits.length) return { status: hits.some(h => h.dirty) ? 'fail' : 'warn', headline: hits.length + ' destructive command' + (hits.length > 1 ? 's' : '') + ' ran.', evidence: hits.slice(0, 8).map(x => ({ id: x.t.id, at: x.t.ts, label: '+' + fmtT(x.t.ts - C.t0), text: x.cmd + (x.dirty ? '  (uncommitted edits were in the tree)' : '') })),
+          fix: 'If any surprised you, add them to permissions.ask (or deny) in .claude/settings.json:\n{ "permissions": { "ask": ["Bash(rm -rf:*)", "Bash(git reset --hard:*)", "Bash(git push --force:*)", "Bash(git commit --no-verify:*)"] } }' };
         return PASS('No destructive commands.');
       } },
     { id: 'secret-in-prompt', group: 'Habits', name: 'A key or token pasted into a prompt', sev: 'high', src: D + 'security',
@@ -536,6 +568,191 @@
         if (hits.length >= 2) return { status: 'warn', headline: hits.length + ' prompts repeated the one before word for word.', evidence: hits.slice(0, 8).map(x => ({ id: x.t.id, at: x.t.ts, label: '+' + fmtT(x.t.ts - C.t0), text: '"' + clip(x.t.prompt, 100) + '"' })),
           fix: 'Esc Esc (/rewind) to before the first try and add what was missing: the file, the symptom, how you will check it.' };
         return PASS(hits.length ? 'One repeat.' : 'No repeated prompts.');
+      } },
+
+    // ── Rules v2 (RULES.md): checks computed over the whole session ──────────
+    { id: 'test-tampering', group: 'Verification', name: 'Test changed right after it failed', sev: 'high', src: BP,
+      why: 'When a test fails and the next move is editing the test, the fix may be to the check rather than the code. Widely reported failure mode: the test is bent until it passes.',
+      run(C) {
+        if (!C.mainTools.length) return NA('No tool calls.');
+        const hits = [], seen = new Set();
+        C.turns.forEach(t => {
+          const asks = t.user && /\b(write|add|create|update|adjust|extend|fix|change)\b.{0,40}\b(tests?|specs?|snapshots?)\b/i.test(say(t.user));
+          const seq = t.tools;
+          seq.forEach((e, i) => {
+            const f = fileOf(e);
+            if (!EDIT.test(e.tool || '') || !TESTFILE.test(f)) return;
+            const isNew = e.tool === 'Write' && !seen.has(f);
+            seen.add(f);
+            if (asks || isNew) return;
+            const d = editText(e);
+            // a failing test command, this edit, then the same command green, with no source edit between
+            const fail = seq.slice(0, i).reverse().find(x => x.tool === 'Bash' && TESTCMD.test(cmdOf(x)) && x.isError);
+            const pass = fail && seq.slice(i + 1).find(x => x.tool === 'Bash' && normCmd(x) === normCmd(fail) && !x.isError);
+            if (fail && pass && !seq.slice(seq.indexOf(fail) + 1, seq.indexOf(pass)).some(x => EDIT.test(x.tool || '') && !TESTFILE.test(fileOf(x))))
+              hits.push(evd(C, e, 'edited ' + f.split('/').pop() + ' between a failing and a passing `' + clip(cmdOf(fail), 50) + '`'));
+            else if (SKIPADD.test(d.neu) && !SKIPADD.test(d.old)) hits.push(evd(C, e, 'added a skip/only marker in ' + f.split('/').pop()));
+            else if (fail && countAsserts(d.old) - countAsserts(d.neu) >= 1) hits.push(evd(C, e, 'removed ' + (countAsserts(d.old) - countAsserts(d.neu)) + ' assertion(s) in ' + f.split('/').pop() + ' after a failing run'));
+          });
+        });
+        if (hits.length) return { status: 'fail', headline: pl(hits.length, 'test edit') + ' that may have bent the check instead of the code.', evidence: hits.slice(0, 8),
+          fix: 'Ask: was the test wrong, or the code? To prevent it, say "Don\'t change tests; fix the implementation." and make it a line in CLAUDE.md.' };
+        return PASS('No test was edited to get past a failure.');
+      } },
+    { id: 'same-failure-loop', group: 'Verification', name: 'The same call failed again and again', sev: 'medium', src: BP,
+      why: 'Three identical failures in a turn means Claude is retrying, not learning. Interrupting early and changing the approach is cheaper than watching a fourth try.',
+      run(C) {
+        if (!C.mainTools.length) return NA('No tool calls.');
+        const hits = [];
+        C.turns.forEach(t => {
+          const g = {}; t.tools.filter(e => e.isError && !(e.tool === 'Bash' && /^Exit code 1\s*$/.test(String(e.result || '').trim()))).forEach(e => (g[normCmd(e)] = g[normCmd(e)] || []).push(e));
+          Object.values(g).filter(l => l.length >= 3).forEach(l => hits.push(l));
+        });
+        if (hits.length) return { status: 'warn', headline: pl(hits.length, 'call') + ' failed 3 or more times in the same turn.', evidence: hits.slice(0, 6).map(l => evd(C, l[2], l.length + '× ' + l[0].tool + ' · ' + clip(cmdOf(l[0]) || fileOf(l[0]), 80))),
+          fix: 'Esc and say what to try differently, or /rewind to before the first attempt and add what was missing (the error, the file, the constraint).' };
+        return PASS('No call failed three times in a turn.');
+      } },
+    { id: 'no-plan-big-change', group: 'Steering', name: 'Big change with no plan', sev: 'medium', src: D + 'common-workflows',
+      why: 'A multi-file change that starts straight with edits is where the later corrections come from. Plan mode lets you approve the file list before anything is written.',
+      run(C) {
+        if (!C.turns.length) return NA('No turns.');
+        const planned = C.modes.some(m => m.mode === 'plan') || C.mainTools.some(e => e.tool === 'ExitPlanMode') || C.slash.some(x => x.name === 'plan');
+        if (planned) return PASS('Plan mode was used in this session.');
+        const hits = [];
+        C.turns.forEach((t, i) => {
+          if (!t.user) return;
+          const files = new Set(t.tools.filter(e => EDIT.test(e.tool || '')).map(fileOf).filter(Boolean));
+          if (files.size < 6 || !EDIT.test((t.tools[0] || {}).tool || '')) return;
+          const next = C.turns.slice(i + 1, i + 4).map(x => x.user).filter(Boolean);
+          if (next.some(u => CORR.test(say(u)))) hits.push({ t, n: files.size });
+        });
+        if (hits.length) return { status: 'warn', headline: pl(hits.length, 'change') + ' touched 6+ files with no plan, and a correction followed.', evidence: hits.map(h => evd(C, h.t.user, h.n + ' files, edits first · ' + say(h.t.user))),
+          fix: 'Next time: `/plan <task>` (or Shift+Tab to plan mode) and approve the file list first.' };
+        return PASS('No unplanned multi-file change drew a correction.');
+      } },
+    { id: 'continue-without-goal', group: 'Steering', name: 'Typing "continue" by hand', sev: 'medium', src: D + 'goal',
+      why: 'Saying "continue" after each stop is a loop you run manually. /goal keeps Claude going until a check you name passes.',
+      run(C) {
+        if (C.users.length < 3) return NA('Too few prompts to judge.');
+        if (C.slash.some(x => x.name === 'goal')) return PASS('A /goal was set.');
+        const hits = [];
+        C.users.forEach(u => {
+          if (!/^\s*(continue|keep going|go on|next|proceed|carry on|go ahead)\b[\s.!]*$/i.test(say(u))) return;
+          const prev = C.turns.filter(t => t.user && t.user.start < u.start).pop();
+          const last = prev && prev.calls[prev.calls.length - 1];
+          if (last && /\b(next[, ]+i('| wi)ll|next up|remaining|still (to do|need)|todo|will (then|next)|i can (continue|also))\b/i.test(String(last.result || ''))) hits.push(u);
+        });
+        if (hits.length >= 2) return { status: 'warn', headline: hits.length + ' "continue" prompts after turns that said more was coming.', evidence: hits.map(u => evd(C, u, say(u))),
+          fix: '`/goal <check> passes, or stop after 20 turns` keeps it going on its own.' };
+        return PASS(hits.length ? 'One "continue".' : 'No manual "continue" loop.');
+      } },
+    { id: 'undo-by-prose', group: 'Steering', name: 'Asked Claude to undo', sev: 'low', src: D + 'checkpointing',
+      why: 'Asking Claude to undo spends a turn and may miss something. Esc Esc (/rewind) restores code and conversation exactly.',
+      run(C) {
+        if (C.users.length < 2) return NA('Too few prompts to judge.');
+        const hits = C.users.filter(u => /^\s*(undo|revert|go back|put it back|restore)\b/i.test(say(u)) && !/\b(git|commit|pr|branch|merge)\b/i.test(say(u)));
+        if (C.slash.some(x => x.name === 'rewind') || C.sigs.some(g => /rewind/i.test(g.ev))) return PASS('/rewind was used.');
+        if (hits.length) return { status: 'warn', headline: pl(hits.length, 'prompt') + ' asked Claude to undo a change.', evidence: hits.map(u => evd(C, u, say(u))),
+          fix: 'Esc Esc (or `/rewind`) restores code and conversation exactly, and it costs no model turn.' };
+        return PASS('No undo-by-prose.');
+      } },
+    { id: 'correction-not-saved', group: 'Steering', name: 'Corrected twice, never written down', sev: 'medium', src: MEM,
+      why: 'A correction made in chat is gone next session. A line in CLAUDE.md (or memory) is the only place it sticks.',
+      run(C) {
+        const cl = CHECKS.find(c => c.id === 'correction-loop').run(C);
+        if (cl.status === 'na') return NA('Needs correction-loop to have enough prompts.');
+        if (cl.status === 'pass') return PASS('No repeated correction to save.');
+        const at = (cl.evidence[0] || {}).at || C.t0;
+        const saved = C.mainTools.find(e => e.start >= at && EDIT.test(e.tool || '') && /CLAUDE\.md$|MEMORY\.md$|\/memory\/|\.claude\/rules\//.test(fileOf(e)));
+        if (saved) return PASS('The correction was saved: ' + fileOf(saved).split('/').pop() + '.', [evd(C, saved, 'edited ' + fileOf(saved))]);
+        return { status: 'warn', headline: 'The same correction came up twice and no CLAUDE.md or memory file was updated.', evidence: cl.evidence.slice(0, 4),
+          fix: 'Ask Claude: "add a rule about this to CLAUDE.md" so it sticks.' };
+      } },
+    { id: 'rule-lost-at-compaction', group: 'Context & cost', name: 'Rule repeated after a compaction', sev: 'medium', src: CW,
+      why: 'Instructions given in chat can be dropped when the conversation is summarised. Only CLAUDE.md is reloaded in full.',
+      run(C) {
+        const cs = C.ev.filter(e => e.kind === 'compact');
+        if (!cs.length) return NA('No compactions.');
+        const RULE = /\b(always|never|don'?t|do not|must|make sure|only use|prefer|instead of)\b/i, hits = [];
+        cs.forEach(c => {
+          const before = C.users.filter(u => u.start < c.start && RULE.test(say(u))).map(u => ({ u, w: toks(say(u)) }));
+          C.users.filter(u => u.start > c.start && RULE.test(say(u))).slice(0, 12).forEach(u => {
+            const w = toks(say(u)); if (w.size < 3) return;
+            const m = before.find(b => b.w.size >= 3 && [...w].filter(x => b.w.has(x)).length / Math.min(w.size, b.w.size) >= 0.8);
+            if (m) hits.push({ u, was: m.u });
+          });
+        });
+        if (hits.length) return { status: 'warn', headline: pl(hits.length, 'rule') + ' had to be said again after a compaction.', evidence: hits.map(h => evd(C, h.u, say(h.u))),
+          fix: 'Put it in the root CLAUDE.md so it reloads after every compaction, and add a "# Compact instructions" section naming what to keep.' };
+        return PASS('No rule needed repeating after a compaction.');
+      } },
+    { id: 'fast-mode-toggle', group: 'Context & cost', name: 'Fast mode switched mid-session', sev: 'medium', src: D + 'fast-mode',
+      why: 'Fast mode has its own prompt cache. Turning it on with a long context re-reads the whole history at fast prices.',
+      run(C) {
+        // the log records no fast-mode state; only /fast commands are visible
+        const f = C.slash.filter(x => x.name === 'fast');
+        if (!f.length) return NA('Fast mode state is not recorded, and no /fast command ran.');
+        const late = f.filter((x, i) => i === 0 && C.ctxAt(x.at) > 30000);
+        if (f.length >= 2 || late.length) return { status: 'warn', headline: f.length >= 2 ? '/fast ran ' + f.length + ' times.' : '/fast ran with ' + k(C.ctxAt(f[0].at)) + ' tokens in context.', evidence: f.map(x => sigEvd(C, { at: x.at }, '/fast · ' + k(C.ctxAt(x.at)) + ' ctx')),
+          fix: 'Enable fast mode at the start of a session, before the context grows, and leave it on.' };
+        return PASS('/fast ran once, on a small context.');
+      } },
+    { id: 'repeated-style-asks', group: 'Steering', name: 'Asking for the same style again', sev: 'low', src: D + 'output-styles',
+      why: 'If you ask for "shorter" or "no preamble" every few prompts, make it a setting once.',
+      run(C) {
+        if (C.users.length < 3) return NA('Too few prompts to judge.');
+        const hits = C.users.filter(u => say(u).length < 300 && STYLEASK.test(say(u)));
+        if (hits.length >= 3) return { status: 'warn', headline: hits.length + ' prompts asked for the same output style.', evidence: hits.slice(0, 8).map(u => evd(C, u, say(u))),
+          fix: '`/output-style concise` (or explanatory) instead of asking every time.' };
+        return PASS(hits.length ? 'A style request or two.' : 'No repeated style requests.');
+      } },
+    { id: 'manual-formatter', group: 'Habits', name: 'Running the formatter by hand', sev: 'low', src: D + 'hooks-guide',
+      why: 'A PostToolUse hook formats every file Claude writes, so neither of you spends turns on it.',
+      run(C) {
+        const hits = C.mainTools.filter(e => e.tool === 'Bash' && FMT.test(cmdOf(e)));
+        const hooks = C.meta.context && C.meta.context.hooks;
+        if (Array.isArray(hooks) && hooks.some(h => /PostToolUse/.test(JSON.stringify(h)))) return PASS('A PostToolUse hook exists.');
+        if (hits.length >= 3) return { status: 'warn', headline: 'A formatter ran by hand ' + hits.length + ' times' + (hooks ? '' : ' (hook config is not in the log, so a hook may already exist)') + '.', evidence: hits.slice(0, 6).map(e => evd(C, e, cmdOf(e))),
+          fix: 'Add a PostToolUse hook on Edit|Write that runs your formatter.' };
+        return PASS(hits.length ? 'A formatter ran ' + pl(hits.length, 'time') + '.' : 'No manual formatter runs.');
+      } },
+    { id: 'exploration-in-main', group: 'Delegation', name: 'Long read-only exploration in the main thread', sev: 'low', src: COST,
+      why: 'Reading many files in the main conversation leaves all of it in context. A subagent returns only the answer.',
+      run(C) {
+        if (!C.mainTools.length) return NA('No tool calls.');
+        const hits = [];
+        C.turns.forEach(t => {
+          if (t.tools.some(e => AGENT.test(e.tool || ''))) return;
+          let run = [];
+          const flush = () => { if (run.length >= 8 && run.reduce((a, e) => a + (e.est || 0), 0) > 30000) hits.push(run); run = []; };
+          t.tools.forEach(e => { if (SEARCH.test(e.tool || '')) run.push(e); else flush(); });
+          flush();
+        });
+        if (hits.length) return { status: 'warn', headline: pl(hits.length, 'stretch') + ' of 8+ reads or searches in a row, over 30k tokens each.', evidence: hits.slice(0, 6).map(r => evd(C, r[0], r.length + ' calls · ' + k(r.reduce((a, e) => a + (e.est || 0), 0)) + ' tokens')),
+          fix: 'Next time: "use a subagent to find X and report in 10 lines."' };
+        return PASS('No long exploration in the main thread.');
+      } },
+    { id: 'generated-dir-reads', group: 'Context & cost', name: 'Read generated or vendored files', sev: 'low', src: D + 'large-codebases',
+      why: 'node_modules, dist, build, minified files and lockfiles are big and carry nothing Claude should edit.',
+      run(C) {
+        if (!C.mainTools.length) return NA('No tool calls.');
+        const hits = C.mainTools.filter(e => SEARCH.test(e.tool || '') && (e.est || 0) > 5000 && GENDIR.test(pathArg(e)));
+        if (hits.length) return { status: 'warn', headline: pl(hits.length, 'read') + ' of generated or vendored files, ' + k(hits.reduce((a, e) => a + (e.est || 0), 0)) + ' tokens.', evidence: hits.slice(0, 8).map(e => evd(C, e, e.tool + ' ' + pathArg(e) + ' · ' + k(e.est || 0))),
+          fix: 'In .claude/settings.json: { "permissions": { "deny": ["Read(./node_modules/**)", "Read(./dist/**)", "Read(./build/**)"] } }' };
+        return PASS('No large reads from generated directories.');
+      } },
+    { id: 'long-session-no-checkpoint', group: 'Habits', name: 'Long run, no commits or notes', sev: 'low', src: 'https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents',
+      why: 'Compaction and long sessions lose state. Commits and a PROGRESS file are the state that survives.',
+      run(C) {
+        if (C.ev.length < 5) return NA('Too little activity.');
+        let active = 0; for (let i = 1; i < C.ev.length; i++) { const g = C.ev[i].start - C.ev[i - 1].start; if (g < 30 * 60e3) active += g; }
+        const comps = C.ev.filter(e => e.kind === 'compact').length;
+        if (comps < 2 && active < 3 * 3600e3) return PASS('Short session (' + fmtT(active) + ' active, ' + pl(comps, 'compaction') + ').');
+        const committed = C.mainTools.some(e => e.tool === 'Bash' && /\bgit commit\b/.test(cmdOf(e)));
+        const noted = C.mainTools.some(e => EDIT.test(e.tool || '') && /(PROGRESS|NOTES|PLAN|TODO|HANDOFF)[^/]*\.md$/i.test(fileOf(e)));
+        if (!committed && !noted) return { status: 'warn', headline: (comps >= 2 ? pl(comps, 'compaction') : '') + (comps >= 2 && active >= 3 * 3600e3 ? ' and ' : '') + (active >= 3 * 3600e3 ? fmtT(active) + ' of active time' : '') + ', with no git commit and no progress file.', evidence: [],
+          fix: 'Commit per step and keep a PROGRESS.md, so a compaction cannot lose state.' };
+        return PASS('Long session with ' + (committed ? 'commits' : 'a progress file') + '.');
       } },
 
     // ── LLM judge (opt-in, next) ─────────────────────────────────────────────

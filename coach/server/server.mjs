@@ -142,6 +142,123 @@ function sessionOut(v) {
   return o
 }
 
+
+// ── setup snapshot: what the Coach "Setup" rules read ──
+// Only known paths are read (CLAUDE.md files, settings, agents, skills, MEMORY.md). Secret files are listed by name, never read.
+const HOME = os.homedir()
+const SECRETISH = /token|secret|passw(or)?d|passwd|api[_-]?key|credential|authorization|private/i
+const SECRET_VAL = /sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{16,}|xox[a-z]-[\w-]+|AKIA[0-9A-Z]{12,}|eyJ[\w-]{10,}\.[\w-]{10,}|Bearer\s+\S+/g
+function scrub(v, key = '', depth = 0) {
+  if (depth > 8) return null
+  if (key === 'env' || key === 'headers') return v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).map(k => [k, '[redacted]'])) : '[redacted]'
+  if (SECRETISH.test(key) && v !== null && typeof v !== 'boolean') return '[redacted]'
+  if (typeof v === 'string') return v.replace(SECRET_VAL, '[redacted]').slice(0, 2000)
+  if (Array.isArray(v)) return v.slice(0, 200).map(x => scrub(x, '', depth + 1))
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrub(x, k, depth + 1)]))
+  return v
+}
+const readCapped = (file, max) => { try { const st = fs.statSync(file); if (!st.isFile()) return null; const fd = fs.openSync(file, 'r'); const b = Buffer.alloc(Math.min(st.size, max)); fs.readSync(fd, b, 0, b.length, 0); fs.closeSync(fd); return { text: b.toString('utf8'), size: st.size } } catch { return null } }
+const readJson = file => { const r = readCapped(file, 200e3); if (!r) return null; try { return scrub(JSON.parse(r.text)) } catch { return { _unreadable: true } } }
+function frontmatter(text) {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text)
+  if (!m) return { fm: {}, body: text }
+  const fm = {}
+  for (const l of m[1].split('\n')) {
+    const kv = /^([\w-]+):\s*(.*)$/.exec(l)
+    if (kv) { let v = kv[2].trim().replace(/^["']|["']$/g, ''); fm[kv[1]] = v === 'true' ? true : v === 'false' ? false : v.slice(0, 500) }
+  }
+  return { fm, body: m[2] }
+}
+const tilde = p => (p.startsWith(HOME) ? '~' + p.slice(HOME.length) : p)
+// a cwd may be read only if it is the live session's cwd or one a session log has recorded
+function cwdAllowed(cwd) {
+  if (!cwd || !path.isAbsolute(cwd)) return null
+  let real; try { real = fs.realpathSync(cwd) } catch { return null }
+  const seen = new Set()
+  const add = c => { if (c) try { seen.add(fs.realpathSync(c)) } catch {} }
+  add(live.meta.cwd)
+  for (const f of fs.readdirSync(DIR).filter(f => f.endsWith('.jsonl'))) { try { add(summary(path.join(DIR, f)).cwd) } catch {} }
+  return seen.has(real) ? real : null
+}
+function setupSnapshot(cwd) {
+  let root = cwd
+  for (let d = cwd; ; d = path.dirname(d)) { if (fs.existsSync(path.join(d, '.git'))) { root = d; break } if (d === path.dirname(d) || d === HOME) break }
+  const chain = []
+  for (let d = cwd; ; d = path.dirname(d)) { chain.push(d); if (d === root || d === path.dirname(d)) break }
+  let budget = 200e3
+  const claudeMd = []
+  const addMd = (file, scope) => {
+    const r = readCapped(file, 1e6); if (!r) return
+    const text = r.text.slice(0, Math.min(100e3, Math.max(0, budget))); budget -= text.length
+    claudeMd.push({ path: tilde(file), scope, lines: r.text.split('\n').length, bytes: r.size, text })
+  }
+  for (const d of chain) for (const f of [path.join(d, 'CLAUDE.md'), path.join(d, '.claude', 'CLAUDE.md')]) addMd(f, 'project')
+  addMd(path.join(HOME, '.claude', 'CLAUDE.md'), 'user')
+  // paths mentioned in CLAUDE.md files: only existence (and an @import's line count) is returned
+  const refs = []
+  for (const md of claudeMd) {
+    const base = md.scope === 'user' ? path.join(HOME, '.claude') : root
+    const seenRef = new Set()
+    const toks = [...md.text.matchAll(/`([^`\s]+)`|(?:^|\s)(@[\w.\/~-]+)/g)].map(m => m[1] || m[2])
+    for (const raw of toks) {
+      const imp = raw.startsWith('@'), t = raw.replace(/^@/, '').replace(/[.,;:)]+$/, '')
+      if (!t || seenRef.has(t) || /[*<>{}$()|=\s]|:\/\//.test(t)) continue
+      const slash = t.includes('/'), ext = /\.\w{1,5}$/.test(t)
+      if (!(imp ? true : slash ? ext || t.endsWith('/') : /\.(md|json|toml|ya?ml|sh|py|mjs|tsx?|cfg|ini)$/.test(t))) continue
+      if (t.startsWith('/') && !imp) continue
+      seenRef.add(t)
+      const abs = path.resolve(t.startsWith('~/') ? path.join(HOME, t.slice(2)) : t.startsWith('/') ? t : path.join(base, t))
+      if (!(abs === root || abs.startsWith(root + path.sep) || abs.startsWith(path.join(HOME, '.claude') + path.sep))) continue
+      let exists = false, lines = null
+      try { const st = fs.statSync(abs); exists = true; if (imp && st.isFile() && st.size < 2e6) lines = fs.readFileSync(abs, 'utf8').split('\n').length } catch {}
+      refs.push({ from: md.path, ref: t, exists, import: imp, lines })
+      if (refs.length >= 200) break
+    }
+  }
+  const settings = {
+    project: readJson(path.join(root, '.claude', 'settings.json')),
+    local: readJson(path.join(root, '.claude', 'settings.local.json')),
+    user: readJson(path.join(HOME, '.claude', 'settings.json')),
+  }
+  const mdDir = (dir, pick) => { try { return fs.readdirSync(dir).sort().slice(0, 50).map(pick).filter(Boolean) } catch { return [] } }
+  const agents = mdDir(path.join(root, '.claude', 'agents'), f => {
+    if (!f.endsWith('.md')) return null
+    const r = readCapped(path.join(root, '.claude', 'agents', f), 20e3); return r && { file: f, fm: frontmatter(r.text).fm }
+  })
+  const skills = mdDir(path.join(root, '.claude', 'skills'), d => {
+    const r = readCapped(path.join(root, '.claude', 'skills', d, 'SKILL.md'), 40e3); if (!r) return null
+    const { fm, body } = frontmatter(r.text); return { dir: d, fm, body: body.slice(0, 3000) }
+  })
+  let rootNames = []; try { rootNames = fs.readdirSync(root) } catch {}
+  const sensitive = {
+    env: rootNames.filter(n => /^\.env(\.|$)/.test(n) && !/\.(example|sample|template|dist)$/.test(n)),
+    secretsDir: rootNames.includes('secrets'),
+    pem: rootNames.filter(n => n.endsWith('.pem')),
+  }
+  const CODE = /\.(m?[jt]sx?|py|go|rs|rb|java|kt|swift|c|cc|cpp|h|cs|php|sh|lua|dart|ex|exs)$/
+  const MANIFESTS = ['package.json', 'pyproject.toml', 'go.mod', 'Cargo.toml', 'pom.xml', 'build.gradle', 'Gemfile', 'composer.json', 'Package.swift', 'Makefile', 'requirements.txt']
+  const sub = ['src', 'lib', 'app', 'server', 'web', 'cmd'].flatMap(d => { try { return fs.readdirSync(path.join(root, d)) } catch { return [] } })
+  const hasCode = rootNames.some(n => MANIFESTS.includes(n) || CODE.test(n)) || sub.some(n => CODE.test(n))
+  // auto-memory index for this project
+  let memory = null
+  for (const d of [cwd, root]) {
+    const f = path.join(HOME, '.claude', 'projects', d.replace(/[^A-Za-z0-9]/g, '-'), 'memory', 'MEMORY.md')
+    const r = readCapped(f, 2e6)
+    if (r) { memory = { path: tilde(f), bytes: r.size, lines: r.text.split('\n').length }; break }
+  }
+  // auto compactions in past sessions of this project
+  let auto = 0, sessions = 0
+  for (const f of fs.readdirSync(DIR).filter(f => f.endsWith('.jsonl'))) {
+    try {
+      const v = summary(path.join(DIR, f)); if (!v.cwd) continue
+      let c; try { c = fs.realpathSync(v.cwd) } catch { continue }
+      if (c !== cwd && c !== root) continue
+      sessions++; auto += v.compactions.filter(x => /auto/i.test(x.trigger || '')).length
+    } catch {}
+  }
+  return { cwd: tilde(cwd), repoRoot: tilde(root), hasCode, claudeMd, refs, settings, agents, skills, sensitive, memory, compactions: { auto, sessions } }
+}
+
 // ── ingest socket ──
 try { fs.unlinkSync(SOCK) } catch {}
 const ingestServer = http.createServer((req, res) => {
@@ -185,7 +302,13 @@ const webServer = http.createServer((req, res) => {
     list.sort((a, b) => (b.start || 0) - (a.start || 0))
     return json(res, { current: SID, sessions: list })
   }
-  const script = url.pathname.match(/^\/(coach|classify)\.js$/)
+  if (url.pathname === '/api/setup') {
+    const want = url.searchParams.get('cwd') || live.meta.cwd
+    const cwd = cwdAllowed(want)
+    if (!cwd) { res.statusCode = 403; return json(res, { error: 'cwd is not the session cwd or one seen in a session log' }) }
+    try { return json(res, setupSnapshot(cwd)) } catch (err) { res.statusCode = 500; return json(res, { error: String(err.message || err) }) }
+  }
+  const script = url.pathname.match(/^\/(coach|classify|setup-checks)\.js$/)
   if (script) {
     res.setHeader('content-type', 'text/javascript; charset=utf-8')
     res.setHeader('cache-control', 'no-store')
