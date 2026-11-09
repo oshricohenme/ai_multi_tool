@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Signals view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button,input{font:inherit}
+.erow:hover{background:#1B1B21}
+</style>
+</helmet>
+<div style="box-sizing: border-box; padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 20px; color: #ECECEF; font-family: Inter, system-ui, sans-serif; font-size: 14px">
+
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">Signals</h1>
+<span style="color: #A0A0AA">Every event Claude Code raises: read for meaning, and kept raw.</span>
+</div>
+<div role="tablist" aria-label="Signals view" style="display: flex; padding: 3px; border: 1px solid #27272E; border-radius: 8px; background: #16161A">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="3"><button type="button" role="tab" onClick="{{t.pick}}" aria-selected="{{t.on}}" style="{{t.style}}">{{t.label}}</button></sc-for>
+</div>
+</div>
+
+<sc-if value="{{isEvents}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+<div role="group" aria-label="Filter events" style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{chips}}" as="c" hint-placeholder-count="6">
+<button type="button" onClick="{{c.pick}}" aria-pressed="{{c.on}}" style="{{c.style}}">{{c.label}}<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; opacity: 0.8">{{c.count}}</span></button>
+</sc-for>
+</div>
+<button type="button" onClick="{{toggleErrors}}" aria-pressed="{{errOn}}" style="{{errStyle}}"><span style="{{errBox}}">{{errMark}}</span>Errors only</button>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<section aria-label="Events" style="flex: 999 1 560px; min-width: 0; border: 1px solid #27272E; border-radius: 12px; background: #16161A; overflow: hidden">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="12">
+<button type="button" class="erow" onClick="{{r.pick}}" aria-pressed="{{r.on}}" style="{{r.rowStyle}}">
+<span style="width: 64px; flex: none; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8A8A94; text-align: left">{{r.time}}</span>
+<span style="{{r.kindStyle}}">{{r.kind}}</span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left">
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis">{{r.meaning}}</span>
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8A8A94">{{r.session}}</span>
+</span>
+<sc-if value="{{r.err}}" hint-placeholder-val="{{ false }}"><span style="flex: none; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #33203A; color: #E3B2F0">{{r.errLabel}}</span></sc-if>
+</button>
+</sc-for>
+<sc-if value="{{empty}}" hint-placeholder-val="{{ false }}"><div style="padding: 28px; text-align: center; color: #8A8A94">{{emptyText}}</div></sc-if>
+<sc-if value="{{more}}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{showMore}}" style="width: 100%; min-height: 44px; border: 0; border-top: 1px solid #1F1F25; background: transparent; color: #A0A0AA; cursor: pointer">{{moreLabel}}</button></sc-if>
+</section>
+
+<aside aria-labelledby="ev" style="flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 20px 22px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<sc-if value="{{hasSel}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8A8A94">{{d.kind}} · {{d.time}}</span>
+<h2 id="ev" style="margin: 0; font-size: 16px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere">{{d.meaning}}</h2>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #8A8A94">Hook chain · who handled it</span>
+<sc-for list="{{d.chain}}" as="h" hint-placeholder-count="3">
+<div style="display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 12px; border-radius: 8px; background: #0F0F12; border: 1px solid #222228">
+<span style="{{h.dotStyle}}"></span>
+<span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{h.name}}</span>
+<span style="{{h.resStyle}}">{{h.result}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8A8A94">{{h.ms}}</span>
+</div>
+</sc-for>
+<span style="font-size: 12px; color: #8A8A94; line-height: 1.5">{{d.chainNote}}</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #8A8A94">Raw</span>
+<pre style="margin: 0; padding: 12px 14px; border-radius: 8px; background: #0F0F12; border: 1px solid #222228; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; color: #C9C9D0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto">{{d.raw}}</pre>
+</div>
+</sc-if>
+<sc-if value="{{noSel}}" hint-placeholder-val="{{ false }}"><span style="color: #8A8A94; line-height: 1.55">Pick an event to see what it means, which hooks ran on it, and the raw record.</span></sc-if>
+</aside>
+</div>
+</sc-if>
+
+<sc-if value="{{isInsights}}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{noCards}}" hint-placeholder-val="{{ false }}"><div style="padding: 40px; text-align: center; color: #8A8A94; border: 1px solid #27272E; border-radius: 12px; background: #16161A">No signals yet. They appear as Claude works: permission prompts, tool runs, MCP calls, limits.</div></sc-if>
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px">
+<sc-for list="{{cards}}" as="c" hint-placeholder-count="6">
+<article style="{{c.style}}">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="{{c.iconStyle}}">{{c.icon}}</span>
+<span style="font-weight: 600; flex: 1">{{c.title}}</span>
+</div>
+<div style="display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap">
+<span style="{{c.bigStyle}}">{{c.big}}</span><span style="color: #8A8A94; font-size: 12px">{{c.unit}}</span>
+</div>
+<p style="margin: 0; line-height: 1.5; color: #C9C9D0">{{c.detail}}</p>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<sc-for list="{{c.bars}}" as="b" hint-placeholder-count="3">
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 64px; gap: 10px; align-items: center; font-size: 12px">
+<div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #C9C9D0">{{b.label}}</span>
+<span style="height: 4px; border-radius: 2px; background: #1F1F25; overflow: hidden"><span style="{{b.fill}}"></span></span>
+</div>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; color: #A0A0AA">{{b.val}}</span>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{c.hasTip}}" hint-placeholder-val="{{ true }}"><p style="margin: 0; padding: 8px 10px; border-radius: 8px; background: #0F0F12; border: 1px solid #222228; font-size: 12px; line-height: 1.5; color: #B4B4BD">{{c.tip}}</p></sc-if>
+<button type="button" onClick="{{c.show}}" style="align-self: flex-start; min-height: 40px; padding: 0 12px; border: 1px solid #27272E; border-radius: 8px; background: transparent; color: #A0A0AA; cursor: pointer; font-size: 12px">Show the events →</button>
+</article>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{isRaw}}" hint-placeholder-val="{{ false }}">
+<section aria-label="Raw log" style="border: 1px solid #27272E; border-radius: 12px; background: #16161A; overflow: hidden">
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid #1F1F25">
+<label style="display: flex; align-items: center; gap: 8px; flex: 1 1 260px; min-height: 40px; box-sizing: border-box; padding: 0 10px; border: 1px solid #27272E; border-radius: 8px; background: #0F0F12; color: #8A8A94">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<input type="text" value="{{q}}" onChange="{{onQ}}" placeholder="Filter: event, plugin, path, tool, error…" aria-label="Filter events" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #ECECEF">
+</label>
+<button type="button" onClick="{{toggleErrRaw}}" aria-pressed="{{errOn}}" style="{{errStyle}}"><span style="{{errBox}}">{{errMark}}</span>Errors only</button>
+</div>
+<div style="display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 16px; border-bottom: 1px solid #1F1F25">
+<sc-for list="{{nsChips}}" as="ch" hint-placeholder-count="8"><button type="button" onClick="{{ch.pick}}" aria-pressed="{{ch.on}}" style="{{ch.style}}"><span style="{{ch.dot}}"></span>{{ch.label}}<span style="color: #8A8A94">{{ch.n}}</span></button></sc-for>
+</div>
+<div style="max-height: 560px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 12px">
+<sc-for list="{{rawRows}}" as="r" hint-placeholder-count="20">
+<button type="button" class="erow" onClick="{{r.pick}}" aria-pressed="{{r.on}}" style="{{r.style}}">
+<span style="color: #8A8A94">{{r.time}}</span>
+<span style="{{r.evStyle}}">{{r.ev}}</span>
+<span style="color: #A0A0AA; overflow: hidden; text-overflow: ellipsis">{{r.by}}</span>
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #C9C9D0">{{r.sum}}</span>
+<span style="{{r.outStyle}}">{{r.out}}</span>
+<span style="text-align: right; color: #8A8A94">{{r.ms}}</span>
+</button>
+</sc-for>
+</div>
+<div style="padding: 8px 16px; border-top: 1px solid #1F1F25; font-size: 11px; color: #8A8A94">{{logNote}}</div>
+</section>
+<sc-if value="{{hasRawSel}}" hint-placeholder-val="{{ false }}">
+<section aria-label="Selected event" style="display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8A8A94">{{rawSel.head}}</span>
+<pre style="margin: 0; padding: 12px 14px; border-radius: 8px; background: #0F0F12; border: 1px solid #222228; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; color: #C9C9D0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto">{{rawSel.raw}}</pre>
+</section>
+</sc-if>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1376,"height":844}}'>
+var ACCENT = '#E8A558';
+var SEV = { hot: '#E8A558', warn: '#F3C48A', ok: '#8FD6A4', info: '#7AA2E3' };
+var PURPLE_BG = '#33203A', PURPLE_FG = '#E3B2F0';
+function short(s, n) { s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+function clock(ms) { return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }); }
+function fdur(ms) { return DT.fmt.dur(ms); }
+function sumLine(g) {
+  var x = g.sum || {}, keys = Object.keys(x);
+  var lead = x.tool || x.tool_name || x.file_path || x.path || x.url || x.command || x.server || x.skill || x.key || x.message || x.door || x.kind || x.type || '';
+  var rest = keys.filter(function (k) { return x[k] !== lead && ['rateLimits', 'cost', 'context'].indexOf(k) < 0; }).slice(0, 3).map(function (k) { return k + '=' + short(typeof x[k] === 'string' ? x[k] : JSON.stringify(x[k]), 40); });
+  if (g.ev === 'session.measure' && x.rateLimits) rest = x.rateLimits.map(function (r) { return r.kind + ' ' + Math.round(r.percentUsed) + '%'; });
+  return short([lead].concat(rest).filter(Boolean).join('  '), 200);
+}
+
+// Claude Code's own hook events, grouped the way a person thinks about them.
+var KIND = {
+  PreToolUse: ['tool', '#7AA2E3'], PostToolUse: ['tool', '#7AA2E3'], PostToolBatch: ['tool', '#7AA2E3'], PostToolUseFailure: ['tool', PURPLE_FG], PermissionRequest: ['tool', '#7AA2E3'], PermissionDenied: ['tool', PURPLE_FG],
+  UserPromptSubmit: ['prompt', '#C7B6F2'], UserPromptExpansion: ['prompt', '#C7B6F2'],
+  Stop: ['stop', '#8FD6A4'], SubagentStop: ['stop', '#8FD6A4'], StopFailure: ['stop', PURPLE_FG],
+  Notification: ['note', ACCENT],
+  PreCompact: ['other', '#F3C48A'], PostCompact: ['other', '#F3C48A'], SessionStart: ['other', '#B4B4BD'], SessionEnd: ['other', '#B4B4BD'], SubagentStart: ['other', '#8FD6A4'],
+  PreModelSwitch: ['other', '#B4B4BD'], PostModelSwitch: ['other', '#B4B4BD'], InstructionsLoaded: ['other', '#B4B4BD'], ConfigChange: ['other', '#B4B4BD']
+};
+var HIDDEN = { MessageDisplay: 1 }; // one per streamed message: noise in a list of decisions
+var GROUPS = [['all', 'All'], ['tool', 'Tool use'], ['prompt', 'Prompts'], ['stop', 'Stops'], ['note', 'Notifications'], ['other', 'Session & compact']];
+var FAIL = { PostToolUseFailure: 'failed', PermissionDenied: 'denied', StopFailure: 'failed' };
+var RESULT = { returned: ['ran', '#5BC27E'], passed: ['passed', '#5BC27E'], rejected: ['blocked', PURPLE_FG], caught: ['hook failed', PURPLE_FG] };
+
+function what(x) { return short(x.command || x.file_path || x.path || x.pattern || x.url || x.description || '', 90); }
+function meaning(g, k, pre) {
+  var x = g.sum || {}, tool = x.tool || x.tool_name || '';
+  switch (k) {
+    case 'PreToolUse': return 'About to run ' + tool + (what(x) ? ': ' + what(x) : '');
+    case 'PostToolUse': { var p = pre[x.tool_use_id]; return 'Finished ' + tool + (p ? ': ' + p : '') + (x.duration_ms !== undefined ? ' (' + fdur(x.duration_ms) + ')' : ''); }
+    case 'PostToolUseFailure': { var p2 = pre[x.tool_use_id]; return tool + ' failed' + (p2 ? ': ' + p2 : '') + (x.error ? ' · ' + short(x.error, 80) : ''); }
+    case 'PostToolBatch': return 'A batch of tool calls finished';
+    case 'PermissionRequest': return 'Asked your permission to use ' + tool + (what(parseIn(x.input)) ? ': ' + what(parseIn(x.input)) : '');
+    case 'PermissionDenied': return 'Permission denied for ' + tool;
+    case 'UserPromptSubmit': return 'You asked: ' + short(x.prompt, 120);
+    case 'UserPromptExpansion': return 'Your prompt was expanded' + (x.command_name ? ' (/' + x.command_name + ')' : '');
+    case 'Stop': return 'Claude finished its turn';
+    case 'SubagentStop': return (x.agent_type || 'A subagent') + ' finished';
+    case 'StopFailure': return 'Claude stopped on an error' + (x.error ? ': ' + short(x.error, 80) : '');
+    case 'SubagentStart': return (x.agent_type || 'A subagent') + ' started';
+    case 'Notification': return x.message || 'Notification';
+    case 'PreCompact': return (x.trigger === 'auto' ? 'Auto-compact' : 'Compaction') + ' started';
+    case 'PostCompact': return 'Compaction finished';
+    case 'SessionStart': return 'Session started' + (x.source ? ' (' + x.source + ')' : '');
+    case 'SessionEnd': return 'Session ended' + (x.reason ? ' (' + x.reason + ')' : '');
+    case 'PreModelSwitch': return 'About to switch model' + (x.from_model ? ': ' + x.from_model + ' → ' + x.to_model : '');
+    case 'PostModelSwitch': return 'Model switched';
+    case 'InstructionsLoaded': return 'Loaded ' + short(String(x.file_path || '').split('/').slice(-2).join('/'), 60) + (x.load_reason ? ' (' + String(x.load_reason).replace(/_/g, ' ') + ')' : '');
+    case 'ConfigChange': return 'Settings changed' + (x.source ? ' (' + x.source + ')' : '');
+    default: return k + ' ' + sumLine(g);
+  }
+}
+function parseIn(v) { if (typeof v !== 'string') return v || {}; try { return JSON.parse(v.replace(/…$/, '')); } catch (e) { return {}; } }
+function isBad(g) { var k = g.ev.replace(/^classic\./, ''); return !!FAIL[k] || !!g.err || /decision: deny|isError: true/.test(g.out || '') || (g.chain || []).some(function (c) { return c[1] === 'rejected' || c[1] === 'caught'; }); }
+
+// Memoised per store version: the classic hook events with their plain-language meaning
+function events() {
+  return DT.memo('sigEvents', function () {
+    var pre = {};
+    DT.sigs.forEach(function (g) { if (g.ev === 'classic.PreToolUse' && g.sum && g.sum.tool_use_id) pre[g.sum.tool_use_id] = what(g.sum); });
+    var out = [], hidden = 0;
+    DT.sigs.forEach(function (g) {
+      if (g.ev.indexOf('classic.') !== 0) return;
+      var k = g.ev.slice(8);
+      if (HIDDEN[k]) { hidden++; return; }
+      var meta = KIND[k] || ['other', '#B4B4BD'];
+      out.push({ g: g, k: k, grp: meta[0], color: meta[1], meaning: meaning(g, k, pre), bad: isBad(g) });
+    });
+    return { list: out.reverse(), hidden: hidden };
+  });
+}
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    var t = 'events'; try { t = localStorage.getItem('coach.sigTab') || t; } catch (e) {}
+    if (t !== 'events' && t !== 'insights' && t !== 'raw') t = 'events';
+    this.state = { tab: t, f: 'all', err: false, sel: null, limit: 150, q: '', ns: null, rawSel: null };
+  }
+  componentDidMount() { if (DT.sigFilter) { this.setState({ tab: 'raw', q: DT.sigFilter }); DT.sigFilter = null; } }
+  renderVals() {
+    var self = this, S = this.state;
+    var tab = function (id, label) { var on = S.tab === id; return { label: label, on: on ? 'true' : 'false', pick: function () { try { localStorage.setItem('coach.sigTab', id); } catch (e) {} self.setState({ tab: id }); }, style: 'min-height: 40px; padding: 0 14px; border: 0; border-radius: 6px; cursor: pointer; font-size: 13px; background: ' + (on ? '#26262D' : 'transparent') + '; color: ' + (on ? '#ECECEF' : '#A0A0AA') }; };
+    var errBox = 'display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; font-size: 12px; font-weight: 700; color: #0E0E11; background: ' + (S.err ? PURPLE_FG : 'transparent') + '; border: 1.5px solid ' + (S.err ? PURPLE_FG : '#5A5A64');
+    var vals = {
+      tabs: [tab('events', 'Events'), tab('insights', 'Insights'), tab('raw', 'Raw log')],
+      isEvents: S.tab === 'events', isInsights: S.tab === 'insights', isRaw: S.tab === 'raw',
+      errOn: S.err ? 'true' : 'false', errBox: errBox, errMark: S.err ? '✓' : '',
+      errStyle: 'display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 14px; border-radius: 8px; cursor: pointer; border: 1px solid ' + (S.err ? '#5A3A66' : '#27272E') + '; background: ' + (S.err ? PURPLE_BG : '#16161A') + '; color: ' + (S.err ? PURPLE_FG : '#C9C9D0'),
+      toggleErrors: function () { self.setState({ err: !S.err, sel: null }); },
+      toggleErrRaw: function () { self.setState({ err: !S.err }); }
+    };
+    if (S.tab === 'events') {
+      var E = events(), all = E.list;
+      var counts = { all: all.length }; all.forEach(function (e) { counts[e.grp] = (counts[e.grp] || 0) + 1; });
+      vals.chips = GROUPS.filter(function (c) { return c[0] === 'all' || counts[c[0]]; }).map(function (c) {
+        var on = S.f === c[0];
+        return { label: c[1], count: (counts[c[0]] || 0).toLocaleString('en-US'), on: on ? 'true' : 'false', pick: function () { self.setState({ f: c[0], sel: null, limit: 150 }); },
+          style: 'display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 999px; cursor: pointer; border: 1px solid ' + (on ? ACCENT : '#2E2E36') + '; background: ' + (on ? '#2A2116' : '#16161A') + '; color: ' + (on ? '#ECECEF' : '#A0A0AA') };
+      });
+      var f = all.filter(function (e) { return (S.f === 'all' || e.grp === S.f) && (!S.err || e.bad); });
+      var shown = f.slice(0, S.limit);
+      var sess = (DT.sessions.filter(function (s) { return s.id === (DT.session || DT.current); })[0] || {});
+      var sname = sess.title || (sess.cwd || DT.meta.cwd || '').split('/').filter(Boolean).pop() || '';
+      var sel = f.filter(function (e) { return e.g === S.sel; })[0] || f[0];
+      vals.rows = shown.map(function (e) {
+        var on = e === sel;
+        return { time: clock(e.g.at), kind: e.k, meaning: e.meaning, session: sname, err: e.bad, errLabel: FAIL[e.k] ? FAIL[e.k] : (e.g.chain || []).some(function (c) { return c[1] === 'rejected'; }) ? 'blocked' : 'error', on: on ? 'true' : 'false',
+          pick: function () { self.setState({ sel: e.g }); },
+          kindStyle: "width: 150px; flex: none; font-family: 'JetBrains Mono', monospace; font-size: 12px; text-align: left; overflow: hidden; text-overflow: ellipsis; color: " + e.color,
+          rowStyle: 'display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; box-sizing: border-box; padding: 8px 20px; border: 0; border-bottom: 1px solid #1F1F25; cursor: pointer; color: #ECECEF; background: ' + (on ? '#1F1C17' : 'transparent') + '; box-shadow: ' + (on ? 'inset 0 0 0 1px ' + ACCENT : 'none') };
+      });
+      vals.empty = !shown.length;
+      vals.emptyText = all.length ? 'No events match.' : 'No hook events recorded yet. They appear as Claude works.' + (E.hidden ? '' : '');
+      vals.more = f.length > shown.length; vals.moreLabel = 'Show more (' + (f.length - shown.length) + ' older)';
+      vals.showMore = function () { self.setState({ limit: S.limit + 300 }); };
+      vals.hasSel = !!sel; vals.noSel = !sel;
+      if (sel) {
+        var g = sel.g, ch = g.chain || [], mx = Math.max.apply(null, ch.map(function (c) { return c[2]; }).concat([0.1]));
+        var rawObj = { event: g.ev, raised_by: g.by + (g.tier ? ' (' + g.tier + ')' : ''), ms: g.ms }; if (g.out) rawObj.outcome = g.out; if (g.err) rawObj.error = g.err; rawObj.summary = g.sum;
+        vals.d = {
+          kind: sel.k, time: clock(g.at) + (sname ? ' · ' + sname : ''), meaning: sel.meaning,
+          chain: ch.map(function (c) { var r = RESULT[c[1]] || [c[1], '#B4B4BD'], bad = c[1] === 'rejected' || c[1] === 'caught';
+            return { name: c[0], result: r[0], ms: fdur(c[2]), dotStyle: 'width: 8px; height: 8px; border-radius: 50%; flex: none; background: ' + (bad ? PURPLE_FG : r[1]), resStyle: 'font-size: 12px; color: ' + (bad ? PURPLE_FG : '#A0A0AA') }; }),
+          chainNote: ch.length ? 'Outermost first. “engine” is Claude Code itself; the time is that link’s own.' : 'Recorded as it streamed; no hook chain was kept for this event.',
+          raw: JSON.stringify(rawObj, null, 2)
+        };
+      } else vals.d = { chain: [] };
+    }
+    if (S.tab === 'insights') {
+      var cards = DT.signals();
+      vals.noCards = !cards.length;
+      vals.cards = cards.map(function (c) {
+        var col = SEV[c.sev];
+        return {
+          title: c.title, icon: c.icon, big: c.big, unit: c.unit, detail: c.detail, tip: c.tip, hasTip: !!c.tip,
+          style: 'display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 12px; background: #16161A; border: 1px solid #27272E; box-shadow: inset 3px 0 0 ' + col,
+          iconStyle: 'display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; font-size: 14px; color: ' + col + '; background: #1D1D22',
+          bigStyle: "font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 700; color: " + (c.sev === 'info' ? '#ECECEF' : col),
+          bars: (c.bars || []).slice(0, 6).map(function (b) { return { label: b.label, val: b.fmt || String(Math.round(b.v * 100) / 100), fill: 'display: block; height: 100%; width: ' + Math.max(2, Math.min(100, b.v / Math.max(1e-9, b.of) * 100)).toFixed(1) + '%; background: ' + (b.color || col) }; }),
+          show: function () { self.setState({ tab: 'raw', q: c.q || '', ns: null }); }
+        };
+      });
+    }
+    if (S.tab === 'raw') {
+      var all2 = DT.sigs, q = S.q.toLowerCase(), cnt = {};
+      all2.forEach(function (g) { var n = DT.nsOf(g.ev); cnt[n] = (cnt[n] || 0) + 1; });
+      var list = [];
+      for (var i = all2.length - 1; i >= 0 && list.length < 400; i--) {
+        var g2 = all2[i];
+        if (S.ns && DT.nsOf(g2.ev) !== S.ns) continue;
+        if (S.err && !isBad(g2)) continue;
+        if (q && DT.sigText(g2).toLowerCase().indexOf(q) < 0) continue;
+        list.push(g2);
+      }
+      var t0 = (all2[0] || {}).at || 0;
+      vals.q = S.q; vals.onQ = function (ev) { self.setState({ q: ev.target.value }); };
+      vals.nsChips = [{ k: null, label: 'all', n: all2.length }].concat(Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; }).map(function (k) { return { k: k, label: k, n: cnt[k] }; })).map(function (c) {
+        var on = S.ns === c.k;
+        return { label: c.label, n: String(c.n), on: on ? 'true' : 'false', pick: function () { self.setState({ ns: c.k }); }, dot: 'display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: ' + (c.k ? DT.colorOfNs(c.k) : '#8A8A94'),
+          style: 'display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: 999px; cursor: pointer; font-size: 12px; border: 1px solid ' + (on ? '#3A3A42' : '#27272E') + '; background: ' + (on ? '#202026' : 'transparent') + '; color: ' + (on ? '#ECECEF' : '#B4B4BD') };
+      });
+      vals.rawRows = list.map(function (g3) {
+        var on = S.rawSel === g3, bad = isBad(g3);
+        return { pick: function () { self.setState({ rawSel: g3 }); }, on: on ? 'true' : 'false',
+          style: 'display: grid; width: 100%; box-sizing: border-box; grid-template-columns: 66px 200px 96px minmax(0, 1fr) minmax(0, 200px) 56px; gap: 10px; align-items: center; min-height: 28px; padding: 0 16px; border: 0; border-bottom: 1px solid #1F1F25; cursor: pointer; text-align: left; font: inherit; color: inherit; background: ' + (on ? '#1F1C17' : 'transparent'),
+          time: '+' + ((g3.at - t0) / 1000).toFixed(1) + 's', ev: g3.ev, by: g3.by,
+          evStyle: 'overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: ' + DT.colorOfNs(DT.nsOf(g3.ev)),
+          sum: sumLine(g3), out: g3.err ? '✕ ' + g3.err : (g3.out || ''),
+          outStyle: 'overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: ' + (bad ? PURPLE_FG : '#8A8A94'), ms: g3.ms ? fdur(g3.ms) : '' };
+      });
+      vals.logNote = list.length + ' shown' + (list.length >= 400 ? ' (latest 400)' : '') + ' · newest first · renders, clocks and state reads are not kept';
+      vals.hasRawSel = !!S.rawSel;
+      vals.rawSel = S.rawSel ? { head: S.rawSel.ev + ' · ' + clock(S.rawSel.at) + ' · ' + S.rawSel.by, raw: JSON.stringify(S.rawSel, null, 2) } : { head: '', raw: '' };
+    }
+    return vals;
+  }
+}
+</script>
+</body>
+</html>

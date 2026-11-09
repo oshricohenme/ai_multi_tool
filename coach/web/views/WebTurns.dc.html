@@ -21,6 +21,7 @@
 <div style="display: flex; flex-direction: column; gap: 4px">
 <h1 style="margin: 0; font-size: 18px; font-weight: 600">Turns</h1>
 <p style="margin: 0; color: #9a9aa3">Every prompt and response, classified, with the words that decided each label.</p>
+<p style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8A8A94"><span style="color: #ECECEF">+ctx</span> added to context · <span style="color: #8FD6A4">−ctx</span> removed · <span style="color: #7AA2E3">cache</span> written (+) or dropped (−)</p>
 </div>
 <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
 <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8b8b94">{{statusLine}}</span>
@@ -73,6 +74,7 @@
 <span style="display: flex; height: 8px; width: 70px; border-radius: 2px; overflow: hidden; background: #1a1a1e" title="{{r.workTitle}}"><sc-for list="{{r.work}}" as="w" hint-placeholder-count="3"><span style="{{w}}"></span></sc-for></span>
 <span style="{{r.outStyle}}" title="{{r.outTitle}}">{{r.outcome}}</span>
 <span style="font-size: 11px; color: #e2a557; white-space: nowrap">{{r.marks}}</span>
+<span style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: nowrap"><span style="color: #A0A0AA">{{r.tokens}}</span><span><span style="color: #ECECEF">{{r.dAdd}}</span> <span style="color: #8FD6A4">{{r.dRem}}</span> <span style="color: #7AA2E3">{{r.dCache}}</span></span></span>
 </button>
 </sc-for>
 <sc-if value="{{more}}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{showMore}}" style="display: block; margin: 12px auto 20px; height: 30px; padding: 0 14px; border: 1px solid #2c2c33; border-radius: 7px; background: transparent; color: #9a9aa3; cursor: pointer">{{moreLabel}}</button></sc-if>
@@ -113,7 +115,7 @@
 <span style="font-weight: 600">{{a.tool}}</span>
 <span style="{{a.catStyle}}">{{a.cat}}</span>
 <sc-for list="{{a.progs}}" as="p" hint-placeholder-count="2"><span style="padding: 0 5px; border-radius: 3px; background: #1d1d23; color: #c4c4cb; font-family: 'JetBrains Mono', monospace; font-size: 11px">{{p}}</span></sc-for>
-<sc-if value="{{a.err}}" hint-placeholder-val="{{ false }}"><span style="color: #ff5c7a; font-weight: 700; font-size: 11px">FAILED</span></sc-if>
+<sc-if value="{{a.err}}" hint-placeholder-val="{{ false }}"><span style="color: #E3B2F0; background: #33203A; padding: 0 5px; border-radius: 3px; font-weight: 700; font-size: 11px">FAILED</span></sc-if>
 </div>
 <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9a9aa3; white-space: pre-wrap; overflow-wrap: anywhere">{{a.arg}}</span>
 </div>
@@ -141,7 +143,7 @@
 <script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1376,"height":844}}'>
 var GC = { ask: '#e2a557', steer: '#93a9c8', context: '#b39ddb', other: '#8b8b94', machine: '#5f7da0' };
 var SC = { human: '#e2a557', pasted: '#c9b06b', slash: '#b39ddb', interrupt: '#f2703f', 'agent-message': '#4fc3a1', orchestrator: '#5f7da0', automation: '#8b8b94', continuation: '#6a84a6', system: '#55555e' };
-var OC = { done: '#4fc3a1', answered: '#6fd3b4', asked: '#93a9c8', pending: '#e2a557', 'needs-user': '#f2b84b', blocked: '#f2703f', error: '#ff5c7a', limited: '#ff5c7a', delegated: '#2f9e83', interrupted: '#8b8b94', silent: '#55555e', acknowledged: '#7a93b6', planned: '#b39ddb', 'in progress': '#e2a557' };
+var OC = { done: '#4fc3a1', answered: '#6fd3b4', asked: '#93a9c8', pending: '#e2a557', 'needs-user': '#f2b84b', blocked: '#f2703f', error: '#E3B2F0', limited: '#E3B2F0', delegated: '#2f9e83', interrupted: '#8b8b94', silent: '#55555e', acknowledged: '#7a93b6', planned: '#b39ddb', 'in progress': '#e2a557' };
 var WC = { explore: '#5f7da0', edit: '#e2a557', script: '#c9b06b', delegate: '#4fc3a1', run: '#d68fb0', verify: '#6fd3b4', git: '#b39ddb', browser: '#93a9c8', research: '#7a93b6', shell: '#8b8b94', setup: '#a0a0aa', ask: '#f2b84b', publish: '#9fa8da', wait: '#55555e', '3d': '#ff8a65', plan: '#c4c4cb', net: '#8fb3a3', skill: '#c4c4cb', mcp: '#9fa8da', memory: '#9fa8da', other: '#55555e' };
 var TOGGLES = [
   ['mine', 'Only mine', 'Prompts you typed (hide other sessions, the coordinator and automation)', function (r) { return r.source === 'human' || r.source === 'pasted' || r.source === 'slash' || r.source === 'interrupt'; }],
@@ -205,12 +207,14 @@ class Component extends DCLogic {
   liveRows() {
     var key = DT.events.length + ':' + (DT.events[DT.events.length - 1] || {}).end + ':' + DT.session;
     if (this._lk === key) return this._lr;
+    var tokOf = {};
+    DT.events.forEach(function (e) { if (e.kind === 'assistant' && !e.agentId && e.inTok !== undefined) tokOf[e.turnId] = (tokOf[e.turnId] || 0) + (e.inTok || 0) + (e.cacheRead || 0) + (e.cacheWrite || 0) + (e.outTok || 0); });
     var turns = CLASSIFY.fromEvents(DT.events, DT.session, (DT.meta.cwd || '').split('/').pop());
     var cs = CLASSIFY.classifyAll(turns);
     this._lt = turns; this._lc = cs; this._lk = key;
     this._lr = turns.map(function (t, k) {
       var c = cs[k];
-      return { k: k, sid: t.sid, project: (DT.meta.cwd || '').split('/').pop(), ts: t.ts, prompt: short(t.prompt, 220), reply: short(String(t.reply).slice(-400), 180), source: c.source, sub: c.sub, failed: c.failed, intent: c.intent, intents: c.intents.map(function (x) { return [x.k, x.ev]; }), outcome: c.outcome, outcomeEv: c.outcomeEv, roll: c.roll, dominant: c.dominant, n: c.n, errs: c.errs, flags: c.flags, facts: c.facts, live: true };
+      return { k: k, sid: t.sid, project: (DT.meta.cwd || '').split('/').pop(), ts: t.ts, prompt: short(t.prompt, 220), reply: short(String(t.reply).slice(-400), 180), source: c.source, sub: c.sub, failed: c.failed, intent: c.intent, intents: c.intents.map(function (x) { return [x.k, x.ev]; }), outcome: c.outcome, outcomeEv: c.outcomeEv, roll: c.roll, dominant: c.dominant, n: c.n, errs: c.errs, flags: c.flags, facts: c.facts, live: true, turnId: t.turnId, tokens: tokOf[t.turnId] || 0 };
     });
     return this._lr;
   }
@@ -287,9 +291,11 @@ class Component extends DCLogic {
       rows: rowsDesc.slice(0, S.limit).map(function (r) {
         var on = r.k === S.sel, tot = r.n || 1;
         var marks = [r.facts && r.facts.secret ? '⚠ secret' : '', r.flags && r.flags.unverified ? 'unverified' : '', r.errs ? r.errs + ' failed' : '', r.facts && r.facts.destructive ? 'destructive' : ''].filter(Boolean).join(' · ');
+        var dl = r.live && DT.deltas().byTurn.get(r.turnId), fd = dl ? DT.fmt.delta(dl) : null;
         return {
+          dAdd: fd ? fd.add : '', dRem: fd ? fd.rem : '', dCache: fd ? fd.cache : '', tokens: r.live ? DT.fmt.tok(r.tokens) : '',
           pick: function () { self.select(r); },
-          style: 'display: grid; grid-template-columns: ' + (isPast ? '96px' : '62px') + ' 108px 96px minmax(0, 1fr) 70px 92px auto; column-gap: 10px; align-items: center; width: 100%; padding: 7px 16px; border: 0; border-bottom: 1px solid #141418; cursor: pointer; color: inherit; font-size: 12px; text-align: left; background: ' + (on ? '#1b1b21' : 'transparent') + (on ? '; box-shadow: inset 2px 0 0 #f4f4f6' : ''),
+          style: 'display: grid; grid-template-columns: ' + (isPast ? '96px' : '62px') + ' 108px 96px minmax(0, 1fr) 70px 92px auto 118px; column-gap: 10px; align-items: center; width: 100%; padding: 7px 16px; border: 0; border-bottom: 1px solid #141418; cursor: pointer; color: inherit; font-size: 12px; text-align: left; background: ' + (on ? '#1b1b21' : 'transparent') + (on ? '; box-shadow: inset 2px 0 0 #f4f4f6' : ''),
           when: when(r.ts, isPast),
           src: r.source === 'agent-message' ? (r.sub === 'hand-back' ? 'subagent' : 'agent · ' + r.sub) : r.source === 'automation' && r.sub === 'task-notification' ? 'task notice' : r.sub ? r.source + ' · ' + r.sub : r.source, srcStyle: chip(SC[r.source] || '#8b8b94') + '; overflow: hidden; text-overflow: ellipsis; max-width: 108px', srcTitle: r.source + (r.sub ? ' / ' + r.sub : '') + (r.failed ? ' · failed: ' + r.failed : ''),
           intent: r.intent + (r.intents.length > 1 ? ' +' + (r.intents.length - 1) : ''), intStyle: chip(intentColor(r.intent)) + '; overflow: hidden; text-overflow: ellipsis; max-width: 96px',
@@ -314,6 +320,8 @@ class Component extends DCLogic {
       sel.intents.forEach(function (x, i) { labels.push({ axis: i ? 'also' : 'intent', label: x[0], style: chip(intentColor(x[0]), !i), ev: x[1] ? '«' + x[1] + '»' : '' }); });
       labels.push({ axis: 'did', label: sel.n ? sel.dominant : 'no tools', style: chip(WC[sel.dominant] || '#55555e'), ev: sel.n ? Object.entries(sel.roll).map(function (e) { return e[0] + ' ' + e[1]; }).join(' · ') : '' });
       labels.push({ axis: 'outcome', label: sel.outcome, style: chip(OC[sel.outcome] || '#8b8b94', true), ev: sel.outcomeEv ? '«' + sel.outcomeEv + '»' : '' });
+      var sdl = sel.live && DT.deltas().byTurn.get(sel.turnId);
+      if (sdl) { var sf = DT.fmt.delta(sdl); labels.push({ axis: 'context', label: 'Context and cache', style: chip('#7AA2E3'), ev: sf.add + '  ' + sf.rem + '  cache ' + sf.cache + ' · tokens this turn added to and removed from the context, and the cache it wrote or lost' }); }
       Object.entries(sel.flags || {}).forEach(function (e) { if (e[1]) labels.push({ axis: 'flag', label: e[0], style: chip('#e2a557'), ev: e[1] === true ? '' : '«' + short(e[1], 80) + '»' }); });
       var promptMarks = sel.intents.map(function (x) { return { ev: x[1], label: x[0], color: intentColor(x[0]) }; });
       var facts = [];

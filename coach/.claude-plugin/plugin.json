@@ -1,5 +1,7 @@
 {
   "name": "coach",
+  "version": "1.0.0",
   "description": "Claude coach: inspect every model call and tool call: reasoning, actions, tokens, cost and timing",
+  "author": { "name": "Oshri Cohen" },
   "types": "./types/index.d.ts"
 }

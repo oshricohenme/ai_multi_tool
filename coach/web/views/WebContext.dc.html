@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Context X-ray view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit}
+.tile:hover{filter:brightness(1.12)}
+</style>
+</helmet>
+<div style="box-sizing: border-box; padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 20px; color: #ECECEF; font-family: Inter, system-ui, sans-serif; font-size: 14px">
+
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">Context X-ray</h1>
+<span style="color: #A0A0AA">{{lead}}</span>
+</div>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8A8A94">{{after}}</span>
+</div>
+
+<sc-if value="{{none}}" hint-placeholder-val="{{ false }}">
+<div style="padding: 40px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A; text-align: center; color: #A0A0AA; line-height: 1.6">No context breakdown has been recorded for this session yet. Claude Code reports it after a model call; it appears here on its own.</div>
+</sc-if>
+
+<sc-if value="{{has}}" hint-placeholder-val="{{ true }}">
+<section aria-labelledby="map" style="display: flex; flex-direction: column; gap: 14px; padding: 20px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px">
+<nav aria-label="Drill path" style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px">
+<h2 id="map" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Every tile, sized by tokens</h2>
+<sc-for list="{{crumbs}}" as="c" hint-placeholder-count="2">
+<sc-if value="{{c.notFirst}}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="color: #5A5A64; padding: 0 2px">/</span></sc-if>
+<button type="button" onClick="{{c.pick}}" aria-current="{{c.current}}" style="{{c.style}}">{{c.label}}</button>
+</sc-for>
+</nav>
+<span style="font-size: 13px; color: #A0A0AA">{{hint}}</span>
+</div>
+<div style="position: relative; height: 420px">
+<sc-for list="{{boxes}}" as="b" hint-placeholder-count="6">
+<div style="{{b.boxStyle}}">
+<sc-if value="{{b.hasHead}}" hint-placeholder-val="{{ false }}"><button type="button" class="tile" onClick="{{b.pick}}" aria-label="{{b.aria}}" style="{{b.headStyle}}"><span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0">{{b.label}}</span><span style="font-family: 'JetBrains Mono', monospace; flex: none">{{b.size}}</span></button></sc-if>
+<div style="{{b.bodyStyle}}">
+<sc-for list="{{b.tiles}}" as="t" hint-placeholder-count="4">
+<button type="button" class="tile" onClick="{{t.pick}}" aria-pressed="{{t.on}}" aria-label="{{t.aria}}" style="{{t.style}}">
+<span style="{{t.nameStyle}}">{{t.name}}</span>
+<span style="{{t.sizeStyle}}">{{t.size}}</span>
+</button>
+</sc-for>
+</div>
+</div>
+</sc-for>
+</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<section aria-labelledby="tile" style="flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 20px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<span style="font-size: 12px; color: #8A8A94; text-transform: uppercase; letter-spacing: 0.06em">{{sel.group}}</span>
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px">
+<h2 id="tile" style="margin: 0; font-size: 18px; font-weight: 600; overflow-wrap: anywhere">{{sel.name}}</h2>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 15px; white-space: nowrap">{{sel.size}}</span>
+</div>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A0A0AA">{{sel.share}}</span>
+<p style="margin: 0; color: #C9C9D0; line-height: 1.55">{{sel.what}}</p>
+<div style="display: flex; gap: 10px; padding: 12px 14px; border-radius: 8px; background: #0F0F12; border: 1px solid #222228">
+<span style="font-size: 12px; font-weight: 600; color: #8FD6A4; padding-top: 1px">Shrink</span>
+<span style="font-size: 13px; color: #ECECEF; line-height: 1.55">{{sel.shrink}}</span>
+</div>
+</section>
+
+<section aria-labelledby="whatif" style="flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 20px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<h2 id="whatif" style="margin: 0; font-size: 16px; font-weight: 600">What if you…</h2>
+<sc-for list="{{whatifs}}" as="w" hint-placeholder-count="4">
+<button type="button" onClick="{{w.toggle}}" aria-pressed="{{w.on}}" style="{{w.style}}">
+<span style="{{w.boxStyle}}">{{w.mark}}</span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left"><span>{{w.label}}</span><span style="font-size: 12px; color: #8A8A94">{{w.note}}</span></span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #8FD6A4">{{w.saves}}</span>
+</button>
+</sc-for>
+<div style="display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 1px solid #27272E">
+<div style="display: flex; justify-content: space-between"><span style="color: #A0A0AA">Next request would carry</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 18px">{{projected}}</span></div>
+<div role="img" aria-label="{{projAria}}" style="position: relative; height: 8px; border-radius: 4px; background: #27272E; overflow: hidden">
+<div style="position: absolute; inset: 0 auto 0 0; width: 100%; background: #3A3A44"></div>
+<div style="{{projBar}}"></div>
+</div>
+<span style="font-size: 13px; color: #8A8A94; line-height: 1.5">{{projNote}}</span>
+</div>
+</section>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1376,"height":844}}'>
+var ACCENT = '#E8A558';
+var PALETTE = ['#A9C3EE', '#C7B6F2', '#F3C48A', '#8FD6A4', '#9DB7D9', '#D9C7A0', '#B4B4BD'];
+function fk(n) { return DT.fmt.tok(n); }
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+// What each /context category is, in plain words. Keyed by Claude Code's own category names.
+var WHAT = [
+  [/^system prompt/i, 'Claude Code’s own instructions, sent with every request.', 'Fixed by Claude Code. Nothing to trim.'],
+  [/^system tools/i, 'The schemas of the built-in tools (Read, Edit, Bash and the rest).', 'Fixed by Claude Code. Nothing to trim.'],
+  [/^mcp server instructions/i, 'Usage notes that your connected MCP servers add to the prompt.', '/mcp → disable servers you do not use in this project; their notes leave with them.'],
+  [/^mcp tools/i, 'Tool schemas from your connected MCP servers, sent on every request.', 'Disable servers this project does not use (/mcp), or turn on tool search so schemas load only when needed.'],
+  [/^custom agents/i, 'The list of subagent types Claude can start, one entry each.', 'Remove agent definitions you never use from ~/.claude/agents or .claude/agents.'],
+  [/^memory files/i, 'CLAUDE.md and memory files loaded into the prompt.', 'Keep CLAUDE.md short and move project-only notes into the project file instead of the global one.'],
+  [/^skills/i, 'One line per installed skill so Claude knows when to load each. Bodies load only when used.', 'Uninstall skills you never use; each costs its description on every request.'],
+  [/^messages/i, 'Everything said so far: your prompts, Claude’s replies and tool results.', '/clear between tasks drops it. /compact keeps a summary. Read with offset and limit; pipe long command output through a filter.']
+];
+function whatOf(name) { for (var i = 0; i < WHAT.length; i++) if (WHAT[i][0].test(name)) return WHAT[i]; return [null, 'Part of what Claude Code sends with every request.', 'No specific advice for this part.']; }
+
+// Pack items [{id, v}] into a 100x100 box; returns {id: {x, y, w, h}} in percent.
+function squarify(items) {
+  var out = {}, live = items.filter(function (i) { return i.v > 0; }).sort(function (a, b) { return b.v - a.v; });
+  var sum = live.reduce(function (a, i) { return a + i.v; }, 0);
+  if (sum <= 0) return out;
+  var x = 0, y = 0, w = 100, h = 100, scale = w * h / sum, rest = live.map(function (i) { return { id: i.id, a: i.v * scale }; });
+  var worst = function (row, s) { var a = 0, mx = 0, mn = Infinity; row.forEach(function (r) { a += r.a; mx = Math.max(mx, r.a); mn = Math.min(mn, r.a); }); return Math.max(s * s * mx / (a * a), a * a / (s * s * mn)); };
+  while (rest.length) {
+    var s = Math.min(w, h), row = [], best = Infinity, i = 0;
+    while (i < rest.length) { var cand = row.concat([rest[i]]), r = worst(cand, s); if (r <= best) { row = cand; best = r; i++; } else break; }
+    var area = row.reduce(function (a, r) { return a + r.a; }, 0), thick = area / s, pos = 0;
+    row.forEach(function (r) { var len = r.a / thick; out[r.id] = w >= h ? { x: x, y: y + pos, w: thick, h: len } : { x: x + pos, y: y, w: len, h: thick }; pos += len; });
+    if (w >= h) { x += thick; w -= thick; } else { y += thick; h -= thick; }
+    rest = rest.slice(row.length);
+  }
+  return out;
+}
+function pct(r) { return 'left:' + r.x.toFixed(3) + '%;top:' + r.y.toFixed(3) + '%;width:' + r.w.toFixed(3) + '%;height:' + r.h.toFixed(3) + '%;'; }
+
+var VER = -1, DATA = null;
+// Live: /context's latest breakdown (DT.contextTree), with each MCP server drilled into its own tools.
+function build() {
+  if (VER === DT.ver) return DATA; VER = DT.ver; DATA = null;
+  var d = DT.contextTree(); if (!d) return null;
+  var ctx = DT.meta.context || {}, tools = ctx.mcpTools || [], use = {};
+  DT.events.forEach(function (e) { if (e.kind === 'tool' && /^mcp__/.test(e.tool || '')) use[e.tool] = (use[e.tool] || 0) + 1; });
+  var byId = {};
+  var cats = d.tree.map(function (c, ci) {
+    var kids = c.kids.map(function (k) {
+      var n = { id: k.id, name: k.name, v: k.v, st: k.st, note: k.note, cat: c.name, color: PALETTE[ci % PALETTE.length], kids: [] };
+      if (c.name === 'MCP tools') {
+        var srv = k.name.replace(/ · \d+ tools$/, '');
+        n.srv = srv;
+        n.kids = tools.filter(function (t) { return t.server === srv && t.isLoaded !== false && t.tokens > 0; }).map(function (t, i) {
+          var short = String(t.name).split('__').slice(2).join('__') || t.name, u = use[t.name] || 0;
+          return { id: k.id + ':' + i, name: short, v: t.tokens, st: u ? 'keep' : 'cut', note: u ? 'Called ' + u + '× this session' : 'Never called this session', cat: c.name, color: n.color, kids: [], tool: true };
+        });
+      }
+      byId[n.id] = n; return n;
+    });
+    var cn = { id: c.id, name: c.name, v: kids.reduce(function (a, k) { return a + k.v; }, 0), kids: kids, cat: c.name, color: PALETTE[ci % PALETTE.length], isCat: true };
+    kids.forEach(function (k) { k.parent = cn; k.kids.forEach(function (t) { t.parent = k; byId[t.id] = t; }); });
+    byId[cn.id] = cn; return cn;
+  });
+  var total = cats.reduce(function (a, c) { return a + c.v; }, 0);
+  var root = { id: 'root', name: 'All context', v: total, kids: cats, isRoot: true };
+  cats.forEach(function (c) { c.parent = root; });
+  byId.root = root;
+  var model = ctx.model || ((DT.base().mainCalls.slice(-1)[0]) || {}).model || DT.meta.model || '';
+  DATA = { root: root, byId: byId, total: total, window: d.window, percent: d.percent, model: model, at: ctx.at };
+  return DATA;
+}
+function modelName(m) { return DT.fmt.model(m) || 'the model'; }
+function winName(n) { return n >= 1e6 ? (n / 1e6) + 'M' : Math.round(n / 1e3) + 'k'; }
+
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { path: [], sel: null, on: {} }; }
+  renderVals() {
+    var self = this, S = this.state, D = build();
+    if (!D) return { none: true, has: false, lead: 'What every request re-sends right now.', after: '', crumbs: [], boxes: [], whatifs: [], sel: {}, hint: '', projected: '', projAria: '', projBar: '', projNote: '' };
+    var path = S.path.every(function (id) { return D.byId[id]; }) ? S.path : [];
+    var cur = path.length ? D.byId[path[path.length - 1]] : D.root;
+    var node = S.sel && D.byId[S.sel] ? D.byId[S.sel] : null;
+    var go = function (p) { self.setState({ path: p, sel: null }); };
+    var crumb = function (label, cur2, fn) { return { label: label, current: cur2 ? 'page' : 'false', pick: fn, style: 'min-height: 40px; padding: 0 10px; border: 0; border-radius: 6px; cursor: pointer; font-size: 15px; font-weight: 600; background: ' + (cur2 ? '#1D1D22' : 'transparent') + '; color: ' + (cur2 ? '#ECECEF' : '#A0A0AA') }; };
+    var crumbs = [crumb('All context · ' + fk(D.total), !path.length && !node, function () { go([]); })];
+    path.forEach(function (id, i) { var n = D.byId[id]; crumbs.push(crumb(n.name + ' · ' + fk(n.v), i === path.length - 1 && !node, function () { go(path.slice(0, i + 1)); })); });
+    if (node && node !== cur) crumbs.push(crumb(node.name + ' · ' + fk(node.v), true, function () {}));
+    crumbs.forEach(function (c, i) { c.notFirst = i > 0; });
+
+    var TILE = 'position: absolute; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; align-items: flex-start; gap: 2px; padding: 6px 8px; overflow: hidden; border: 0; border-radius: 4px; cursor: pointer; text-align: left; ';
+    var tileOf = function (n, r, parentV) {
+      var on = node === n;
+      return { name: n.name, size: fk(n.v) + (cur.isRoot ? '' : ' · ' + Math.round(n.v / Math.max(1, parentV) * 100) + '%'), on: on ? 'true' : 'false',
+        aria: (n.kids.length ? 'Drill into ' : '') + n.name + ', ' + fk(n.v) + ' tokens',
+        pick: function () { if (n.kids.length) go(path.concat([n.id])); else self.setState({ sel: n.id }); },
+        nameStyle: 'font-size: 12px; font-weight: 600; color: #121214; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis',
+        sizeStyle: "font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #2A2A30",
+        style: TILE + pct(r) + 'background: ' + n.color + '; opacity: ' + (node && !on ? '0.65' : '1') + '; outline-offset: -2px; outline: ' + (on ? '2px solid #ECECEF' : 'none') + '; box-shadow: ' + (n.st === 'cut' ? 'inset 0 0 0 2px ' + ACCENT : 'none') };
+    };
+    var boxes = [];
+    if (cur.isRoot) {
+      var cr = squarify(cur.kids.map(function (c) { return { id: c.id, v: c.v }; }));
+      cur.kids.forEach(function (c) {
+        var r = cr[c.id]; if (!r) return;
+        var kr = squarify(c.kids.map(function (k) { return { id: k.id, v: k.v }; }));
+        boxes.push({ hasHead: true, label: c.name, size: fk(c.v), aria: 'Drill into ' + c.name + ', ' + fk(c.v) + ' tokens', pick: function () { go([c.id]); },
+          boxStyle: 'position: absolute; box-sizing: border-box; padding: 2px; ' + pct(r),
+          headStyle: 'box-sizing: border-box; display: flex; justify-content: space-between; gap: 8px; width: 100%; height: 22px; padding: 0 6px; border: 0; border-radius: 4px; background: transparent; color: #A0A0AA; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; align-items: center; cursor: pointer; overflow: hidden',
+          bodyStyle: 'position: absolute; left: 2px; right: 2px; bottom: 2px; top: 24px',
+          tiles: c.kids.filter(function (k) { return kr[k.id]; }).map(function (k) { return tileOf(k, kr[k.id], c.v); }) });
+      });
+    } else {
+      var rr = squarify(cur.kids.map(function (k) { return { id: k.id, v: k.v }; }));
+      boxes.push({ hasHead: false, boxStyle: 'position: absolute; inset: 0', bodyStyle: 'position: absolute; inset: 0',
+        tiles: cur.kids.filter(function (k) { return rr[k.id]; }).map(function (k) { return tileOf(k, rr[k.id], cur.v); }) });
+      if (!cur.kids.length) boxes = [];
+    }
+
+    // details: the picked part, else the node being viewed
+    var shown = node || cur, wh = whatOf(shown.cat || shown.name), parent = shown.parent;
+    var what, shrink;
+    if (shown.isRoot) {
+      var setup = D.root.kids.filter(function (c) { return !/^messages/i.test(c.name); }).reduce(function (a, c) { return a + c.v; }, 0);
+      what = 'Setup is ' + fk(setup) + ' and the conversation is ' + fk(D.total - setup) + '. The setup is the same on every request; the conversation grows with each turn.';
+      var big = D.root.kids.slice().sort(function (a, b) { return b.v - a.v; })[0];
+      shrink = 'Start with the biggest part, ' + big.name + ' (' + fk(big.v) + '). Click it to see what is inside.';
+    } else if (shown.isCat) {
+      what = wh[1]; shrink = wh[2];
+    } else if (shown.tool) {
+      what = 'A tool schema from the ' + shown.parent.srv + ' MCP server. ' + shown.note + '.';
+      shrink = shown.st === 'cut' ? 'Tool schemas load per server: disable ' + shown.parent.srv + ' with /mcp if you do not need it, or turn on tool search.' : 'In use. Leave it.';
+    } else {
+      what = (shown.note ? cap(shown.note) + '. ' : '') + wh[1]; shrink = shown.st === 'fixed' ? 'Fixed by Claude Code. Nothing to trim.' : shown.st === 'cut' ? wh[2] : (wh[2].indexOf('No specific') === 0 ? 'Nothing to trim here.' : wh[2]);
+      if (shown.kids.length) what += ' Click it to see its ' + shown.kids.length + ' tools.';
+    }
+    var sel = { group: shown.isRoot ? 'All context' : parent ? (parent.isRoot ? 'All context' : parent.name) : '', name: shown.isRoot ? 'What every request re-sends' : shown.name, size: fk(shown.v) + ' tokens',
+      share: shown.isRoot ? Math.round((D.percent || D.total / D.window * 100)) + '% of the window' : Math.round(shown.v / Math.max(1, (parent || D.root).v) * 100) + '% of ' + (parent && !parent.isRoot ? parent.name : 'all context') + ' · ' + (shown.v / Math.max(1, D.total) * 100).toFixed(1) + '% of the total',
+      what: what, shrink: shrink };
+
+    // what-if: only changes whose effect the data shows
+    var msgs = D.root.kids.filter(function (c) { return /^messages/i.test(c.name); }).reduce(function (a, c) { return a + c.v; }, 0);
+    var servers = [];
+    D.root.kids.forEach(function (c) { if (c.name === 'MCP tools') c.kids.forEach(function (k) { if (k.srv) servers.push(k); }); });
+    servers.sort(function (a, b) { return b.v - a.v; });
+    var W = [];
+    if (msgs > 0) {
+      W.push({ id: 'clear', label: '/clear now', note: 'Keeps only the setup; the conversation goes.', saves: msgs, excl: 'compact' });
+      W.push({ id: 'compact', label: '/compact now', note: 'Estimate: a summary is about a tenth of the messages.', saves: Math.round(msgs * 0.9), excl: 'clear' });
+    }
+    servers.slice(0, 4).forEach(function (k) { W.push({ id: 'srv:' + k.id, label: 'Disable MCP ' + k.srv + ' here', note: k.st === 'cut' ? 'Never called this session.' : k.note, saves: k.v }); });
+    var saved = 0;
+    W.forEach(function (w) { if (S.on[w.id]) saved += w.saves; });
+    saved = Math.min(saved, D.total);
+    var proj = D.total - saved;
+    var whatifs = W.map(function (w) {
+      var on = !!S.on[w.id];
+      return { label: w.label, note: w.note, saves: '−' + fk(w.saves), on: on ? 'true' : 'false', mark: on ? '✓' : '',
+        toggle: function () { var o = Object.assign({}, S.on); o[w.id] = !on; if (!on && w.excl) o[w.excl] = false; self.setState({ on: o }); },
+        style: 'display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: #ECECEF; border: 1px solid ' + (on ? '#2C4A38' : '#27272E') + '; background: ' + (on ? '#16241B' : 'transparent'),
+        boxStyle: 'flex: none; display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; font-size: 12px; font-weight: 700; color: #0E0E11; background: ' + (on ? '#5BC27E' : 'transparent') + '; border: 1.5px solid ' + (on ? '#5BC27E' : '#5A5A64') };
+    });
+    var full = Math.round(D.percent || D.total / D.window * 100);
+    return {
+      none: false, has: true,
+      lead: 'What every request re-sends right now: ' + fk(D.total) + ' tokens, ' + full + '% of the ' + winName(D.window) + ' window. The window comes from the model (' + modelName(D.model) + ').',
+      after: D.at ? 'as of ' + new Date(D.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+      crumbs: crumbs, boxes: boxes, sel: sel, whatifs: whatifs,
+      hint: cur.isRoot ? 'Click any tile to drill into it. Orange outlines can be cut.' : cur.kids.some(function (k) { return k.kids.length; }) ? 'Click a tile to drill in or for its details' : 'Click a part for its details',
+      projected: fk(proj), projAria: 'Projected ' + fk(proj) + ' of ' + fk(D.total),
+      projBar: 'position: absolute; inset: 0 auto 0 0; width: ' + (proj / Math.max(1, D.total) * 100).toFixed(1) + '%; background: ' + ACCENT,
+      projNote: !W.length ? 'Nothing here can be changed.' : saved ? 'Saves ' + fk(saved) + ' on every request from here on. Changing the start of the prompt makes the next request rewrite the cache once.' : 'Pick a change to see its effect.'
+    };
+  }
+}
+</script>
+</body>
+</html>

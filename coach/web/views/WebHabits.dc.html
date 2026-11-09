@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Habits view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit}
+</style>
+</helmet>
+<div style="box-sizing: border-box; padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 20px; color: #ECECEF; font-family: Inter, system-ui, sans-serif; font-size: 14px">
+
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">Habits &amp; settings</h1>
+<span style="color: #A0A0AA">How you work with Claude across sessions, and the settings that shape every one of them.</span>
+</div>
+<div role="group" aria-label="Time range" style="display: flex; padding: 3px; border: 1px solid #27272E; border-radius: 8px; background: #16161A">
+<sc-for list="{{ranges}}" as="r" hint-placeholder-count="3">
+<button type="button" onClick="{{r.pick}}" aria-pressed="{{r.on}}" style="{{r.style}}">{{r.label}}</button>
+</sc-for>
+</div>
+</div>
+
+<section aria-labelledby="cmp" style="border: 1px solid #27272E; border-radius: 12px; background: #16161A; overflow: hidden">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 16px 24px; border-bottom: 1px solid #27272E">
+<h2 id="cmp" style="margin: 0; font-size: 16px; font-weight: 600">This session against your usual</h2>
+<span style="font-size: 13px; color: #A0A0AA">{{baseline}}</span>
+</div>
+<sc-if value="{{noCmp}}" hint-placeholder-val="{{ false }}"><div style="padding: 24px; color: #A0A0AA; line-height: 1.55">{{noCmpText}}</div></sc-if>
+<sc-if value="{{hasCmp}}" hint-placeholder-val="{{ true }}">
+<div style="overflow-x: auto">
+<div style="min-width: 640px; font-size: 14px">
+<div style="text-align: left; color: #8A8A94; font-size: 12px; display: grid; grid-template-columns: minmax(180px, 1fr) 140px 140px 200px; align-items: center;">
+<div style="padding: 10px 24px; font-weight: 500">Habit</div>
+<div style="padding: 10px 12px; font-weight: 500; text-align: right">This session</div>
+<div style="padding: 10px 12px; font-weight: 500; text-align: right">Your median</div>
+<div style="padding: 10px 24px 10px 12px; font-weight: 500">Read</div>
+</div>
+<sc-for list="{{habits}}" as="h" hint-placeholder-count="6">
+<div style="border-top: 1px solid #222228; display: grid; grid-template-columns: minmax(180px, 1fr) 140px 140px 200px; align-items: center;">
+<div style="padding: 14px 24px">{{h.name}}</div>
+<div style="padding: 14px 12px; text-align: right; font-family: 'JetBrains Mono', monospace">{{h.now}}</div>
+<div style="padding: 14px 12px; text-align: right; font-family: 'JetBrains Mono', monospace; color: #A0A0AA">{{h.base}}</div>
+<div style="padding: 14px 24px 14px 12px"><span style="{{h.tagStyle}}">{{h.tag}}</span></div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<section aria-labelledby="trend" style="flex: 1 1 440px; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 20px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<h2 id="trend" style="margin: 0; font-size: 16px; font-weight: 600">Read from cache, per session</h2>
+<sc-if value="{{noTrend}}" hint-placeholder-val="{{ false }}"><span style="color: #A0A0AA; line-height: 1.55">A trend needs at least three sessions in this range.</span></sc-if>
+<sc-if value="{{hasTrend}}" hint-placeholder-val="{{ true }}">
+<div role="img" aria-label="{{trendAria}}" style="display: flex; align-items: flex-end; gap: 6px; height: 170px; border-bottom: 1px solid #27272E; padding-bottom: 4px">
+<sc-for list="{{trend}}" as="w" hint-placeholder-count="8">
+<div title="{{w.tip}}" style="flex: 1; min-width: 3px; display: flex; flex-direction: column; justify-content: flex-end"><div style="{{w.style}}"></div></div>
+</sc-for>
+</div>
+<div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8A8A94"><span>{{trendFrom}}</span><span>{{trendTo}}</span></div>
+<div style="display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: #A0A0AA">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #E8A558"></span>This session</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #7AA2E3"></span>Other sessions</span>
+</div>
+</sc-if>
+</section>
+
+<section aria-labelledby="settings" style="flex: 1 1 440px; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 20px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<h2 id="settings" style="margin: 0 0 10px; font-size: 16px; font-weight: 600">Settings that shape every session</h2>
+<sc-for list="{{settings}}" as="s" hint-placeholder-count="6">
+<div style="display: flex; flex-direction: column; gap: 4px; padding: 12px 0; border-top: 1px solid #222228">
+<div style="display: flex; justify-content: space-between; gap: 12px"><span style="font-weight: 500">{{s.name}}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #C9C9D0; text-align: right">{{s.value}}</span></div>
+<span style="{{s.noteStyle}}">{{s.note}}</span>
+</div>
+</sc-for>
+<sc-if value="{{noSettings}}" hint-placeholder-val="{{ false }}"><span style="color: #A0A0AA; line-height: 1.55">Claude Code has not reported this session's setup yet.</span></sc-if>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1376,"height":844}}'>
+var ACCENT = '#E8A558', READ = '#7AA2E3';
+var DAY = 86400000;
+var RANGES = [['7d', '7 days', 7 * DAY, 'the last 7 days'], ['30d', '30 days', 30 * DAY, 'the last 30 days'], ['all', 'All time', Infinity, 'all time']];
+function fk(n) { return DT.fmt.tok(n); }
+function med(a) { if (!a.length) return 0; var x = a.slice().sort(function (p, q) { return p - q; }); var m = x.length >> 1; return x.length % 2 ? x[m] : (x[m - 1] + x[m]) / 2; }
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+// one habit = a number read from a session summary (server.mjs), which direction is good, how to print it
+function per10(n, s) { return n / Math.max(1, s.turns) * 10; }
+var HABITS = [
+  { name: 'Turns before /clear or a new session', get: function (s) { return s.turns; }, good: 'low', fmt: function (v) { return String(Math.round(v)); }, up: 'longer than usual', down: 'shorter than usual' },
+  { name: 'Read from cache', get: function (s) { return s.cacheRead / Math.max(1, s.input) * 100; }, good: 'high', fmt: function (v) { return Math.round(v) + '%'; }, up: 'higher than usual', down: 'lower than usual' },
+  { name: 'Tokens per turn', get: function (s) { return s.input / Math.max(1, s.turns); }, good: 'low', fmt: fk, up: 'heavier than usual', down: 'lighter than usual' },
+  { name: 'Peak context', get: function (s) { return s.peakPercent; }, good: 'low', fmt: function (v) { return Math.round(v) + '%'; }, up: 'fuller than usual', down: 'roomier than usual' },
+  { name: 'Reading done by subagents', get: function (s) { return s.subagentInput / Math.max(1, s.input) * 100; }, good: 'high', fmt: function (v) { return Math.round(v) + '%'; }, up: 'more than usual', down: 'less than usual' },
+  { name: 'Permission prompts per 10 turns', get: function (s) { return per10(s.permissionAsks || 0, s); }, good: 'low', fmt: function (v) { return v.toFixed(1); }, up: 'more than usual', down: 'fewer than usual' },
+  { name: 'Tool failures per 10 turns', get: function (s) { return per10(s.toolFailures || 0, s); }, good: 'low', fmt: function (v) { return v.toFixed(1); }, up: 'more than usual', down: 'fewer than usual' },
+  { name: 'Tool results over 20k tokens', get: function (s) { return (s.toolResults || []).filter(function (x) { return x > 20000; }).length; }, good: 'low', fmt: function (v) { return String(Math.round(v)); }, up: 'more than usual', down: 'fewer than usual' },
+  { name: 'Model switches', get: function (s) { return s.modelSwitches || 0; }, good: 'low', fmt: function (v) { return String(Math.round(v)); }, up: 'more than usual', down: 'fewer than usual' }
+];
+var PILL = 'padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; ';
+var OK = 'font-size: 13px; color: #A0A0AA; line-height: 1.5', WARN = 'font-size: 13px; color: #F3C48A; line-height: 1.5';
+
+class Component extends DCLogic {
+  constructor(props) { super(props); var r = '30d'; try { r = localStorage.getItem('coach.habitRange') || r; } catch (e) {} this.state = { range: r }; }
+  renderVals() {
+    var self = this, R = RANGES.filter(function (x) { return x[0] === this.state.range; }, this)[0] || RANGES[1];
+    var curId = DT.session || DT.current, now = Date.now();
+    var all = DT.sessions.filter(function (s) { return s.calls > 0; });
+    var inRange = all.filter(function (s) { return s.id === curId || (s.start || 0) >= now - R[2]; });
+    var cur = all.filter(function (s) { return s.id === curId; })[0];
+    var others = inRange.filter(function (s) { return s.id !== curId; });
+    var ranges = RANGES.map(function (r) {
+      var on = r[0] === R[0];
+      return { label: r[1], on: on ? 'true' : 'false', pick: function () { try { localStorage.setItem('coach.habitRange', r[0]); } catch (e) {} self.setState({ range: r[0] }); },
+        style: 'min-height: 40px; padding: 0 14px; border: 0; border-radius: 6px; cursor: pointer; font-size: 13px; background: ' + (on ? '#26262D' : 'transparent') + '; color: ' + (on ? '#ECECEF' : '#A0A0AA') };
+    });
+
+    var habits = [], noCmpText = '';
+    if (!cur) noCmpText = 'This session is not in the saved list yet. It is added once Claude Code has logged a model call (the list refreshes every 30 seconds).';
+    else if (!others.length) noCmpText = 'No other session in ' + R[3] + ' to compare with. Try a longer range.';
+    else {
+      habits = HABITS.map(function (h) {
+        var now2 = h.get(cur), m = med(others.map(h.get)), tol = Math.max(Math.abs(m) * 0.1, 0.05);
+        var dir = now2 > m + tol ? 'up' : now2 < m - tol ? 'down' : 'same';
+        var good = dir === 'same' ? null : (dir === 'up') === (h.good === 'high');
+        var tag = dir === 'same' ? 'about usual' : h[dir];
+        return { name: h.name, now: h.fmt(now2), base: h.fmt(m), tag: tag,
+          tagStyle: PILL + (good === null ? 'background: #1D1D22; color: #B4B4BD' : good ? 'background: #16241B; color: #8FD6A4' : 'background: #2A2116; color: #F3C48A') };
+      });
+    }
+
+    // trend: cache read per session in range, oldest first
+    var tl = inRange.slice().sort(function (a, b) { return (a.start || 0) - (b.start || 0); }).slice(-24);
+    var hit = function (s) { return Math.round(s.cacheRead / Math.max(1, s.input) * 100); };
+    var dt = function (s) { return s.start ? new Date(s.start).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''; };
+    var trend = tl.map(function (s) {
+      var nm = (s.cwd || '').split('/').filter(Boolean).pop() || s.id.slice(0, 8);
+      return { tip: dt(s) + ' · ' + nm + ' · ' + hit(s) + '% from cache' + (s.id === curId ? ' (this session)' : ''), style: 'height: ' + Math.max(2, hit(s) / 100 * 164).toFixed(0) + 'px; border-radius: 2px 2px 0 0; background: ' + (s.id === curId ? ACCENT : READ) };
+    });
+
+    // settings: only what Claude Code actually reported for this session
+    var settings = [], B = DT.base(), ctx = DT.meta.context;
+    var last = B.mainCalls.filter(function (e) { return e.model; }).pop();
+    var model = (last && last.model) || (ctx && ctx.model) || DT.meta.model;
+    if (model) settings.push({ name: 'Model', value: DT.fmt.model(model), note: 'Context window ' + (B.window >= 1e6 ? B.window / 1e6 + 'M' : Math.round(B.window / 1e3) + 'k') + ', set by the model.', noteStyle: OK });
+    var eff = {}, en = 0;
+    B.mainCalls.forEach(function (e) { var x = DT.effortOf(e); if (x) { eff[x] = (eff[x] || 0) + 1; en++; } });
+    if (en) {
+      var top = Object.keys(eff).sort(function (a, b) { return eff[b] - eff[a]; });
+      settings.push({ name: 'Effort', value: top[0], note: top.map(function (k) { return k + ' ' + Math.round(eff[k] / en * 100) + '%'; }).join(' · ') + ' of this session’s calls.' + (top[0] === 'max' || top[0] === 'high' ? ' Medium is cheaper for simple edits; raise it for hard work.' : ''), noteStyle: top[0] === 'max' ? WARN : OK });
+    }
+    if (cur && cur.permissionAsks !== undefined) settings.push({ name: 'Permission prompts', value: String(cur.permissionAsks), note: cur.permissionAsks > 5 ? 'Allow the safe, repeated commands in permissions.allow (.claude/settings.json) so they stop asking.' : 'Few interruptions.', noteStyle: cur.permissionAsks > 5 ? WARN : OK });
+    if (ctx) {
+      var tools = ctx.mcpTools || [], srv = {};
+      tools.forEach(function (t) { var x = srv[t.server] = srv[t.server] || { n: 0, tok: 0, loaded: 0 }; x.n++; x.tok += t.tokens; if (t.isLoaded !== false) x.loaded++; });
+      var names = Object.keys(srv);
+      if (names.length) {
+        var tree = DT.contextTree(), unusedTok = 0, unused = 0;
+        if (tree) tree.tree.forEach(function (c) { if (c.name === 'MCP tools') c.kids.forEach(function (k) { if (k.st === 'cut') { unused++; unusedTok += k.v; } }); });
+        var deferred = (ctx.categories || []).some(function (c) { return c.isDeferred; });
+        settings.push({ name: 'MCP servers connected', value: String(names.length), note: unused ? unused + ' loaded server' + (unused > 1 ? 's were' : ' was') + ' never called this session; together ' + fk(unusedTok) + ' tokens on every request.' : 'Every loaded server was used.', noteStyle: unused ? WARN : OK });
+        settings.push({ name: 'Tool search', value: deferred ? 'on' : 'off', note: deferred ? 'MCP tool schemas load only when needed.' : 'Turning it on loads MCP tool schemas only when needed.', noteStyle: deferred ? OK : WARN });
+      }
+      var mem = ctx.memoryFiles || [], memTok = mem.reduce(function (a, f) { return a + f.tokens; }, 0);
+      if (mem.length) settings.push({ name: 'CLAUDE.md and memory', value: fk(memTok) + ' · ' + mem.length + ' file' + (mem.length > 1 ? 's' : ''), note: memTok > 5000 ? 'Heavy: it rides along on every request. Move project-only notes into the project file.' : 'Light enough. Fine.', noteStyle: memTok > 5000 ? WARN : OK });
+      if (ctx.skills && ctx.skills.total) settings.push({ name: 'Skills listed', value: ctx.skills.total + ' · ' + fk(ctx.skills.tokens), note: ctx.skills.tokens > 5000 ? 'Each installed skill costs its description on every request. Uninstall the ones you never use.' : 'A modest list.', noteStyle: ctx.skills.tokens > 5000 ? WARN : OK });
+    }
+    if (DT.meta.cacheTtl) settings.push({ name: 'Cache lifetime', value: DT.meta.cacheTtl, note: 'How long the prompt cache stays warm after each call.', noteStyle: OK });
+    settings.push({ name: 'Billing', value: DT.billing() === 'api' ? 'API' : 'subscription', note: DT.billing() === 'api' ? 'Money is recorded for this session, so dollar costs matter.' : 'Plan usage limits apply; tokens are the number to watch.', noteStyle: OK });
+
+    return {
+      ranges: ranges,
+      baseline: cur ? (others.length ? 'Median of ' + others.length + ' other session' + (others.length > 1 ? 's' : '') + ' in ' + R[3] : '') : '',
+      noCmp: !habits.length, hasCmp: !!habits.length, noCmpText: noCmpText, habits: habits,
+      noTrend: tl.length < 3, hasTrend: tl.length >= 3, trend: trend,
+      trendFrom: tl[0] ? dt(tl[0]) : '', trendTo: tl.length ? dt(tl[tl.length - 1]) : '',
+      trendAria: 'Share of input read from cache in each of ' + tl.length + ' sessions, from ' + (tl[0] ? dt(tl[0]) : '') + ' to ' + (tl.length ? dt(tl[tl.length - 1]) : '') + '.',
+      settings: settings, noSettings: !settings.length
+    };
+  }
+}
+</script>
+</body>
+</html>

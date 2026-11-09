@@ -39,7 +39,7 @@ export type Ev = {
 }
 
 /** A live coach nudge shown above the prompt. */
-export type Nudge = { id: string; text: string; fix: string }
+export type Nudge = { id: string; text: string; fix: string; sev?: 'high' | 'medium' | 'low' }
 
 export type Turn = {
   id: string

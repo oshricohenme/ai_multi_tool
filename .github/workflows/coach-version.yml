@@ -1,0 +1,47 @@
+# Claude Code only updates users when plugin.json's version string changes, so bump it on every
+# push to main that touches coach/.
+name: coach-version
+
+on:
+  push:
+    branches: [main]
+    paths: ['coach/**']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: coach-version
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, '[skip ci]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: bump the patch version
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -eu
+          F=coach/.claude-plugin/plugin.json
+          cur=$(node -p "require('./$F').version")
+          old=$(git show "$BEFORE:$F" 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version" 2>/dev/null || true)
+          if [ -n "$old" ] && [ "$old" != "$cur" ]; then echo "version already changed in this push ($old -> $cur)"; exit 0; fi
+          # edit the one line in place so the file's formatting is kept
+          node -e "
+            const fs=require('fs'),f=process.argv[1];
+            const s=fs.readFileSync(f,'utf8');
+            const n=s.replace(/(\"version\"\s*:\s*\"\d+\.\d+\.)(\d+)\"/,(m,a,b)=>a+(+b+1)+'\"');
+            if(n===s) throw new Error('no version line');
+            fs.writeFileSync(f,n)" "$F"
+          v=$(node -p "require('./$F').version")
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$F"
+          git commit -m "coach v$v [skip ci]"
+          git tag "coach-v$v"
+          git push origin HEAD:main "coach-v$v"

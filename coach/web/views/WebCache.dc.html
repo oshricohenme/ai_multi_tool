@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cache health view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit}
+</style>
+</helmet>
+<div style="box-sizing: border-box; padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 20px; color: #ECECEF; font-family: Inter, system-ui, sans-serif; font-size: 14px">
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">Cache health</h1>
+<span style="color: #A0A0AA">{{lead}}</span>
+</div>
+
+<sc-if value="{{none}}" hint-placeholder-val="{{ false }}">
+<div style="padding: 40px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A; text-align: center; color: #A0A0AA">No model calls yet. Cache health appears after the first reply.</div>
+</sc-if>
+
+<sc-if value="{{has}}" hint-placeholder-val="{{ true }}">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+<div style="{{ttl.style}}">
+<span style="{{ttl.labelStyle}}">{{ttl.label}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 30px; font-weight: 500">{{ttl.value}}</span>
+<div role="img" aria-label="{{ttl.aria}}" style="{{ttl.trackStyle}}"><div style="{{ttl.fillStyle}}"></div></div>
+<span style="color: #C9C9D0; font-size: 13px; line-height: 1.5">{{ttl.note}}</span>
+</div>
+<sc-for list="{{kpis}}" as="k" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 18px 20px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<span style="color: #A0A0AA; font-size: 13px">{{k.label}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 30px; font-weight: 500">{{k.value}}</span>
+<span style="color: #8A8A94; font-size: 13px">{{k.note}}</span>
+</div>
+</sc-for>
+</div>
+
+<section aria-labelledby="perturn" style="display: flex; flex-direction: column; gap: 14px; padding: 20px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px">
+<h2 id="perturn" style="margin: 0; font-size: 16px; font-weight: 600">Read vs written, per turn</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: #A0A0AA">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #7AA2E3"></span>Read from cache</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #E8A558"></span>Written to cache</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #5A5A64"></span>Not cached</span>
+</div>
+</div>
+<div role="img" aria-label="{{chartAria}}" style="display: flex; align-items: flex-end; gap: 2px; height: 180px; border-bottom: 1px solid #27272E; padding-bottom: 4px">
+<sc-for list="{{bars}}" as="b" hint-placeholder-count="38">
+<div title="{{b.tip}}" style="flex: 1; min-width: 2px; display: flex; flex-direction: column; justify-content: flex-end; gap: 1px">
+<div style="{{b.freshStyle}}"></div>
+<div style="{{b.writeStyle}}"></div>
+<div style="{{b.readStyle}}"></div>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8A8A94"><span>turn {{firstTurn}}</span><span>{{lastTurn}}</span></div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<section aria-labelledby="breakers" style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 20px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<h2 id="breakers" style="margin: 0 0 10px; font-size: 16px; font-weight: 600">Cache breakers this session</h2>
+<sc-for list="{{breakers}}" as="k" hint-placeholder-count="3">
+<div style="display: flex; gap: 14px; padding: 12px 0; border-top: 1px solid #222228">
+<span style="width: 64px; flex: none; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A0A0AA; padding-top: 2px">{{k.at}}</span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; justify-content: space-between; gap: 8px"><span style="font-weight: 600">{{k.what}}</span><span style="{{k.tagStyle}}">{{k.tag}}</span></div>
+<span style="color: #A0A0AA; font-size: 13px; line-height: 1.5">{{k.detail}}</span>
+</div>
+</div>
+</sc-for>
+<sc-if value="{{noBreakers}}" hint-placeholder-val="{{ false }}"><span style="color: #A0A0AA; padding: 8px 0">Nothing has broken the cache.</span></sc-if>
+<sc-if value="{{moreBreakers}}" hint-placeholder-val="{{ false }}"><button type="button" onClick="{{toggleAll}}" style="align-self: flex-start; min-height: 40px; padding: 0 12px; border: 1px solid #27272E; border-radius: 8px; background: transparent; color: #A0A0AA; cursor: pointer">{{allLabel}}</button></sc-if>
+</section>
+
+<section aria-labelledby="gaps" style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 20px 24px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<h2 id="gaps" style="margin: 0; font-size: 16px; font-weight: 600">Time between your calls</h2>
+<sc-for list="{{gaps}}" as="g" hint-placeholder-count="4">
+<div style="display: flex; align-items: center; gap: 12px">
+<span style="width: 110px; flex: none; font-size: 13px; color: #C9C9D0">{{g.label}}</span>
+<div style="flex: 1; height: 18px; border-radius: 3px; background: #1F1F25; overflow: hidden"><div style="{{g.barStyle}}"></div></div>
+<span style="width: 36px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 13px">{{g.n}}</span>
+</div>
+</sc-for>
+<p style="margin: 0; padding-top: 12px; border-top: 1px solid #27272E; color: #A0A0AA; font-size: 13px; line-height: 1.5">{{gapNote}}</p>
+</section>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1376,"height":844}}'>
+var ACCENT = '#E8A558', READ = '#7AA2E3', MONEY = '#F0625A';
+function fk(n) { return DT.fmt.tok(n); }
+function fdur(ms) { return DT.fmt.dur(ms); }
+function mmss(s) { s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+var TAG_PLAIN = 'padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; white-space: nowrap; background: #1D1D22; color: #B4B4BD';
+var TAG_AMBER = 'padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; white-space: nowrap; background: #2A2116; color: #F3C48A';
+var TAG_MONEY = 'padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; white-space: nowrap; background: #3A1E18; color: #F6A48E';
+var WHAT = { ttl: 'Cache expired', model: 'Model switched', sys: 'System prompt changed', cleanup: 'Old tool results cleared', compact: 'Compaction' };
+
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { all: false, tick: 0 }; }
+  componentDidMount() { var self = this; this.timer = setInterval(function () { self.setState({ tick: self.state.tick + 1 }); }, 1000); }
+  componentWillUnmount() { clearInterval(this.timer); }
+  renderVals() {
+    var self = this, d = DT.cache(), B = DT.base(), rows = d.calls;
+    if (!rows.length) return { none: true, has: false, lead: '', ttl: {}, kpis: [], bars: [], breakers: [], gaps: [] };
+    var TTL = DT.meta.cacheTtl === '1h' ? 3600 : 300, TTLN = TTL === 3600 ? 'an hour' : '5 minutes';
+    var calls = B.mainCalls.filter(function (e) { return e.end; });
+    var DL = DT.deltas().byCall;
+    var tot = 0, read = 0;
+    rows.forEach(function (r) { tot += r.inp + r.cr + r.cw; read += r.cr; });
+    // gap before each call = time since the previous call finished
+    var gapOf = {}, gaps = [];
+    calls.forEach(function (e, i) { if (!i) return; var g = (e.start - (calls[i - 1].end || calls[i - 1].start)) / 1000; gapOf[e.id] = g; gaps.push(g); });
+    var close = gaps.filter(function (g) { return g >= TTL - 30 && g < TTL; }).length;
+    var breaks = rows.filter(function (r) { return r.brk; });
+
+    // countdown tile
+    var last = calls[calls.length - 1], idle = DT.live && last ? (Date.now() - (last.end || last.start)) / 1000 : null;
+    var left = idle === null ? null : Math.max(0, TTL - idle);
+    var lastIn = rows[rows.length - 1].cr + rows[rows.length - 1].cw;
+    var ttl;
+    if (left === null) ttl = { label: 'Cache lifetime', value: TTLN, aria: 'Past session', pct: 0, note: 'This is a past session, so there is no live countdown. A cache lives ' + TTLN + ' after each call' + (DT.meta.cacheTtl ? '.' : ' (the default; Claude Code reports yours on a model switch).') };
+    else if (left > 0) ttl = { label: 'Cache expires in', value: mmss(left), pct: left / TTL * 100, aria: Math.round(left / TTL * 100) + ' percent of the ' + TTLN + ' lifetime left', note: 'Reply before then and the next turn reads ' + fk(lastIn) + ' from cache.' };
+    else ttl = { label: 'Cache expired', value: '0:00', pct: 0, aria: 'Expired', note: 'The next call rewrites about ' + fk(lastIn) + ' at the cache-write price. It expired ' + fdur((idle - TTL) * 1000) + ' ago.' };
+    var warm = left !== null && left > 0;
+    ttl.style = 'display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; border-radius: 12px; border: 1px solid ' + (warm ? '#4A3A22' : '#27272E') + '; background: ' + (warm ? '#1E1912' : '#16161A');
+    ttl.labelStyle = 'font-size: 13px; color: ' + (warm ? '#F3C48A' : '#A0A0AA');
+    ttl.trackStyle = 'height: 6px; border-radius: 3px; background: #3A2E1E; overflow: hidden';
+    ttl.fillStyle = 'width: ' + ttl.pct.toFixed(1) + '%; height: 6px; background: ' + ACCENT;
+
+    // per turn
+    var by = {}, order = [];
+    rows.forEach(function (r) { var t = by[r.turn]; if (!t) { t = by[r.turn] = { turn: r.turn, cr: 0, cw: 0, inp: 0 }; order.push(t); } t.cr += r.cr; t.cw += r.cw; t.inp += r.inp; });
+    var max = Math.max.apply(null, order.map(function (t) { return t.cr + t.cw + t.inp; }).concat([1])), H = 176;
+    var bars = order.map(function (t) {
+      return { tip: 'Turn ' + t.turn + ' · read ' + fk(t.cr) + ' · written ' + fk(t.cw) + ' · not cached ' + fk(t.inp),
+        freshStyle: 'height: ' + (t.inp ? Math.max(1, t.inp / max * H).toFixed(1) : 0) + 'px; background: #5A5A64; border-radius: 2px 2px 0 0',
+        writeStyle: 'height: ' + (t.cw ? Math.max(2, t.cw / max * H).toFixed(1) : 0) + 'px; background: ' + ACCENT,
+        readStyle: 'height: ' + (t.cr / max * H).toFixed(1) + 'px; background: ' + READ + '; opacity: 0.85' };
+    });
+    var firstW = order[0] && order[0].cw;
+
+    // breakers: expiries and prefix breaks (with the gap that caused them), close calls, the first write
+    var list = [];
+    rows.forEach(function (r, i) {
+      var e = calls[i], dl = (e && DL.get(e.id)) || {}, gap = gapOf[r.id];
+      var gtxt = gap !== undefined ? ' Gap since the previous call: ' + fdur(gap * 1000) + '.' : '';
+      if (r.brk) {
+        var lost = dl.cacheLost || r.cw;
+        list.push({ i: i, at: 'turn ' + r.turn, what: WHAT[r.brk] || 'Prefix changed', tag: r.brk === 'compact' ? 'expected' : 'rebuilt ' + fk(lost), tagStyle: r.brk === 'compact' ? TAG_PLAIN : TAG_MONEY, detail: r.cause + '.' + gtxt + ' ' + (r.fix || '') });
+      } else if (gap !== undefined && gap >= TTL - 30 && gap < TTL) {
+        list.push({ i: i, at: 'turn ' + r.turn, what: 'Close call', tag: Math.round(TTL - gap) + 's to spare', tagStyle: TAG_AMBER, detail: fdur(gap * 1000) + ' since the previous call, against a ' + TTLN + ' lifetime. Nothing was lost.' });
+      } else if (r.first) {
+        list.push({ i: i, at: 'turn ' + r.turn, what: 'First write', tag: 'expected', tagStyle: TAG_PLAIN, detail: 'Every session pays once to put its setup in the cache (' + fk(r.cw) + ' written).' });
+      }
+    });
+    list.sort(function (a, b) { return b.i - a.i; });
+    var shown = this.state.all ? list : list.slice(0, 8);
+
+    // histogram: edges scale with the cache lifetime
+    var E = TTL === 3600 ? [300, 1200, 3600] : [60, 180, 300];
+    var lbl = function (s) { return s < 3600 ? s / 60 + ' min' : s / 3600 + ' h'; };
+    var labels = ['under ' + lbl(E[0]), lbl(E[0]).replace(' min', '') + ' to ' + lbl(E[1]), lbl(E[1]).replace(' min', '') + ' to ' + lbl(E[2]), 'over ' + lbl(E[2])];
+    var cnt = [0, 0, 0, 0];
+    gaps.forEach(function (g) { cnt[g < E[0] ? 0 : g < E[1] ? 1 : g < E[2] ? 2 : 3]++; });
+    var colors = [READ, READ, ACCENT, MONEY], mx = Math.max.apply(null, cnt.concat([1]));
+    var gapRows = cnt.map(function (n, i) { return { label: labels[i], n: String(n), barStyle: 'height: 18px; width: ' + (n / mx * 100).toFixed(0) + '%; background: ' + colors[i] }; });
+    var over = cnt[3];
+
+    return {
+      none: false, has: true,
+      lead: 'The cache keeps your prompt prefix warm for ' + TTLN + ' after each call. Each call that reads it is cheap; a break rewrites it.',
+      ttl: ttl,
+      kpis: [
+        { label: 'Read from cache', value: Math.round(read / Math.max(1, tot) * 100) + '%', note: fk(read) + ' of ' + fk(tot) + ' tokens' },
+        { label: 'Rebuilds', value: String(breaks.length), note: 'plus the first write' + (rows[0] ? ' at turn ' + rows[0].turn : '') },
+        { label: 'Close calls', value: String(close), note: 'gaps within 30s of expiry' }
+      ],
+      bars: bars, chartAria: 'Tokens read, written and not cached per turn, across ' + order.length + ' turns. ' + (firstW ? 'The first turn writes ' + fk(firstW) + '. ' : '') + breaks.length + ' rebuilds.',
+      firstTurn: order[0].turn, lastTurn: String(order[order.length - 1].turn),
+      breakers: shown, noBreakers: !list.length, moreBreakers: list.length > 8, allLabel: this.state.all ? 'Show fewer' : 'Show all ' + list.length,
+      toggleAll: function () { self.setState({ all: !self.state.all }); },
+      gaps: gapRows,
+      gapNote: !gaps.length ? 'Only one call so far.' : over ? over + ' gap' + (over > 1 ? 's were' : ' was') + ' longer than the cache lifetime, so ' + (over > 1 ? 'those calls' : 'that call') + ' started cold. Before a long break, /compact first so the rebuild is small.' : 'No gap outlived the cache. Keep it that way: before a break longer than ' + TTLN + ', /compact first so a rebuild is small.'
+    };
+  }
+}
+</script>
+</body>
+</html>

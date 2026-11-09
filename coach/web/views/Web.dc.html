@@ -9,43 +9,37 @@
 <x-dc>
 <helmet>
 <style>
-body{margin:0;background:#0e0e10}
+body{margin:0;background:#0E0E11}
 a{color:#93a9c8}a:hover{color:#c3d1e6}
 button,input,select{font:inherit}
 .pal-row:hover{background:#1d1d23}
 </style>
 </helmet>
-<div style="min-height: 900px; height: 100vh; display: flex; flex-direction: column; background: #0e0e10; color: #e4e4e8; font-family: Inter, system-ui, sans-serif; font-size: 13px">
+<div style="min-height: 900px; height: 100vh; display: flex; flex-direction: column; background: #0E0E11; color: #ECECEF; font-family: Inter, system-ui, sans-serif; font-size: 13px">
 
-<header style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; min-height: 56px; box-sizing: border-box; padding: 8px 16px; border-bottom: 1px solid #222226; background: #121214">
-<div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap">
-<div style="display: flex; align-items: center; gap: 8px; font-weight: 600">
-<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e2a557" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l5-5-5-5"></path><path d="M12 19h8"></path></svg>
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 24px; border-bottom: 1px solid #27272E; background: #121215">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; min-width: 0">
+<div style="display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#E8A558" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l5-5-5-5"></path><path d="M12 19h8"></path></svg>
 Claude coach</div>
-<span style="width: 1px; height: 20px; background: #2a2a30"></span>
-<label style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 1px solid #2a2a30; border-radius: 8px; background: #18181b">
-<span style="color: #8b8b94">Session</span>
-<select ref="{{sessionRef}}" onChange="{{onSession}}" aria-label="Session" style="max-width: 320px; border: 0; outline: 0; background: transparent; color: #e4e4e8"></select>
-</label>
-<span style="max-width: 360px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8b8b94">{{metaLine}}</span>
+<button type="button" onClick="{{openSessions}}" title="Switch session" aria-label="Switch session: all sessions" style="display: flex; align-items: center; gap: 10px; height: 36px; max-width: 460px; padding: 0 12px; border: 1px solid #27272E; border-radius: 8px; background: #16161A; color: #ECECEF; cursor: pointer"><span style="{{swDot}}"></span><span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis">{{swTitle}}</span><span style="flex: none; color: #8A8A94; font-size: 12px">{{swCount}}</span><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8A8A94" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+<span style="max-width: 460px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A0A0AA">{{metaLine}}</span>
 </div>
-<div style="display: flex; align-items: center; gap: 10px">
-<sc-if value="{{hasLimit}}" hint-placeholder-val="{{ false }}"><span title="{{limitTitle}}" style="display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border-radius: 999px; background: #18181b; border: 1px solid #2a2a30; font-size: 12px; color: #9a9aa3">{{limitLabel}}<span style="width: 56px; height: 5px; border-radius: 3px; background: #26262c; overflow: hidden"><span style="{{limitFill}}"></span></span><span style="{{limitPctStyle}}">{{limitPct}}</span></span></sc-if>
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+<sc-if value="{{hasLimit}}" hint-placeholder-val="{{ false }}"><span title="{{limitTitle}}" style="display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border-radius: 999px; background: #16161A; border: 1px solid #27272E; font-size: 12px; color: #A0A0AA">{{limitLabel}}<span style="width: 56px; height: 5px; border-radius: 3px; background: #27272E; overflow: hidden"><span style="{{limitFill}}"></span></span><span style="{{limitPctStyle}}">{{limitPct}}</span></span></sc-if>
 <span style="{{pillStyle}}"><span style="{{pillDot}}"></span>{{pillText}}</span>
-<button type="button" onClick="{{cycleTheme}}" aria-label="{{themeAria}}" title="{{themeAria}}" style="display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid #2a2a30; border-radius: 8px; background: #18181b; color: #9a9aa3; cursor: pointer"><span style="font-size: 14px; color: #e2a557">{{themeGlyph}}</span>{{themeLabel}}</button>
-<button type="button" onClick="{{openPalette}}" style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border: 1px solid #2a2a30; border-radius: 8px; background: #18181b; color: #9a9aa3; cursor: pointer">
+<button type="button" onClick="{{cycleTheme}}" aria-label="{{themeAria}}" title="{{themeAria}}" style="display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px; border: 1px solid #27272E; border-radius: 8px; background: #16161A; color: #A0A0AA; cursor: pointer"><span style="font-size: 14px; color: #E8A558">{{themeGlyph}}</span>{{themeLabel}}</button>
+<button type="button" onClick="{{openPalette}}" style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border: 1px solid #27272E; border-radius: 8px; background: #16161A; color: #A0A0AA; cursor: pointer">
 <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
-Search<span style="padding: 1px 6px; border: 1px solid #2a2a30; border-radius: 4px; font-size: 11px">⌘K</span></button>
+Search<span style="padding: 1px 6px; border: 1px solid #27272E; border-radius: 4px; font-size: 11px; font-family: 'JetBrains Mono', monospace">⌘K</span></button>
 </div>
 </header>
 
 <div style="display: flex; flex-wrap: wrap; flex: 1; min-height: 0">
-<nav aria-label="Views" style="display: flex; flex-direction: column; gap: 4px; flex: 1 1 64px; max-width: 64px; box-sizing: border-box; padding: 10px 8px; border-right: 1px solid #222226; background: #121214">
-<sc-for list="{{views}}" as="v" hint-placeholder-count="5">
-<button type="button" onClick="{{v.pick}}" aria-label="{{v.label}}" title="{{v.label}}" style="{{v.style}}">
-<span style="{{v.iconStyle}}">{{v.glyph}}</span>
-<span style="font-size: 10px">{{v.short}}</span>
-</button>
+<nav aria-label="Views" style="flex: 1 1 200px; max-width: 220px; box-sizing: border-box; padding: 16px 12px; border-right: 1px solid #27272E; background: #121215; display: flex; flex-direction: column; flex-wrap: wrap; gap: 2px; overflow-y: auto">
+<sc-for list="{{menu}}" as="m" hint-placeholder-count="12">
+<sc-if value="{{m.isHead}}" hint-placeholder-val="{{ false }}"><span style="padding: 16px 12px 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #8A8A94">{{m.label}}</span></sc-if>
+<sc-if value="{{m.isItem}}" hint-placeholder-val="{{ true }}"><button type="button" onClick="{{m.pick}}" aria-current="{{m.current}}" style="{{m.style}}"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{{m.stroke}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="{{m.d}}"></path></svg><span style="flex: 1; text-align: left">{{m.label}}</span><sc-if value="{{m.badge}}" hint-placeholder-val="{{ false }}"><span style="min-width: 20px; padding: 1px 7px; border-radius: 999px; background: #1D2A20; color: #8FD6A4; font-size: 12px; text-align: center">{{m.badge}}</span></sc-if></button></sc-if>
 </sc-for>
 </nav>
 <main style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; overflow: auto">
@@ -56,6 +50,7 @@ Search<span style="padding: 1px 6px; border: 1px solid #2a2a30; border-radius: 4
 <span style="max-width: 460px; line-height: 1.5">{{waitText}}</span>
 </div>
 </sc-if>
+<sc-if value="{{isSessions}}" hint-placeholder-val="{{ false }}"><dc-import name="WebSessions" hint-size="100%,844px"></dc-import></sc-if>
 <sc-if value="{{isTokens}}" hint-placeholder-val="{{ false }}"><dc-import name="WebTokens" hint-size="100%,844px"></dc-import></sc-if>
 <sc-if value="{{isTurns}}" hint-placeholder-val="{{ false }}"><dc-import name="WebTurns" hint-size="100%,844px"></dc-import></sc-if>
 <sc-if value="{{isTimeline}}" hint-placeholder-val="{{ true }}"><dc-import name="WebTimeline" hint-size="100%,844px"></dc-import></sc-if>
@@ -95,16 +90,25 @@ Search<span style="padding: 1px 6px; border: 1px solid #2a2a30; border-radius: 4
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
-var VIEWS = [
-  { id: 'tokens', label: 'Where your tokens go', short: 'Tokens', glyph: '◧' },
-  { id: 'turns', label: 'Turns: every prompt and response, classified', short: 'Turns', glyph: '¶' },
-  { id: 'timeline', label: 'Timeline', short: 'Trace', glyph: '≋' },
-  { id: 'context', label: 'Context X-ray', short: 'Context', glyph: '▤' },
-  { id: 'cache', label: 'Cache health', short: 'Cache', glyph: '◔' },
-  { id: 'agents', label: 'Subagents', short: 'Agents', glyph: '⑂' },
-  { id: 'habits', label: 'Habits & settings', short: 'Habits', glyph: '↗' },
-  { id: 'signals', label: 'Signals: every event, interpreted', short: 'Signals', glyph: '⚡' },
-  { id: 'coach', label: 'Coach: best-practice checks', short: 'Coach', glyph: '✓' }
+var I = {
+  sessions: 'M4.5 4h15a1.5 1.5 0 0 1 1.5 1.5v2A1.5 1.5 0 0 1 19.5 9h-15A1.5 1.5 0 0 1 3 7.5v-2A1.5 1.5 0 0 1 4.5 4zM4.5 11h15a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 14.5v-2A1.5 1.5 0 0 1 4.5 11zM6 20h12',
+  tokens: 'M4.5 3h4A1.5 1.5 0 0 1 10 4.5v4A1.5 1.5 0 0 1 8.5 10h-4A1.5 1.5 0 0 1 3 8.5v-4A1.5 1.5 0 0 1 4.5 3zM15.5 3h4A1.5 1.5 0 0 1 21 4.5v4a1.5 1.5 0 0 1-1.5 1.5h-4A1.5 1.5 0 0 1 14 8.5v-4A1.5 1.5 0 0 1 15.5 3zM4.5 14h4A1.5 1.5 0 0 1 10 15.5v4A1.5 1.5 0 0 1 8.5 21h-4A1.5 1.5 0 0 1 3 19.5v-4A1.5 1.5 0 0 1 4.5 14zM15.5 14h4a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a1.5 1.5 0 0 1-1.5-1.5v-4a1.5 1.5 0 0 1 1.5-1.5z',
+  coach: 'M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M8 12l3 3 5-6',
+  timeline: 'M4 6h8M8 12h11M6 18h7',
+  turns: 'M4 5h16v11H9l-5 4z',
+  context: 'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5',
+  cache: 'M5 6a7 3 0 1 0 14 0a7 3 0 1 0-14 0M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6',
+  agents: 'M4 6a2 2 0 1 0 4 0a2 2 0 1 0-4 0M4 18a2 2 0 1 0 4 0a2 2 0 1 0-4 0M16 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0M6 8v8M8 6c5 0 8 2 8 6',
+  habits: 'M3 17l6-6 4 4 8-8M15 7h6v6',
+  signals: 'M13 3L5 14h6l-1 7 8-11h-6z'
+};
+var MENU = [
+  { id: 'sessions', label: 'All sessions' },
+  { head: 'This session' },
+  { id: 'tokens', label: 'Overview' }, { id: 'coach', label: 'Coach' }, { id: 'timeline', label: 'Trace' },
+  { id: 'turns', label: 'Turns' }, { id: 'context', label: 'Context' }, { id: 'cache', label: 'Cache' }, { id: 'agents', label: 'Subagents' },
+  { head: 'Across sessions' },
+  { id: 'habits', label: 'Habits' }, { id: 'signals', label: 'Signals' }
 ];
 var BADGE = { system: 'SYSTEM', context: 'CONTEXT', user: 'USER', assistant: 'CALL', tool: 'TOOL', compact: 'COMPACT' };
 function short(s, n) { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
@@ -139,11 +143,14 @@ class Component extends DCLogic {
     var self = this, S = this.state, v = S.view, B = DT.base();
     var hasEvents = DT.events.length > 0, hasCalls = B.calls.some(function (e) { return e.end; });
     var waiting = null;
-    if (!DT.connected && !hasEvents) waiting = ['◌', 'Waiting for the mod', 'The page reads from the dev-tools mod running in Claude Code. Keep it open: it reconnects by itself.'];
-    else if (!hasCalls && v !== 'habits' && v !== 'signals' && v !== 'coach' && v !== 'turns') waiting = ['◔', 'Nothing to show yet', 'Send Claude a prompt. The first model call appears here as it streams.'];
+    if (v === 'sessions') waiting = null;
+    else if (!DT.connected && !hasEvents) waiting = ['◌', 'Waiting for the mod', 'The page reads from the dev-tools mod running in Claude Code. Keep it open: it reconnects by itself.'];
+    else if (!hasCalls && v !== 'sessions' && v !== 'habits' && v !== 'signals' && v !== 'coach' && v !== 'turns') waiting = ['◔', 'Nothing to show yet', 'Send Claude a prompt. The first model call appears here as it streams.'];
     else if (v === 'context' && !DT.contextTree()) waiting = ['▤', 'No context breakdown yet', 'It arrives when the current turn completes.'];
     else if (v === 'habits' && !DT.habits()) waiting = ['↗', 'No sessions with model calls yet', 'Habits compare this session with your earlier ones, kept in ~/.claude/dev-tools.'];
-    var ctx = DT.meta.context, model = (B.calls[B.calls.length - 1] || {}).model || (ctx && ctx.model) || '';
+    var cur = DT.sessions.find(function (x) { return x.id === DT.session; });
+    var liveN = DT.sessions.filter(function (x) { return x.live; }).length;
+    var ctx = DT.meta.context, model = DT.fmt.model((B.calls[B.calls.length - 1] || {}).model || (ctx && ctx.model) || '');
     var rl = (DT.meta.limits && DT.meta.limits.rateLimits) || [], lim = rl.slice().sort(function (a, b) { return b.percentUsed - a.percentUsed; })[0];
     var rows = S.palette ? this.matches() : [];
     var idx = Math.min(S.palIdx, Math.max(0, rows.length - 1));
@@ -153,31 +160,18 @@ class Component extends DCLogic {
       self.setView('timeline');
     };
     return {
-      sessionRef: function (el) {
-        if (!el) return;
-        el.__keepChildren = true;
-        var key = DT.sessions.map(function (s) { return s.id + s.usd; }).join(',') + '|' + DT.session;
-        if (el.__key === key) return; el.__key = key;
-        el.innerHTML = '';
-        var list = DT.sessions.length ? DT.sessions : [{ id: DT.current || 'live', cwd: DT.meta.cwd }];
-        list.forEach(function (s) {
-          var o = document.createElement('option'); o.value = s.id;
-          var name = (s.cwd || '').split('/').filter(Boolean).pop() || s.id.slice(0, 8);
-          var when = s.start ? new Date(s.start).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-          o.textContent = name + (when ? ' · ' + when : '') + (s.id === DT.current ? ' · live' : '') + (s.usd ? ' · $' + s.usd.toFixed(2) : '');
-          if (s.id === DT.session) o.selected = true;
-          el.appendChild(o);
-        });
-      },
-      onSession: function (ev) { DT.pick(ev.target.value); },
+      openSessions: function () { self.setView('sessions'); },
+      swDot: 'width: 8px; height: 8px; flex: none; border-radius: 50%; background: ' + (cur && cur.live ? '#5BC27E' : '#7C7C86'),
+      swTitle: cur && cur.title ? cur.title : (DT.meta.cwd || '').split('/').filter(Boolean).pop() || 'Session',
+      swCount: cur && cur.live ? liveN + ' live' : 'past session',
       hasLimit: !!lim, limitLabel: lim ? ({ five_hour: '5-hour limit', seven_day: '7-day limit' }[lim.kind] || lim.kind + ' limit') : '', limitPct: lim ? Math.round(lim.percentUsed) + '%' : '',
       limitTitle: lim ? (DT.meta.limits.rateLimits.map(function (r) { return r.kind + ' ' + Math.round(r.percentUsed) + '%' + (r.resetsAt ? ', resets ' + new Date(r.resetsAt).toLocaleString() : ''); }).join(' · ')) : '',
       limitFill: lim ? 'display: block; height: 100%; width: ' + Math.min(100, lim.percentUsed) + '%; background: ' + (lim.percentUsed > 80 ? '#f2703f' : lim.percentUsed > 50 ? '#e2a557' : '#6fd3b4') : '',
       limitPctStyle: "font-family: 'JetBrains Mono', monospace; font-weight: 700; color: " + (lim && lim.percentUsed > 80 ? '#f2703f' : '#e4e4e8'),
-      metaLine: [model, (DT.meta.cwd || '').replace(/^\/Users\/[^/]+/, '~')].filter(Boolean).join(' · '),
+      metaLine: [(DT.meta.cwd || '').replace(/^\/Users\/[^/]+/, '~'), model, (B.turnNo.size ? B.turnNo.size + ' turns' : '')].filter(Boolean).join(' · '),
       pillText: !DT.live ? 'Past session · read only' : DT.connected ? 'Live · mod connected' : 'Reconnecting…',
-      pillStyle: 'display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12px; background: ' + (!DT.live ? '#1f1f24' : DT.connected ? '#163029' : '#3d2116') + '; color: ' + (!DT.live ? '#9a9aa3' : DT.connected ? '#6fd3b4' : '#f2703f'),
-      pillDot: 'width: 7px; height: 7px; border-radius: 50%; background: ' + (!DT.live ? '#6e6e78' : DT.connected ? '#6fd3b4' : '#f2703f'),
+      pillStyle: 'display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12px; background: ' + (!DT.live ? '#1f1f24' : DT.connected ? '#16241B' : '#3A2A16') + '; color: ' + (!DT.live ? '#9a9aa3' : DT.connected ? '#8FD6A4' : '#F3C48A'),
+      pillDot: 'width: 7px; height: 7px; border-radius: 50%; background: ' + (!DT.live ? '#6e6e78' : DT.connected ? '#8FD6A4' : '#F3C48A'),
       themeGlyph: { system: '◐', light: '☀', dark: '☾' }[DT.theme()], themeLabel: { system: 'System', light: 'Light', dark: 'Dark' }[DT.theme()],
       themeAria: 'Theme: ' + DT.theme() + ' (click to change)',
       cycleTheme: function () { DT.setTheme({ system: 'light', light: 'dark', dark: 'system' }[DT.theme()]); },
@@ -206,17 +200,18 @@ class Component extends DCLogic {
           meta: (turn ? 'T' + turn + ' · ' : '') + '+' + ((e.start - B.t0) / 1000).toFixed(1) + 's'
         };
       }),
-      views: VIEWS.map(function (x) {
+      menu: MENU.map(function (x) {
+        if (x.head) return { isHead: true, isItem: false, label: x.head };
         var on = x.id === v;
         return {
-          label: x.label, short: x.short, glyph: x.glyph,
+          isHead: false, isItem: true, label: x.label, d: I[x.id], current: on ? 'page' : null, stroke: on ? '#E8A558' : 'currentColor',
+          badge: x.id === 'sessions' && liveN ? String(liveN) : '',
           pick: function () { self.setView(x.id); },
-          style: 'display: flex; flex-direction: column; align-items: center; gap: 2px; width: 48px; height: 48px; justify-content: center; border: 0; border-radius: 10px; cursor: pointer; background: ' + (on ? '#26262c' : 'transparent') + '; color: ' + (on ? '#f4f4f6' : '#8b8b94'),
-          iconStyle: 'font-size: 17px; line-height: 1; color: ' + (on ? '#e2a557' : '#8b8b94')
+          style: 'display: flex; align-items: center; gap: 12px; width: 100%; min-height: 40px; padding: 0 12px; border: 0; border-radius: 8px; cursor: pointer; font-size: 14px; background: ' + (on ? '#1D1D22' : 'transparent') + '; color: ' + (on ? '#ECECEF' : '#A0A0AA') + (on ? '; font-weight: 500' : '')
         };
       }),
       waiting: !!waiting, waitGlyph: waiting ? waiting[0] : '', waitTitle: waiting ? waiting[1] : '', waitText: waiting ? waiting[2] : '',
-      isTokens: !waiting && v === 'tokens', isTurns: !waiting && v === 'turns', isTimeline: !waiting && v === 'timeline', isContext: !waiting && v === 'context', isCache: !waiting && v === 'cache', isAgents: !waiting && v === 'agents', isHabits: !waiting && v === 'habits', isSignals: !waiting && v === 'signals', isCoach: !waiting && v === 'coach'
+      isSessions: v === 'sessions', isTokens: !waiting && v === 'tokens', isTurns: !waiting && v === 'turns', isTimeline: !waiting && v === 'timeline', isContext: !waiting && v === 'context', isCache: !waiting && v === 'cache', isAgents: !waiting && v === 'agents', isHabits: !waiting && v === 'habits', isSignals: !waiting && v === 'signals', isCoach: !waiting && v === 'coach'
     };
   }
 }

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Claude coach · All sessions</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+.srow:hover{background:#1A1A1F}
+.arow:hover{background:#18181D}
+button,input{font:inherit}
+</style>
+</helmet>
+<div style="flex: 1; min-width: 0; box-sizing: border-box; padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">All sessions</h1>
+<span style="color: #A0A0AA">Every Claude Code session on this machine, needs you first, then running, idle, done. Open one to see its overview, coach and trace.</span>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
+<sc-for list="{{kpis}}" as="k" hint-placeholder-count="4">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 16px 20px; border: 1px solid #27272E; border-radius: 12px; background: #16161A">
+<span style="color: #A0A0AA; font-size: 13px">{{k.label}}</span>
+<span style="{{k.valueStyle}}">{{k.value}}</span>
+<span style="color: #8A8A94; font-size: 13px">{{k.sub}}</span>
+</div>
+</sc-for>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+<div role="group" aria-label="Filter sessions" style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{chips}}" as="c" hint-placeholder-count="5">
+<button type="button" onClick="{{c.pick}}" aria-pressed="{{c.on}}" style="{{c.style}}">{{c.label}}<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; opacity: 0.8">{{c.count}}</span></button>
+</sc-for>
+</div>
+<label style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; flex: 0 1 320px; border: 1px solid #27272E; border-radius: 8px; background: #16161A">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8A8A94" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Filter sessions by name or repo</span>
+<input type="text" value="{{q}}" onChange="{{onQ}}" placeholder="Session, repo or worktree" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #ECECEF">
+</label>
+</div>
+
+<section aria-label="Sessions" style="border: 1px solid #27272E; border-radius: 12px; background: #16161A; overflow: hidden">
+<div style="overflow-x: auto">
+<div style="min-width: 930px">
+<div style="display: grid; grid-template-columns: 28px 132px minmax(240px, 2fr) 96px 150px 110px 90px 90px; gap: 12px; align-items: center; padding: 10px 20px; border-bottom: 1px solid #27272E; font-size: 12px; color: #8A8A94">
+<span></span><span>Status</span><span>Session</span><span>Model</span><span>Agents running / total</span><span>Context</span><span style="text-align: right">Tokens</span><span style="text-align: right">Last call</span>
+</div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="9">
+<div style="border-bottom: 1px solid #1F1F25">
+<button type="button" class="srow" onClick="{{r.toggle}}" aria-expanded="{{r.openStr}}" style="{{r.rowStyle}}">
+<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8A8A94" stroke-width="2" stroke-linecap="round" style="{{r.chevStyle}}"><path d="M9 6l6 6-6 6"></path></svg>
+<span style="{{r.statusStyle}}"><span style="{{r.dotStyle}}"></span>{{r.statusLabel}}</span>
+<span style="display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left">
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500">{{r.title}}</span>
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8A8A94">{{r.repo}}</span>
+</span>
+<span style="font-size: 13px; color: #C9C9D0; text-align: left">{{r.model}}</span>
+<span style="display: flex; flex-direction: column; gap: 6px; text-align: left">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">{{r.agentsText}}</span>
+<span style="height: 4px; border-radius: 2px; background: #27272E; overflow: hidden"><span style="{{r.agentsBar}}"></span></span>
+</span>
+<span style="display: flex; align-items: center; gap: 8px">
+<span style="flex: 1; height: 4px; border-radius: 2px; background: #27272E; overflow: hidden"><span style="{{r.ctxBar}}"></span></span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A0A0AA; width: 34px; text-align: right">{{r.ctx}}</span>
+</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; text-align: right">{{r.tokens}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A0A0AA; text-align: right">{{r.last}}</span>
+</button>
+
+<sc-if value="{{r.open}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px; padding: 4px 20px 22px 60px; background: #131317">
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 14px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+<span style="font-size: 13px; color: #A0A0AA">{{r.agentSummary}}</span>
+<div role="group" aria-label="Group agents by" style="display: flex; padding: 3px; border: 1px solid #27272E; border-radius: 8px; background: #0F0F12">
+<button type="button" onClick="{{byStatus}}" aria-pressed="{{byStatusOn}}" style="{{segStatus}}">By status</button>
+<button type="button" onClick="{{byType}}" aria-pressed="{{byTypeOn}}" style="{{segType}}">By agent type</button>
+</div>
+</div>
+<div style="display: flex; gap: 10px">
+<sc-if value="{{r.needsYou}}" hint-placeholder-val="{{ false }}"><span style="display: flex; align-items: center; height: 36px; padding: 0 12px; border-radius: 8px; background: #2A2116; color: #F3C48A; font-size: 13px">{{r.waitingFor}}</span></sc-if>
+<sc-if value="{{r.port}}" hint-placeholder-val="{{ false }}"><a href="{{r.portHref}}" target="_blank" rel="noopener" style="display: flex; align-items: center; height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #27272E; color: #C9C9D0; font-size: 13px; text-decoration: none">Open its own page, port {{r.port}}</a></sc-if>
+<button type="button" onClick="{{r.openIt}}" style="display: flex; align-items: center; height: 40px; padding: 0 14px; border: 0; border-radius: 8px; background: #E8A558; color: #1A1206; font-weight: 600; font-size: 13px; cursor: pointer">Open session</button>
+</div>
+</div>
+<sc-if value="{{r.agentsLoading}}" hint-placeholder-val="{{ false }}"><span style="color: #8A8A94">Reading agents…</span></sc-if>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px">
+<sc-for list="{{r.groups}}" as="g" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; border: 1px solid #24242A; border-radius: 10px; background: #16161A; overflow: hidden">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #24242A">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600"><span style="{{g.dotStyle}}"></span>{{g.label}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A0A0AA">{{g.count}}</span>
+</div>
+<sc-for list="{{g.agents}}" as="a" hint-placeholder-count="4">
+<div class="arow" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 14px; border-bottom: 1px solid #1F1F25">
+<span style="{{a.dotStyle}}"></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px">{{a.task}}</span>
+<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8A8A94">{{a.meta}}</span>
+</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A0A0AA">{{a.tokens}}</span>
+</div>
+</sc-for>
+<sc-if value="{{g.hasMore}}" hint-placeholder-val="{{ false }}">
+<button type="button" onClick="{{g.more}}" style="min-height: 40px; border: 0; background: transparent; color: #C9C9D0; cursor: pointer; font-size: 13px">{{g.moreLabel}}</button>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-for>
+<sc-if value="{{loading}}" hint-placeholder-val="{{ false }}"><div style="padding: 28px; text-align: center; color: #8A8A94">Loading sessions…</div></sc-if>
+<sc-if value="{{empty}}" hint-placeholder-val="{{ false }}"><div style="padding: 28px; text-align: center; color: #8A8A94">No sessions match.</div></sc-if>
+</div>
+</div>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1180}}'>
+var ST = {
+  running: { label: 'Running', bg: '#16241B', fg: '#8FD6A4', dot: '#5BC27E' },
+  needs: { label: 'Needs you', bg: '#2A2116', fg: '#F3C48A', dot: '#E8A558' },
+  idle: { label: 'Idle', bg: '#1D1D22', fg: '#B4B4BD', dot: '#7C7C86' },
+  done: { label: 'Done', bg: '#1A1F2B', fg: '#A9C3EE', dot: '#7AA2E3' }
+};
+var AG = { running: ['Running', '#5BC27E'], done: ['Done', '#7AA2E3'] };
+var ORDER = { needs: 0, running: 1, idle: 2, done: 3 };
+var MONO = "font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 500; color: ";
+function pj(s) { try { return JSON.parse(s); } catch (e) { return null; } }
+function model(m) { return DT.fmt.model(m) || '–'; }
+function ago(t) {
+  if (!t) return '–';
+  var s = Math.max(0, (Date.now() - t) / 1000);
+  return s < 60 ? Math.round(s) + 's' : s < 3600 ? Math.floor(s / 60) + 'm' : s < 86400 ? Math.floor(s / 3600) + 'h' : Math.floor(s / 86400) + 'd';
+}
+// subagents of one session, grouped by agentId the way DT.base() does it
+function agentsOf(d, live) {
+  var ev = d.events.slice().sort(function (a, b) { return a.start - b.start; });
+  var groups = new Map();
+  ev.forEach(function (e) { if (e.agentId) { if (!groups.has(e.agentId)) groups.set(e.agentId, []); groups.get(e.agentId).push(e); } });
+  var tools = ev.filter(function (e) { return e.kind === 'tool' && !e.agentId && (e.tool === 'Agent' || e.tool === 'Task'); });
+  var stopped = new Set((d.sigs || []).filter(function (g) { return g.ev === 'classic.SubagentStop' && g.sum; }).map(function (g) { return g.sum.agent_id; }));
+  var used = new Set(), now = Date.now(), out = [];
+  groups.forEach(function (list, id) {
+    var prompt = (list.find(function (e) { return e.kind === 'user'; }) || {}).title || '';
+    var tool = tools.find(function (t) { return !used.has(t.id) && prompt && ((pj(t.payload) || {}).prompt || '').slice(0, 120) === prompt.slice(0, 120); })
+      || tools.find(function (t) { return !used.has(t.id) && t.start <= list[0].start + 2000; });
+    if (tool) used.add(tool.id);
+    var a = (tool && pj(tool.payload)) || {};
+    var calls = list.filter(function (e) { return e.kind === 'assistant'; });
+    var withModel = calls.filter(function (e) { return e.model; }), last = list.reduce(function (m, e) { return Math.max(m, e.end || e.start || 0); }, 0);
+    var eff = ''; calls.forEach(function (e) { eff = DT.effortOf(e) || eff; });
+    var run = live && !stopped.has(id) && now - last < 30 * 60e3;
+    var start = tool ? tool.start : list[0].start;
+    out.push({
+      id: id, st: run ? 'running' : 'done', type: a.subagent_type || 'agent',
+      task: String(a.description || prompt || id).replace(/\s+/g, ' ').trim().slice(0, 90),
+      model: model((withModel[withModel.length - 1] || {}).model), effort: eff,
+      tokens: calls.reduce(function (s, e) { return s + (e.inTok || 0) + (e.cacheRead || 0) + (e.cacheWrite || 0) + (e.outTok || 0); }, 0),
+      took: Math.max(0, (run ? now : last) - start)
+    });
+  });
+  return out;
+}
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { list: null, filter: 'all', q: '', open: '', groupBy: 'status', showAll: {}, agents: {} }; }
+  componentDidMount() {
+    var self = this;
+    this.load = function () {
+      fetch('/api/sessions').then(function (r) { return r.json(); }).then(function (d) { self.setState({ list: d.sessions || [] }); }).catch(function () {});
+      if (self.state.open) self.loadAgents(self.state.open);
+    };
+    this.load();
+    this.timer = setInterval(this.load, 10000);
+  }
+  componentWillUnmount() { clearInterval(this.timer); }
+  loadAgents(id) {
+    var self = this;
+    DT.fetchSession(id).then(function (d) {
+      var s = (self.state.list || []).find(function (x) { return x.id === id; });
+      var m = Object.assign({}, self.state.agents); m[id] = agentsOf(d, !!(s && s.live));
+      self.setState({ agents: m });
+    }).catch(function () {});
+  }
+  openSession(s) {
+    var go = function () { DT.goto('tokens'); };
+    var p = DT.pick(s.id);
+    if (p && p.then) p.then(go, go); else go();
+  }
+  renderVals() {
+    var self = this, S = this.state, list = S.list || [], F = DT.fmt;
+    var midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+    var today = list.filter(function (s) { return (s.lastAt || s.end || 0) >= midnight.getTime(); });
+    var live = list.filter(function (s) { return s.live; });
+    var running = live.reduce(function (a, s) { return a + s.agents.running; }, 0);
+    var agentsAll = list.reduce(function (a, s) { return a + s.agents.total; }, 0);
+    var needs = list.filter(function (s) { return s.status === 'needs'; }).length;
+    var tokIn = 0, tokCache = 0, tokAll = 0;
+    today.forEach(function (s) { tokIn += s.input || 0; tokCache += s.cacheRead || 0; tokAll += (s.input || 0) + (s.output || 0); });
+    var repos = new Set(list.map(function (s) { return s.cwd; }).filter(Boolean)).size;
+    var kpis = [
+      { label: 'Live sessions', value: String(live.length), sub: list.length + ' in all, across ' + repos + ' folders', valueStyle: MONO + '#ECECEF' },
+      { label: 'Agents running', value: String(running), sub: agentsAll + ' agents in all sessions', valueStyle: MONO + '#ECECEF' },
+      { label: 'Waiting for you', value: String(needs), sub: needs ? 'nothing moves until you answer' : 'no session is blocked on you', valueStyle: MONO + (needs ? '#F3C48A' : '#ECECEF') },
+      { label: 'Tokens today', value: F.tok(tokAll), sub: today.length + ' session' + (today.length === 1 ? '' : 's') + (tokIn ? ' · ' + Math.round(tokCache / tokIn * 100) + '% of input read from cache' : ''), valueStyle: MONO + '#ECECEF' }
+    ];
+    var FILTERS = [['all', 'All'], ['needs', 'Needs you'], ['running', 'Running'], ['idle', 'Idle'], ['done', 'Done']];
+    var chips = FILTERS.map(function (f) {
+      var on = S.filter === f[0];
+      var count = f[0] === 'all' ? list.length : list.filter(function (s) { return s.status === f[0]; }).length;
+      return { label: f[1], count: String(count), on: on ? 'true' : 'false', pick: function () { self.setState({ filter: f[0] }); },
+        style: 'display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 999px; cursor: pointer; border: 1px solid ' + (on ? '#E8A558' : '#2E2E36') + '; background: ' + (on ? '#2A2116' : '#16161A') + '; color: ' + (on ? '#ECECEF' : '#A0A0AA') };
+    });
+    var q = S.q.toLowerCase().trim();
+    var sorted = list.slice().sort(function (a, b) { return ORDER[a.status] - ORDER[b.status] || (b.lastAt || b.end || 0) - (a.lastAt || a.end || 0); });
+    var rows = [];
+    sorted.forEach(function (s) {
+      if (S.filter !== 'all' && s.status !== S.filter) return;
+      var name = s.title || (s.cwd || '').split('/').filter(Boolean).pop() || s.id.slice(0, 8);
+      var repo = (s.cwd || '').replace(/^\/Users\/[^/]+/, '~');
+      if (q && (name + ' ' + repo).toLowerCase().indexOf(q) < 0) return;
+      var st = ST[s.status] || ST.done, open = S.open === s.id, groups = [], ag = S.agents[s.id];
+      if (open && ag) {
+        var keys, labelOf, dotOf;
+        if (S.groupBy === 'status') { keys = ['running', 'done']; labelOf = function (k) { return AG[k][0]; }; dotOf = function (k) { return AG[k][1]; }; }
+        else { keys = Array.from(new Set(ag.map(function (a) { return a.type; }))).sort(); labelOf = function (k) { return k; }; dotOf = function () { return '#A48BEA'; }; }
+        keys.forEach(function (k) {
+          var l = ag.filter(function (a) { return S.groupBy === 'status' ? a.st === k : a.type === k; });
+          if (!l.length) return;
+          var gk = s.id + ':' + S.groupBy + ':' + k, all = !!S.showAll[gk], cap = 60, shown = all ? l.slice(0, cap) : l.slice(0, 4);
+          groups.push({
+            label: labelOf(k), count: String(l.length),
+            dotStyle: 'width: 8px; height: 8px; border-radius: 2px; background: ' + dotOf(k),
+            agents: shown.map(function (a) {
+              return { task: a.task, tokens: F.tok(a.tokens), dotStyle: 'width: 6px; height: 6px; flex: none; border-radius: 50%; background: ' + AG[a.st][1],
+                meta: [S.groupBy === 'status' ? a.type : AG[a.st][0], a.model, a.effort, F.dur(a.took)].filter(Boolean).join(' · ') };
+            }),
+            hasMore: l.length > 4,
+            moreLabel: all ? (l.length > cap ? 'Showing ' + cap + ' of ' + l.length : 'Show fewer') : 'Show all ' + l.length,
+            more: function () { var m = Object.assign({}, S.showAll); m[gk] = !all; self.setState({ showAll: m }); }
+          });
+        });
+      }
+      var tot = s.agents.total, run = s.agents.running, ctx = s.ctxPct;
+      rows.push({
+        title: name, repo: repo, model: model(s.model), tokens: F.tok((s.input || 0) + (s.output || 0)), last: ago(s.lastAt || s.end), ctx: ctx == null ? '–' : ctx + '%',
+        open: open, openStr: open ? 'true' : 'false', needsYou: s.status === 'needs', waitingFor: 'Waiting on you: a permission or a question',
+        toggle: function () {
+          self.setState({ open: open ? '' : s.id });
+          if (!open) self.loadAgents(s.id);
+        },
+        openIt: function () { self.openSession(s); },
+        port: s.live && s.port && s.id !== DT.current ? String(s.port) : '', portHref: s.port ? 'http://127.0.0.1:' + s.port + '/' : '',
+        rowStyle: 'display: grid; grid-template-columns: 28px 132px minmax(240px, 2fr) 96px 150px 110px 90px 90px; gap: 12px; align-items: center; width: 100%; min-height: 60px; padding: 8px 20px; border: 0; cursor: pointer; color: #ECECEF; text-align: left; background: ' + (open ? '#1A1A1F' : 'transparent'),
+        chevStyle: 'transition: transform 120ms; transform: rotate(' + (open ? 90 : 0) + 'deg)',
+        statusLabel: st.label,
+        statusStyle: 'display: inline-flex; align-items: center; gap: 6px; justify-self: start; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; background: ' + st.bg + '; color: ' + st.fg,
+        dotStyle: 'width: 6px; height: 6px; border-radius: 50%; background: ' + st.dot,
+        agentsText: run + ' / ' + tot,
+        agentsBar: 'display: block; height: 4px; width: ' + (tot ? run / tot * 100 : 0).toFixed(1) + '%; background: #5BC27E',
+        ctxBar: 'display: block; height: 4px; width: ' + Math.min(100, ctx || 0) + '%; background: ' + (ctx > 50 ? '#E8A558' : '#7AA2E3'),
+        agentSummary: tot + ' agent' + (tot === 1 ? '' : 's') + ' · ' + run + ' running · ' + (tot - run) + ' done',
+        agentsLoading: open && !ag, groups: groups
+      });
+    });
+    var seg = function (on) { return 'min-height: 32px; padding: 0 12px; border: 0; border-radius: 6px; cursor: pointer; font-size: 13px; background: ' + (on ? '#26262D' : 'transparent') + '; color: ' + (on ? '#ECECEF' : '#A0A0AA'); };
+    return {
+      kpis: kpis, chips: chips, rows: rows, loading: S.list === null, empty: S.list !== null && rows.length === 0, q: S.q,
+      onQ: function (e) { self.setState({ q: e.target.value }); },
+      byStatus: function () { self.setState({ groupBy: 'status' }); }, byType: function () { self.setState({ groupBy: 'type' }); },
+      byStatusOn: S.groupBy === 'status' ? 'true' : 'false', byTypeOn: S.groupBy === 'type' ? 'true' : 'false',
+      segStatus: seg(S.groupBy === 'status'), segType: seg(S.groupBy === 'type')
+    };
+  }
+}
+</script>
+</body>
+</html>

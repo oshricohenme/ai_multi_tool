@@ -231,7 +231,24 @@ const outcomeOf = (r: unknown): string | undefined => {
 // ── Coach, live: only the time-sensitive checks; the rest run in the web Coach view. ──
 // Thresholds follow code.claude.com/docs/en/best-practices (two failed corrections → /clear).
 const CORR = /^\s*(no\b|nope|wrong|incorrect|that'?s not|not what i|this is not|still (broken|failing|wrong|not)|again\b|you didn'?t|you (forgot|missed|broke|ignored)|didn'?t work|doesn'?t work|does not work|it (still|doesn'?t)|undo|revert|why did you)/i
-const live = { prompts: [] as boolean[], asks: {} as Record<string, number>, lastEnd: 0, lastCtx: 0, ttlMs: 3600e3 }
+const live = {
+  prompts: [] as boolean[], asks: {} as Record<string, number>, lastEnd: 0, lastCtx: 0, ttlMs: 3600e3,
+  // per main-agent turn
+  turnText: '', fails: {} as Record<string, number>, cmdFailed: new Set<string>(), testEdited: false, srcEdited: false,
+  // per session
+  contN: 0, wrapped: false, goal: false, rewound: false, compacted: false, ctxTurns: [] as string[],
+  denied: 0, fastToggles: 0, bypassChecked: false, bg: 0, loops: 0, subagents: 0,
+}
+// Which nudge holds the band: high > medium > low, newer first within a level. Losers wait in `held`.
+const RANK = { high: 3, medium: 2, low: 1 } as const
+const rank = (n: Nudge) => RANK[n.sev ?? 'low']
+let held: Nudge[] = []
+const TEST_FILE = /(^|[/._-])(tests?|spec|__tests__)([/._-]|$)|_test\.|\.test\.|\.spec\.|snap/i
+const TEST_CMD = /\b(test|jest|vitest|pytest|mocha|tsc|build|lint|cargo|go test|make|check)\b/
+const SKIP_ADDED = /\b(xit|xdescribe|it\.skip|test\.skip|describe\.skip|\.only|@Ignore|pytest\.mark\.skip|t\.Skip)\b|\bskip\(/
+const ASSERTS = /\b(assert\w*|expect)\b/g
+const asserts = (t: unknown) => (typeof t === 'string' ? (t.match(ASSERTS) ?? []).length : 0)
+const words = (t: string) => new Set(t.toLowerCase().match(/[a-z]{4,}/g) ?? [])
 const permKey = (tool: string, input: unknown) => {
   let a: Record<string, unknown> = {}
   try { a = typeof input === 'string' ? JSON.parse(input) : (input as Record<string, unknown>) ?? {} } catch {}
@@ -243,30 +260,124 @@ const permKey = (tool: string, input: unknown) => {
 }
 const say = async ($: EngineInterface, n: Nudge) => {
   if ((await read($, dismissed)).includes(n.id)) return
-  await update($, nudge, () => n)
+  const cur = await read($, nudge)
+  if (cur?.id === n.id || held.some(h => h.id === n.id)) return
+  if (!cur) return void (await update($, nudge, () => n))
+  if (rank(n) >= rank(cur)) {
+    held = [...held, cur]
+    await update($, nudge, () => n)
+  } else held = [...held, n]
 }
+// "Got it": clear the band and promote the best waiting nudge.
+const dismiss = async ($: EngineInterface, id: string) => {
+  await update($, dismissed, l => [...l, id].slice(-50))
+  const seen = await read($, dismissed)
+  held = held.filter(h => !seen.includes(h.id))
+  held.sort((a, b) => rank(a) - rank(b)) // last = best, newest among equals
+  const next = held.pop() ?? null
+  await update($, nudge, () => next)
+}
+const norm = (tool: string, input: unknown) => `${tool} ${json(input).replace(/\s+/g, ' ').slice(0, 300)}`
+const str = (v: unknown) => (typeof v === 'string' ? v : '')
 const coachSee = async ($: EngineInterface, ev: string, e: unknown) => {
   const x = (e ?? {}) as Record<string, unknown>
+  const input = (x.tool_input ?? {}) as Record<string, unknown>
+  const main = !x.agent_id && !x.agentId
   if (ev === 'turn.start' && !x.agentId && typeof x.text === 'string') {
-    live.prompts = [...live.prompts, CORR.test(x.text)].slice(-4)
+    const text = x.text
+    live.turnText = text
+    live.fails = {}; live.cmdFailed = new Set(); live.testEdited = false; live.srcEdited = false
+    live.prompts = [...live.prompts, CORR.test(text)].slice(-4)
+    live.ctxTurns = [...live.ctxTurns, text].slice(-2)
+    if (/^\s*\/goal\b/.test(text)) live.goal = true
+    if (/^\s*\/rewind\b/.test(text)) live.rewound = true
+    if (/^\s*(continue|keep going|go on|next)\b[\s.!]*$/i.test(text)) {
+      if (live.wrapped && !live.goal && ++live.contN === 2)
+        await say($, { id: 'continue-without-goal', sev: 'medium', text: `You typed "${text.trim().slice(0, 20)}" ${live.contN} times.`, fix: '/goal <check> passes, or stop after 20 turns, keeps it going on its own.' })
+    } else if (/^\s*(undo|revert|go back|put it back|restore)\b/i.test(text) && !live.rewound)
+      await say($, { id: 'undo-by-prose', sev: 'low', text: 'Asking Claude to undo.', fix: 'Esc Esc (or /rewind) restores code and conversation exactly; it is cheaper than asking Claude to undo.' })
     if (live.prompts.filter(Boolean).length >= 2 && live.prompts[live.prompts.length - 1])
-      await say($, { id: 'correction-loop', text: 'Second correction in a row. Another one mostly adds failed attempts to the context.', fix: 'Esc Esc (/rewind) to before the first wrong try, or /clear and restate with what you learned.' })
+      await say($, { id: 'correction-loop', sev: 'medium', text: 'Second correction in a row. Another one mostly adds failed attempts to the context.', fix: 'Esc Esc (/rewind) to before the first wrong try, or /clear and restate with what you learned.' })
+  } else if (ev === 'classic.Stop') {
+    if (main) live.wrapped = /(next,? i('| wi)ll|remaining:)/i.test(str(x.last_assistant_message))
+    const bg = (x.background_tasks as { type?: string }[] | undefined) ?? []
+    live.bg = bg.length
+    live.subagents = bg.filter(t => t.type === 'subagent').length
+    live.loops = ((x.session_crons as unknown[] | undefined) ?? []).length
   } else if (ev === 'classic.PermissionRequest') {
     const key = permKey(String(x.tool_name ?? '?'), x.tool_input ?? x.input)
     const n = (live.asks[key] = (live.asks[key] ?? 0) + 1)
-    if (n === 3) await say($, { id: `perm:${key}`, text: `You approved ${key} 3 times.`, fix: `Add "${key}" to permissions.allow in .claude/settings.json, or Shift+Tab into auto mode.` })
-  } else if (ev === 'classic.PreModelSwitch') {
+    if (n === 3) await say($, { id: `perm:${key}`, sev: 'low', text: `You approved ${key} 3 times.`, fix: `Add "${key}" to permissions.allow in .claude/settings.json, or Shift+Tab into auto mode.` })
+  } else if (ev === 'classic.PostToolUseFailure') {
+    const tool = str(x.tool_name)
+    const key = norm(tool, input)
+    const n = (live.fails[key] = (live.fails[key] ?? 0) + 1)
+    if (n === 3) await say($, { id: `same-failure-loop:${key.slice(0, 80)}`, sev: 'medium', text: `Claude ran the same failing ${tool} call ${n} times.`, fix: 'Esc and say what to try differently.' })
+    if (tool === 'Bash' && main) live.cmdFailed.add(str(input.command))
+  } else if (ev === 'classic.PostToolUse' || ev === 'classic.PermissionDenied') {
+    if (ev === 'classic.PermissionDenied') {
+      if (++live.denied === 3) await say($, { id: 'auto-mode-block-streak', sev: 'medium', text: `Auto mode blocked ${live.denied} in a row and will pause.`, fix: '/auto-mode-setup tells it what you trust.' })
+      return
+    }
+    live.denied = 0
+    const tool = str(x.tool_name)
+    if (!main) return
+    const file = str(input.file_path)
+    if (tool === 'Bash') {
+      const cmd = str(input.command)
+      if (live.cmdFailed.has(cmd) && TEST_CMD.test(cmd) && live.testEdited && !live.srcEdited && !/\b(tests?|spec)\b/i.test(live.turnText))
+        await say($, { id: 'test-tampering', sev: 'high', text: 'Claude changed a test right after it failed, then the same command passed.', fix: 'Check: was the test wrong, or the code? Say "Don\'t change tests; fix the implementation."' })
+    } else if (/^(Edit|Write|MultiEdit)$/.test(tool) && file) {
+      if (!TEST_FILE.test(file)) live.srcEdited = true
+      else if (!(tool === 'Write' && (x.tool_response as { type?: string } | undefined)?.type === 'create') && !/\b(tests?|spec)\b/i.test(live.turnText)) {
+        const edits = tool === 'MultiEdit' ? (input.edits as { old_string?: string; new_string?: string }[] ?? []) : [{ old_string: str(input.old_string), new_string: str(input.new_string ?? input.content) }]
+        const add = edits.map(d => str(d.new_string)).join('\n'), del = edits.map(d => str(d.old_string)).join('\n')
+        live.testEdited = live.cmdFailed.size > 0 || live.testEdited
+        if (tool !== 'Write' && (SKIP_ADDED.test(add) && !SKIP_ADDED.test(del) || asserts(del) > asserts(add)))
+          await say($, { id: 'test-tampering', sev: 'high', text: `Claude weakened a test in ${file.split('/').pop()} (${SKIP_ADDED.test(add) ? 'added a skip' : `${asserts(del)} asserts -> ${asserts(add)}`}).`, fix: 'Check: was the test wrong, or the code? Say "Don\'t change tests; fix the implementation."' })
+      }
+    }
+  } else if (ev === 'session.measure') {
+    const ctx = x.context as { percent?: number; tokens?: number } | undefined
+    if ((ctx?.percent ?? 0) >= 70 && !live.compacted && live.ctxTurns.length === 2) {
+      const [a, b] = live.ctxTurns.map(t => words(t!)) as [Set<string>, Set<string>]
+      const shared = [...a].filter(w => b.has(w)).length / Math.max(1, Math.min(a.size, b.size))
+      if (shared >= 0.3 || CORR.test(live.ctxTurns[1]!) || /^\s*(continue|keep going|go on|next)\b/i.test(live.ctxTurns[1]!))
+        await say($, { id: 'context-high-mid-task', sev: 'low', text: `Context at ${Math.round(ctx!.percent!)}%.`, fix: 'At the next break: /compact keep <what matters>, or write PROGRESS.md and /clear.' })
+    }
+    const five = ((x.rateLimits as { kind: string; percentUsed: number }[] | undefined) ?? []).find(r => r.kind === 'five_hour')
+    if (five && five.percentUsed >= 80 && (live.loops > 0 || live.bg > 0))
+      await say($, { id: 'rate-limit-with-background', sev: 'medium', text: `5-hour limit at ${Math.round(five.percentUsed)}%. Background work is still spending it (${live.bg} running${live.loops ? `, ${live.loops} scheduled` : ''}).`, fix: 'Stop the /loop, or lower /effort.' })
+  } else if (ev === 'session.compact') {
+    live.compacted = true
+  } else if (ev === 'command.run' || ev === 'config.set') {
+    const isFast = ev === 'command.run' ? x.command === 'fast' : /fast/i.test(str(x.key))
+    const off = ev === 'command.run' ? /^\s*off\b/i.test(str(x.args)) : x.value === false
+    if (x.command === 'rewind') live.rewound = true
+    if (isFast && !off) {
+      live.fastToggles++
+      if (live.lastCtx > 30000 || live.fastToggles >= 2)
+        await say($, { id: 'fast-mode-toggle', sev: 'medium', text: live.fastToggles >= 2 ? `Fast mode toggled ${live.fastToggles} times.` : `Fast mode on at ${k(live.lastCtx)} context.`, fix: `Fast mode has its own cache: turning it on now re-reads ${k(live.lastCtx)} at fast prices. Enable it at session start.` })
+    }
+  }
+  if (!live.bypassChecked && x.permission_mode === 'bypassPermissions' && ev.startsWith('classic.')) {
+    live.bypassChecked = true
+    const sb = (await $.settings.read({ key: 'sandbox' }).catch(() => undefined)) as { enabled?: boolean } | undefined
+    if (!sb?.enabled) await say($, { id: 'bypass-no-sandbox', sev: 'high', text: 'Bypass mode with no sandbox.', fix: 'Use auto mode (Shift+Tab), or turn on /sandbox, or run in a container.' })
+  }
+  if (ev === 'classic.PreModelSwitch') {
     if (typeof x.cache_ttl === 'string') live.ttlMs = /5m/.test(x.cache_ttl) ? 300e3 : 3600e3
     const ctx = Number(x.context_tokens) || 0
     if (ctx >= 50000) await $.ui.toast(`Model switch re-sends ${Math.round(ctx / 1000)}k tokens uncached (≈$${(Number(x.estimated_cache_write_usd) || 0).toFixed(2)}).`)
   }
 }
 
+const WATCH = new Set(['turn.start', 'session.measure', 'session.compact', 'command.run', 'config.set'])
 const observe = ($: EngineInterface, e: unknown, next: StarNext) => {
   const ev = next.event as string
   // our own calls would observe themselves forever
   if (next.origin.plugin === 'coach' || ev === 'engine.create') return next(e)
-  if (ev === 'turn.start' || ev === 'classic.PermissionRequest' || ev === 'classic.PreModelSwitch') void coachSee($, ev, e).catch(() => {})
+  if (WATCH.has(ev) || (ev.startsWith('classic.') && next.event !== 'classic.PreToolUse')) void coachSee($, ev, e).catch(() => {})
   if (STREAMING.has(ev)) {
     if (!NOISY.test(ev)) sigs.push({ at: Date.now(), ev, by: next.origin.plugin, tier: next.origin.tier, ms: 0, chain: [], sum: summarize(ev, e), out: 'stream' })
     return next(e)
@@ -612,7 +723,7 @@ export const register: Register = on => {
         </Text>
         <Box>
           <Text dimColor>{shown.fix} </Text>
-          <Button key="ok" label="Got it" onPress={async () => { await update($, dismissed, l => [...l, shown.id].slice(-50)); await update($, nudge, () => null) }} />
+          <Button key="ok" label="Got it" onPress={() => dismiss($, shown.id)} />
         </Box>
       </Box>
     )
