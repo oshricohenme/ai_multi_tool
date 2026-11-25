@@ -103,6 +103,17 @@ test('pages escape log content and forbid scripts', () => {
   assert.ok(!sessionHtml(sessionOf(madeUpLog(), [], { id: 'one', rates: RATES, detail: false }), { tz: 'UTC', detail: false }).includes('alert(1)'))
 })
 
+test('log values show as fields, never as raw JSON', () => {
+  const log = madeUpLog()
+  log[2].message.content[0].input = { code: 'const a = 1\nawait a', description: 'Run <b>it</b>', timeout: 600000, opts: { all: true }, list: [{ k: 1 }, { k: 2 }] }
+  const html = sessionHtml(sessionOf(log, [], { id: 'one', rates: RATES }), { tz: 'UTC' })
+  for (const key of ['code', 'description', 'timeout', 'all', 'input_tokens']) assert.ok(html.includes('<dt>' + key + '</dt>'), key)
+  assert.ok(!/&#34;(code|input_tokens)&#34;:/.test(html)) // no quoted JSON keys anywhere
+  assert.ok(html.includes('<pre>const a = 1\nawait a</pre>')) // a multi-line string is a block
+  assert.ok(html.includes('Run &#60;b&#62;it&#60;/b&#62;')) // still escaped
+  assert.match(html, /<table class="jt">/) // a list of like records is a table
+})
+
 test('the pane gets the figures and the latest entries, newest first', () => {
   const b = sessionBrief(sessionOf(madeUpLog(), [], { id: 'one', rates: RATES }), { tz: 'UTC' })
   assert.deepEqual(b.rows.map(r => r.no), [...b.rows.map(r => r.no)].sort((x, y) => y - x))

@@ -507,7 +507,7 @@ metrics, and Anthropic's usage and cost API. What the logs can support is now in
 count once; a `compact_boundary` produces one entry with the right fall; a gap longer than
 the cache lifetime produces a re-write entry with the idle reason; entries sum to the
 session total; an entry's detail holds the tool result's text; a tool result containing
-`<script>` comes out escaped; the server refuses a request with no token; a served page carries one script, whose hash is in its policy, and gets 304 while its log is unchanged and a new page once the log moves; the brief lists entries newest first. `claude plugin test token-accounting-statement` must show the pane drawn from a brief on all four surfaces, and refreshed after a response with nobody asking. Then run it on
+`<script>` comes out escaped; a tool call's input, a JSON tool result and the API's usage show as named fields, tables and code blocks, never as raw JSON; the server refuses a request with no token; a served page carries one script, whose hash is in its policy, and gets 304 while its log is unchanged and a new page once the log moves; the brief lists entries newest first. `claude plugin test token-accounting-statement` must show the pane drawn from a brief on all four surfaces, and refreshed after a response with nobody asking. Then run it on
 a real session and read its reconciliation box.
 
 Run on 2026-11-21, after the rename and the live views: the test file passes (6 tests), the mod's

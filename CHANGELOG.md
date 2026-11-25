@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Session pages never show raw JSON. Tool call inputs, JSON tool results and the API's usage
+  show as named fields, tables of like records, numbered lists and code blocks.
+
 ## 0.2.0 (2026-11-24)
 
 - **Live.** A status line entry and a pane in Claude Code that update after every response,
