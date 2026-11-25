@@ -1,0 +1,21 @@
+{
+  "name": "token-accounting-statement",
+  "version": "0.2.0",
+  "description": "Token Accounting Statement: what Claude Code spends, laid out like a bank statement and kept live while a session runs. Every request, the context balance, the reason for each change, and what it cost.",
+  "author": {
+    "name": "Oshri Cohen"
+  },
+  "homepage": "https://github.com/oshricohenme/ai_multi_tool",
+  "repository": "https://github.com/oshricohenme/ai_multi_tool",
+  "license": "MIT",
+  "keywords": [
+    "tokens",
+    "cost",
+    "usage",
+    "accounting",
+    "statement",
+    "cache",
+    "context"
+  ],
+  "types": "./types/index.d.ts"
+}

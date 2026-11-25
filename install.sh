@@ -1,37 +1,34 @@
 #!/bin/sh
-# Install Claude coach (inspect every model call and tool call) and keep it updated in the background.
+# Install the Token Accounting Statement plugin for Claude Code and keep it updated in the background.
 #
-#   sh ~/orca/ai_multi_tool/install.sh [flags]
+#   sh install.sh [flags]                 # from a checkout
 #   curl -fsSL https://raw.githubusercontent.com/oshricohenme/ai_multi_tool/main/install.sh | sh
 #   curl -fsSL https://raw.githubusercontent.com/oshricohenme/ai_multi_tool/main/install.sh | sh -s -- --repo
 #
-# It adds the ai-multi-tool marketplace, installs (or updates) the coach plugin, and turns on
+# It adds the ai-multi-tool marketplace, installs (or updates) the token-accounting-statement plugin, and turns on
 # marketplace auto-update so new pushes arrive by themselves.
 #
 #   (no flag)             install once for you, in every repo (user scope). Also removes per-repo
-#                         installs of coach, which would otherwise load twice.
+#                         installs of the plugin, which would otherwise load twice.
 #   --repo                this repo only, .claude/settings.local.json (Claude scope local)
 #   --project             this repo, shared with the team via .claude/settings.json (scope project)
-#   --keep-repo-installs  user scope: do not remove per-repo installs of coach
+#   --keep-repo-installs  user scope: do not remove per-repo installs of the plugin
 #   --no-start            do not start claude at the end (same as NO_START=1)
 #   -h, --help            this text
 #   (SCOPE=user|project|local still works as a fallback)
-#
-# The mt plugin (a Rust binary from GitHub Releases) is hidden from the marketplace for now. Its
-# install steps (CI binary wait, release tag, binary download, `mt build`, PATH check, MT_DEBUG)
-# were removed from this script; they stay in git history.
 set -eu
 GH=oshricohenme/ai_multi_tool
 MKT=ai-multi-tool
+P=token-accounting-statement
 SCOPE=${SCOPE:-user}
 KEEP=0
 step() { printf '\n== %s\n' "$*"; }
 usage() { cat <<'U'
 usage: install.sh [--repo | --project] [--keep-repo-installs] [--no-start] [-h]
-  (none)               install coach once for you, all repos; removes per-repo installs
+  (none)               install the plugin once for you, all repos; removes per-repo installs
   --repo               this repo only (.claude/settings.local.json)
   --project            this repo, shared with the team (.claude/settings.json)
-  --keep-repo-installs user scope: keep per-repo installs of coach
+  --keep-repo-installs user scope: keep per-repo installs of the plugin
   --no-start           do not start claude at the end
   -h, --help           this text
 U
@@ -47,11 +44,11 @@ for a in "$@"; do
   esac
 done
 
-# Uninstall every per-repo (local/project) coach entry listed in the plugin-list JSON file.
+# Uninstall every per-repo (local/project) entry of the plugin listed in the plugin-list JSON file.
 # DRY_RUN=1 prints the commands instead of running them. Other plugins are never touched.
 cleanup_repo_installs() {
   TAB=$(printf '\t')
-  python3 - "$1" "coach@$MKT" <<'PY' | while IFS=$TAB read -r scope dir; do
+  python3 - "$1" "$P@$MKT" <<'PY' | while IFS=$TAB read -r scope dir; do
 import json, sys
 try: d = json.load(open(sys.argv[1]))
 except Exception: d = []
@@ -60,9 +57,9 @@ for e in d if isinstance(d, list) else []:
         print(e["scope"], e["projectPath"], sep="\t")
 PY
     if [ ! -d "$dir" ]; then echo "skip (missing dir): $dir [$scope]"; continue; fi
-    echo "remove per-repo coach: $dir [$scope]"
-    if [ "${DRY_RUN:-0}" = 1 ]; then echo "  (cd \"$dir\" && claude plugin uninstall coach@$MKT -s $scope)"; continue; fi
-    (cd "$dir" && claude plugin uninstall "coach@$MKT" -s "$scope") || echo "  failed, continuing" >&2
+    echo "remove per-repo $P: $dir [$scope]"
+    if [ "${DRY_RUN:-0}" = 1 ]; then echo "  (cd \"$dir\" && claude plugin uninstall $P@$MKT -s $scope)"; continue; fi
+    (cd "$dir" && claude plugin uninstall "$P@$MKT" -s "$scope") || echo "  failed, continuing" >&2
   done
 }
 if [ -n "${CLEANUP_TEST_JSON:-}" ]; then cleanup_repo_installs "$CLEANUP_TEST_JSON"; exit 0; fi
@@ -84,12 +81,12 @@ else
   claude plugin marketplace add $GH
 fi
 
-step "2. coach (scope: $SCOPE)"
+step "2. $P (scope: $SCOPE)"
 # an update when installed, else an install
-claude plugin update "coach@$MKT" -s "$SCOPE" 2>/dev/null || claude plugin install "coach@$MKT" -s "$SCOPE"
+claude plugin update "$P@$MKT" -s "$SCOPE" 2>/dev/null || claude plugin install "$P@$MKT" -s "$SCOPE"
 
 if [ "$SCOPE" = user ] && [ "$KEEP" != 1 ]; then
-  step "2b. remove per-repo coach installs (they would load twice)"
+  step "2b. remove per-repo $P installs (they would load twice)"
   LIST=$(mktemp)
   claude plugin list --json >"$LIST" 2>/dev/null || echo "[]" >"$LIST"
   cleanup_repo_installs "$LIST"
