@@ -172,6 +172,13 @@ const CSS = [
   '.il i{font-style:normal;' + MONO + ';font-size:13px;color:#45524B}',
   '.ir{' + MONO + ';font-size:13px;white-space:nowrap;color:#45524B}.ir b{font-weight:400;color:#15201B}',
   'pre{margin:0;padding:12px 14px;background-color:#F4F6F4;border:1px solid #C5CFC8;' + MONO + ';font-size:12.5px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}',
+  // log values shown as fields
+  '.kv{margin:0;display:grid;grid-template-columns:minmax(64px,max-content) minmax(0,1fr);gap:8px 16px;padding:12px 14px;background-color:#F4F6F4;border:1px solid #C5CFC8;' + MONO + ';font-size:12.5px;line-height:1.55}',
+  '.kv dt{color:#45524B;overflow-wrap:anywhere}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}',
+  '.kv .kv{padding:0 0 0 12px;background:none;border:0;border-left:2px solid #C5CFC8}.kv pre{background-color:#FCFDFC;max-height:320px}',
+  '.lit{color:#1D4F91}.nul{color:#4F5B54;font-style:italic}',
+  '.arr{margin:0;padding-left:28px;display:flex;flex-direction:column;gap:8px;' + MONO + ';font-size:12.5px;line-height:1.55}',
+  '.jt td,.jt th{padding:6px 12px 6px 0;font-size:12.5px}.jt td{' + MONO + '}',
   '.p{margin:0;font-size:14px;line-height:1.5;color:#45524B}.p b{font-weight:400;' + MONO + ';color:#15201B}',
   '.stack{display:flex;flex-direction:column;gap:12px}.fold>summary{display:flex;align-items:center;gap:8px;cursor:pointer;min-height:44px}.fold[open]>summary{margin-bottom:4px}',
   '@media print{.desk{padding:0;background:#fff}.sheet{border:0;max-width:none;padding:0}.back{display:none}.scroll{overflow:visible}pre{max-height:none;overflow:visible}.row{break-inside:avoid}}',
@@ -239,6 +246,54 @@ function pre(text, line) {
     : shown.length > 800 || shown.split('\n').length > 10 ? 'Scrolls. ' + num(text.length) + ' characters in all.' : ''
   return '<pre>' + esc(shown) + '</pre>' + (more ? el('p', 'note', more) : '')
 }
+// A value from a log as a developer reads it, never as raw JSON: an object as named fields, a list of
+// like records as a table, other lists as numbered items, a long or multi-line string as a block.
+const isObj = v => v !== null && typeof v === 'object'
+const asJson = s => {
+  if (!/^\s*[[{]/.test(s)) return undefined
+  try {
+    const v = JSON.parse(s)
+    return isObj(v) ? v : undefined
+  } catch {
+    return undefined
+  }
+}
+const short = x => !isObj(x) && String(x).length <= 120 && !String(x).includes('\n')
+function jsonView(v) {
+  if (typeof v === 'string') {
+    const j = asJson(v)
+    if (j) return jsonView(j)
+    return v === '' ? span('nul', 'empty') : short(v) ? span('sv', esc(v)) : '<pre>' + esc(v) + '</pre>'
+  }
+  if (!isObj(v)) return span(v === null ? 'nul' : 'lit', esc(String(v)))
+  if (!Array.isArray(v)) {
+    const kv = Object.entries(v)
+    return kv.length ? el('dl', 'kv', kv.map(([k, x]) => '<dt>' + esc(k) + '</dt><dd>' + jsonView(x) + '</dd>').join('')) : span('nul', 'empty')
+  }
+  if (!v.length) return span('nul', 'empty')
+  if (v.length > 1 && v.every(x => isObj(x) && !Array.isArray(x) && Object.values(x).every(short))) {
+    const keys = [...new Set(v.flatMap(Object.keys))]
+    if (keys.length <= 8) return table('jt', keys.map(k => [k, 'l']), v.map(x => keys.map(k => (k in x ? jsonView(x[k]) : ''))))
+  }
+  return el('ol', 'arr', v.map(x => '<li>' + jsonView(x) + '</li>').join(''))
+}
+// Text from a log: JSON shown as fields, other text as it is. A tool result can mix text with other
+// content blocks, one block per line; each block line is shown as fields too.
+function body(text, line) {
+  if (!text || text.length > SHOWN) return pre(text, line)
+  const j = asJson(text)
+  if (j) return jsonView(j)
+  if (!/(^|\n)\{"/.test(text)) return pre(text, line)
+  const out = [], buf = []
+  const flush = () => buf.length && out.push(pre(buf.splice(0).join('\n'), line))
+  for (const l of text.split('\n')) {
+    const x = l.startsWith('{"') ? asJson(l) : undefined
+    if (x) flush(), out.push(jsonView(x))
+    else buf.push(l)
+  }
+  flush()
+  return out.join('\n')
+}
 const block = (title, right, inner) => '<div class="blk"><div class="bh"><h3>' + esc(title) + '</h3><span>' + esc(right) + '</span></div>\n' + inner + '</div>'
 const itemHtml = (name, label, right, body) =>
   '<div class="it">\n<div class="ih">\n<span class="il"><b>' + esc(name) + '</b>' + (label ? '<i> · ' + esc(label) + '</i>' : '') + '</span>\n<span class="ir">' + right + '</span>\n</div>\n' + body + '\n</div>'
@@ -250,7 +305,7 @@ function requestPanel(e, th, o) {
   if (e.carried) sent.push(itemHtml('The model’s own previous reply', 'carried forward', fig((e.carriedEst ? '≈' : '') + num(e.carried)), ''))
   for (const x of e.items) {
     const right = (x.chars ? plural(x.chars, 'character') + ' · ' : '') + fig('≈' + num(x.tok))
-    sent.push(itemHtml(x.name, x.label, right, pre(x.text, x.line) + (x.note ? el('p', 'note', esc(x.note)) : '')))
+    sent.push(itemHtml(x.name, x.label, right, body(x.text, x.line) + (x.note ? el('p', 'note', esc(x.note)) : '')))
   }
   if (!sent.length) sent.push(plain('Nothing new is recorded between this request and the one before.'))
   if (e.trimmed) sent.push(plain('Context fell by ' + fig(num(-e.change)) + ' tokens with no compaction recorded: older content was trimmed by context management.'))
@@ -270,11 +325,11 @@ function requestPanel(e, th, o) {
       if (thought) continue
       thought = true
       const texts = thinking.filter(x => x.text)
-      got.push(itemHtml('Thinking', '', fig(''), texts.map(x => pre(x.text, e.line)).join('\n')))
+      got.push(itemHtml('Thinking', '', fig(''), texts.map(x => body(x.text, e.line)).join('\n')))
       got.push(plain(num(e.think) + ' tokens.' + (texts.length < thinking.length ? ' Text not recorded in the log.' : '')))
-    } else if (b.type === 'text') got.push(itemHtml('Text', '', fig(''), pre(b.text, e.line)))
-    else if (b.type === 'tool') got.push(itemHtml('Tool call', b.name + (b.arg ? ' · ' + b.arg : ''), fig(''), pre(b.text, e.line)))
-    else got.push(itemHtml(b.name, '', fig(''), pre(b.text, e.line)))
+    } else if (b.type === 'text') got.push(itemHtml('Text', '', fig(''), body(b.text, e.line)))
+    else if (b.type === 'tool') got.push(itemHtml('Tool call', b.name + (b.arg ? ' · ' + b.arg : ''), fig(''), body(b.text, e.line)))
+    else got.push(itemHtml(b.name, '', fig(''), body(b.text, e.line)))
   }
   if (!got.length) got.push(plain('No content recorded.'))
 
@@ -296,7 +351,7 @@ function requestPanel(e, th, o) {
     block('Sent again, already in context', num(e.prevCtx) + ' tokens', plain(again)),
     block('Received', num(e.out) + ' tokens', got.join('\n')),
     ...subs,
-    block('As the API reported it', '', plain(esc(facts.join(' · '))) + '\n' + pre(JSON.stringify(e.usage, null, 1).replace(/\n\s*/g, ' '))),
+    block('As the API reported it', '', plain(esc(facts.join(' · '))) + '\n' + jsonView(e.usage || {})),
   ].join('\n')
 }
 
@@ -308,7 +363,7 @@ function compactionPanel(e) {
     block('What changed', (e.change == null ? '—' : signed(e.change)) + ' tokens',
       plain('Context before: ' + fig(e.pre == null ? 'not recorded' : num(e.pre)) + '. Context after: ' + fig(e.post == null ? 'not recorded' : num(e.post)) + '. ' + how + when + '.' + took)),
     block('Summary that replaced the history', e.post == null ? '' : num(e.post) + ' tokens with system prompt and tools',
-      e.summary ? pre(e.summary, e.summaryLine) : plain('Not recorded in this log.')),
+      e.summary ? body(e.summary, e.summaryLine) : plain('Not recorded in this log.')),
     block('Cost of the compaction itself', '', plain('The request that wrote this summary is not itemized in the log. It is part of “Not itemized” in the reconciliation below.')),
   ].join('\n')
 }
