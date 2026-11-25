@@ -1,178 +1,342 @@
-# mt
+# Token Accounting Statement
 
-**A context engine for coding agents.** mt replaces the `grep` / `sed -n` / `cat` / `perl -i`
-chains a coding agent writes to read and change code. You make one call to read everything
-related to a symbol, and one checked call to change it. The same binary also shrinks large tool
-output and the always-on skill, agent and MCP listings Claude Code sends with every request.
+**What every Claude Code session spends, itemized like a bank statement.** One line per model
+request, the context balance after it, the reason it changed, and what it cost. It stays live
+while the session runs, in Claude Code and in your browser.
 
-The model's context window is the expensive part: every turn re-reads all of it. Disk, tool
-output and listings are only sources. mt works out the smallest update that has to reach the
-context and sends only that.
+[![validate-plugins](https://github.com/oshricohenme/ai_multi_tool/actions/workflows/validate-plugins.yml/badge.svg)](https://github.com/oshricohenme/ai_multi_tool/actions/workflows/validate-plugins.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Status: **early, single-author, measured on Claude Code 2.1.318 and 2.1.319 only.** It works
-day to day, and the evidence behind it is in [docs/RESEARCH.md](docs/RESEARCH.md). The
-interfaces may still change.
+![A session statement: summary figures, then one line per request with its context balance, change, cache write, cache read, output and amount](docs/images/session.png)
 
-## What it does
+<sub>All screenshots show made-up demo sessions. Every figure in them is the plugin's own output for those sessions.</sub>
 
-| Area | Without mt | With mt |
-|---|---|---|
-| Reading code | 4 to 13 calls of grep, then `sed -n` ranges, then more greps | `mt query` (a batch of questions and claims) or `mt context Name --map`, then one `mt expand` |
-| Changing code | one Edit or script per file, line numbers shifting under each other | one `mt apply` bundle: hash-checked, all-or-nothing, runs the formatter and tests, restores files when a gate step fails |
-| Large output | full build logs and JSON in context | `mt run -- cmd`: errors and `file:line`s kept; JSON becomes a schema graph you query with JSONPath or jq |
-| Tool listings | every skill, agent and MCP description in every request | `mt tools profile`: a per-project settings layer from what the code actually uses, with cards added per prompt |
-| Settings | environment variables scattered through the code | `mt config`: guided setup, presets (`lockdown`, `balanced`, `nudge`, `off`), `list/get/set`, `doctor` |
-| Seeing it | logs | `mt visualize`: the repo graph lit up live by what the daemon and hooks are doing, plus ten Winamp-style scenes (spectrum, scope, starfield, tunnel, matrix, …) driven by the same activity |
+## Why
 
-How it works, briefly:
+Claude Code logs every model request on your machine, with the exact number of tokens it used.
+Nothing turns those logs into an account of where the tokens went, and on a subscription no
+invoice itemizes them either. Tokens translate directly into cost, so this plugin keeps the
+books:
 
-- **Index.** tree-sitter tags queries for 35 languages, plus heuristic and plain-text tiers.
-  The index is kept in `.mt/index.sqlite` and updated incrementally.
-- **Daemon.** One `mt serve` per session (or per repo) holds the graph in memory. A file
-  watcher applies changes as they happen, and a sync barrier makes sure answers never lag the
-  disk.
-- **Resolution.** Calls are followed to their definitions (code only, same language family,
-  nearest definition first), and every hit says how it was matched: `exact`, `by name` or
-  `heuristic`.
-- **Claude Code plugin.** It starts the session daemon, briefs the model, rewrites old-style
-  reads into mt calls in place (no denied turn), and compresses large Bash, Read and MCP
-  results. All hooks are in the Rust binary (`mt hook <event>`) and take about 6 to 11 ms.
+- **What was spent.** Tokens per request, session, project, model, agent, tool, day and
+  five-hour window, priced at API rates. On a subscription, read the amounts as what the same
+  work would cost through the API.
+- **How the context moved.** The context size after each request is the running balance.
+  Every rise and fall gets its own line.
+- **Why.** Each line names its cause: a prompt, a tool result (which tool, which file), a hook,
+  a subagent's report, a compaction, or a cache that expired while you were away.
+- **What it was.** Open any line to see what that request sent and what came back.
+- **Whether it adds up.** Each session closes with a reconciliation against the totals Claude
+  Code recorded itself. Anything the logs don't break down goes on one "Not itemized" line.
+  Nothing is dropped.
 
-mt knows no language or ecosystem in particular. There is no toolchain table and nothing
-specific to Go or npm: everything comes from grammars, manifests on disk and the code itself.
+It only reads logs. It sends nothing off your machine, never calls a model (so it spends no
+tokens) and never changes a session.
 
-## Results
+## Contents
 
-From [docs/RESEARCH.md](docs/RESEARCH.md), which has the setup, every run and the threats to
-validity. These are headless Claude Code A/B runs with graft, MCP and other helpers stripped;
-n is small (2 to 3 repetitions per task).
+- [What you get](#what-you-get)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Use](#use)
+- [Reading a statement](#reading-a-statement)
+- [Privacy and security](#privacy-and-security)
+- [Configuration](#configuration)
+- [Uninstall](#uninstall)
+- [Limitations](#limitations)
+- [Development](#development)
+- [License](#license)
 
-| Measurement | Result with mt |
-|---|---|
-| Tool and skill listings, 6 A/B runs (n=12 sessions per arm in runs 3 to 6) | input tokens −36% to −55%, turns −21% to −30%, cost −40% to −48%; 39/39 correct in both arms |
-| Code tasks at a realistic 255k context | turns −33% to −42%, cost −1% to −12% |
-| Large interactive task ("add Google auth, with tests"), final design, n=1 | 13 turns against 53, cost −21% to −26% |
-| Output compression on real logs and JSON | 67% to 99% of tokens removed, code and diffs untouched |
-| Read phase at 20,000 files, daemon against the bash chain Claude writes | 288 ms against 1,955 ms (6.8x), a tenth of the bytes |
-| Find-everything workflow against graft 0.21.1, 5 tasks | complete in 5/5 with 1 to 2 calls; graft 3/5 with 4 to 13 calls |
+## What you get
 
-Where mt does **not** win, also measured:
+### In Claude Code: a status line and a live pane
 
-- **Small contexts.** At about 19k tokens of context, mt sessions took 13% to 39% fewer turns but
-  usually cost 5% to 28% *more*: its structured replies are cache writes that every later turn
-  re-reads.
-- **Adoption.** With only the skill installed, Claude chose mt in 1 session of 4. The plugin's
-  hooks fixed that (4 in 4).
-- **Ranking.** `mt tools` ranking is overfit: recall@3 is 37% on 90 independent prompts, against
-  72% to 75% on the tuning prompts.
+From the first response on, the status line under the prompt keeps a running total:
 
-All of this is in the research doc, with n, sources and the threats to validity.
+```
+Token statement $0.66 · context 24,045 · 19 requests
+```
+
+`/token-statement` opens a pane beside the chat that follows the session, newest request
+first. A line that wrote the cache again says why and what that cost:
+
+```
+$0.66 API-equivalent · 19 requests
+Context now 24,045 · peak 29,392 · cache hit 84%
+Subagents: 4 requests in 1 subagent, $0.06
+Every request in full, live, in the browser: /token-statement
+
+ No. Time  Entry, newest first                             Change   Amount
+  16 15:36 Tool result · Bash                                +152    $0.01
+  15 15:36 Prompt                                              +9    $0.01
+  14 15:35 Compaction, manual                              −5,658         
+  13 15:29 Tool result · Bash                                +137    $0.01
+  12 15:28 Tool result · Edit                                +358    $0.01
+  11 15:28 Tool result · Read                                +752    $0.02
+  10 15:28 Prompt                                            +426    $0.23
+           Cache expired after 1 h 21 min idle. 27,719 tokens of existing…
+   9 14:06 Tool result · Bash                                +106    $0.01
+   8 14:06 Tool result · Edit                                +320    $0.01
+   …
+```
+
+The status line and the pane update after every response, a subagent's included, and after
+each compaction.
+
+### In the browser: the full statement, live
+
+The same command opens the session's full statement in your browser. The page follows the
+session as it runs: new lines appear within about two seconds, and any line you opened stays
+open.
+
+Open a line to see what the request sent, what was already in context, what came back, and the
+usage exactly as the API reported it:
+
+![An opened entry: the prompt after an 81-minute break, the 27,719 tokens of context written to the cache again, the tool call that came back, and the raw usage record](docs/images/entry.png)
+
+### For a week or a month: the period statement
+
+`/token-statement week` and `/token-statement month` cover every session in the period. You
+get a summary by token class with the cache hit rate and what the cache saved, spend by project,
+a breakdown by model, agent, skill, plugin, MCP server, tool, day and five-hour window, and one
+row per session that opens that session's statement.
+
+![A period statement: tokens and amount by token class, key figures, and spend by project](docs/images/period.png)
+
+Its **Why** section shows what filled the context and what cost extra:
+
+![The Why section: what filled the context, by source, and the events that cost extra or brought the context down](docs/images/why.png)
+
+### From a shell
+
+The statement is a plain Node script with no dependencies, and it works with no Claude session
+open. From a clone of this repo (or from the installed copy, whose path `claude plugin list`
+prints):
+
+```bash
+node token-accounting-statement/bin/statement.mjs                       # the last 30 days, as text
+node token-accounting-statement/bin/statement.mjs open --since 7d       # the last 7 days, in the browser
+node token-accounting-statement/bin/statement.mjs --month 2026-11 --html november.html
+node token-accounting-statement/bin/statement.mjs --session <id> --csv  # one line per request
+node token-accounting-statement/bin/statement.mjs --help
+```
+
+`--json` gives the same figures as JSON.
+
+## Requirements
+
+- **Claude Code.** Tested on 2.1.331. The one-line install below needs 2.1.275 or later.
+- **Node.js 20 or later** on your `PATH`. The plugin runs `node`. Tested on Node 22.
+- **A web browser** for the full statement. The pane and status line need nothing else.
 
 ## Install
 
-You need Rust 1.85 or newer (edition 2024) and a C compiler for the tree-sitter grammars.
+**In Claude Code**, run:
+
+```
+/plugin install token-accounting-statement --marketplace oshricohenme/ai_multi_tool
+```
+
+Then start a new session, or run `/reload-plugins`. On Claude Code older than 2.1.275, add the
+marketplace first:
+
+```
+/plugin marketplace add oshricohenme/ai_multi_tool
+/plugin install token-accounting-statement@ai-multi-tool
+```
+
+**From a shell**, the same two steps:
 
 ```bash
-git clone <this repo> mt && cd mt
-cargo build --release              # add --features bert for the optional BERT embeddings
-cp target/release/mt ~/.local/bin/ # or anywhere on PATH
-mt --version
+claude plugin marketplace add oshricohenme/ai_multi_tool
+claude plugin install token-accounting-statement@ai-multi-tool
 ```
 
-To use it with Claude Code, point the plugin's `bin/mt` at your build and load the plugin:
+By default the plugin is installed for you in every repo (user scope). Add `-s project` to
+install it for the current repo and share it with your team through `.claude/settings.json`,
+or `-s local` for the current repo only for you.
+
+**With the install script**, which also turns on auto-update for the marketplace:
 
 ```bash
-ln -sf "$PWD/target/release/mt" plugin/bin/mt-$(rustc -vV | sed -n "s/host: //p")
-claude --plugin-dir "$PWD/plugin"
+curl -fsSL https://raw.githubusercontent.com/oshricohenme/ai_multi_tool/main/install.sh | sh
 ```
 
-This repo is also a Claude Code marketplace with two plugins: `mt` (the hooks, the skill, a status
-line and an `/mt-activity` pane) and `coach` (Claude coach: every model and tool call in a pane and a
-local web app, `/coach`). Install either or both; `mt` downloads its binary on first use
-(the `latest` release, rebuilt by CI on every push to main), else uses `mt` on PATH:
+| Flag | Effect |
+|---|---|
+| (none) | Install for you in every repo (user scope). Removes per-repo installs, which would make it load twice. |
+| `--repo` | This repo only, for you (`.claude/settings.local.json`) |
+| `--project` | This repo, shared with your team (`.claude/settings.json`) |
+| `--keep-repo-installs` | With user scope, keep the per-repo installs |
+| `--no-start` | Don't start `claude` at the end |
 
-```
-/plugin install mt --marketplace oshricohenme/ai_multi_tool
-/plugin install coach --marketplace oshricohenme/ai_multi_tool
-```
+Pass flags after `sh -s --`, for example `curl -fsSL … | sh -s -- --project`. The script
+needs `claude` and `python3`. Read it first if you like: it's [install.sh](install.sh).
 
-To try them on an existing repo and keep up with every push (installs for that repo only, then
-starts `claude` there; re-run after each push, `/reload-plugins` in an open session):
+**To try it without installing**, load it from a clone for one session:
 
 ```bash
-cd your-repo && sh ~/orca/ai_multi_tool/install.sh   # or: curl -fsSL https://raw.githubusercontent.com/oshricohenme/ai_multi_tool/main/install.sh | sh
+git clone https://github.com/oshricohenme/ai_multi_tool.git
+claude --plugin-dir ai_multi_tool/token-accounting-statement
 ```
 
-**Too slow somewhere?** `MT_DEBUG=1 mt build` (or `mt index --debug`, or `MT_DEBUG=1 sh install.sh`)
-writes everything indexing and the server's start do, with timings, to `.mt/debug/*.jsonl` in the
-repo: the machine and load, each step and batch, the write split into its parts with row counts,
-each lookup table, every file's parse time (the 40 slowest, totals per language), rows and sizes.
-Send those files back for analysis.
+To check the install, run `claude plugin list`, or type `/token-statement` in a session.
 
-**Status line.** The plugin shows mt's line in Claude Code's status area from the start of each
-session (`◤ mt · 12 calls · ~48.2k tok saved · last context 38 ms`). For the two-line bar graft
-draws, set it as the `statusLine` command (or call it from your own status line script):
+## Use
 
-```json
-{"statusLine": {"type": "command", "command": "mt statusline"}}
+| Command | Shows |
+|---|---|
+| `/token-statement` | This session: the live pane in Claude Code, and the full statement in your browser |
+| `/token-statement week` | The last 7 days, in your browser |
+| `/token-statement month` | This calendar month, in your browser |
+| `/token-statement text` | This session as plain text |
+
+The status line needs no command. At the start of each session the plugin also brings its own
+record up to date in the background (see [Privacy and security](#privacy-and-security)).
+
+## Reading a statement
+
+| Column | What it means |
+|---|---|
+| Context after | The running balance: how many tokens the conversation holds after this request |
+| Change | How far the context rose or fell since the previous request |
+| New input | Tokens sent for the first time and not stored |
+| Cache write | Tokens sent for the first time and stored for re-use. A write costs 1.25× input (5-minute cache) or 2× (1-hour cache). |
+| Cache read | Context sent again and read back from the cache, at about a tenth of the input price |
+| Output | What the model wrote back, thinking included |
+| Amount | What the request would cost at API list prices |
+
+Lines to look out for:
+
+- **Opening balance.** The system prompt, tool definitions, CLAUDE.md files and the first
+  prompt, written to the cache by the first request.
+- **Cache expired.** After an idle gap longer than the cache's lifetime, the whole context is
+  written to the cache again. The line says how long the gap was and what the rewrite cost
+  compared with reading from the cache. Changing the model or the tool list mid-session does
+  the same, and the line says so.
+- **Compaction.** The history is replaced by a summary, and the context falls.
+- **Subagent report.** What a subagent handed back. Its own requests are in its own account,
+  under "Subagent accounts", with their total.
+- **Reconciliation.** Itemized figures against the totals Claude Code recorded. "Not itemized"
+  covers the requests Claude Code makes for itself (session titles, summaries, safety checks).
+  The logs record those as a total only.
+
+Amounts are in USD at the list prices in [`rates.json`](token-accounting-statement/rates.json)
+(as of 2026-11-20). They're a yardstick, not a bill.
+
+## Privacy and security
+
+- **What it reads.** Claude Code's logs in `~/.claude/projects`, and in
+  `$CLAUDE_CONFIG_DIR/projects` when that is set. It never writes to them.
+- **What it writes.** Only to its own folder, `~/.claude/token-accounting/`, with folders
+  readable by you only (`0700`) and files likewise (`0600`). It keeps each session's figures
+  there so statements outlive Claude Code's cleanup of old logs: numbers and short labels of up
+  to 80 characters, never message text.
+- **The network.** It makes no outside connections, sends no telemetry and never calls a model.
+- **The browser view** comes from a local server bound to `127.0.0.1`. Its address carries a
+  random token that changes each time the server starts. Requests without the token, or with
+  another `Host` header, are refused. Pages run under a strict Content Security Policy, and
+  everything taken from a log is escaped. The server stops itself after 30 minutes without a
+  request.
+- **Statements can contain anything the logs hold:** prompts, file contents and command
+  output, which can include secrets. Treat a saved statement like the logs themselves.
+  `--html` files are readable by you only. Add `--no-detail` to make a copy for sharing. It
+  leaves out the content behind each line, though a label can still quote the start of a prompt
+  or a command.
+
+## Configuration
+
+| Setting | Default | Use |
+|---|---|---|
+| `rates.json` | API list prices | Change prices, add a model, or apply negotiated prices. Requests on a model with no rate are counted but carry no amount, and the statement says how many. Changes to the installed copy are overwritten when the plugin updates. |
+| `TOKEN_ACCOUNTING_HOME` | `~/.claude/token-accounting` | Where the statement keeps its own record |
+| `CLAUDE_CONFIG_DIR` | unset | Also read logs from this Claude Code config folder |
+| `--tz <zone>` | your local zone | Time zone for times and days, for example `--tz UTC` |
+| `--project <name>` | all | Limit a period statement to one project |
+| `--root <dir>` | | Read logs from another `projects` folder |
+| `--port <n>`, `--idle <minutes>` | any free port, 30 | The local server's port and idle timeout |
+
+## Uninstall
+
+In Claude Code:
+
+```
+/plugin uninstall token-accounting-statement@ai-multi-tool
+/plugin marketplace remove ai-multi-tool
 ```
 
-```
-◤ mt · 6,974 files · ✓ server up · 4 calls · ~436.0k tok saved
-▸ ctx 41% · last: query search "close the account" (322 ms)
-```
-
-Every `query`, `context`, `expand` and `search` answer ends with what it took and what it saved:
-`[mt] work: 53 index lookups (3,001 rows) · 1,800 files read (37,975 KB) · 383 ms · this reply ≈ 1,167
-tok vs ≈ 159,369 tok to read the 20 files it covers whole: ≈ 158,202 tok saved (99%, estimate)`.
-
-[docs/USAGE.md](docs/USAGE.md) covers permanent install, every command, the configuration
-variables and troubleshooting.
-
-## A first session
+Or from a shell:
 
 ```bash
-cd your-repo
-mt config                                  # guided setup: pick a preset, tune what you like
-mt build                                   # index up to date, daemon warm (optional; first use does it)
-mt visualize &                             # watch it work in the browser
-mt context handleLogin --map               # one line per related item, numbered
-mt expand 3 7                              # the bodies of items 3 and 7
-mt query - <<'EOF'
-[{"id": "def", "defined_in": "WriteAudit", "expect": "internal/store/audit.go"},
- {"id": "up",  "callers": "$def", "depth": 2},
- {"id": "t",   "tested_by": "WriteAudit"}]
-EOF
-mt run -- go test ./...                    # long output, compressed; errors kept
+claude plugin uninstall token-accounting-statement@ai-multi-tool
+claude plugin marketplace remove ai-multi-tool
 ```
 
-With the plugin loaded you don't type any of this. Claude does, because the session briefing
-and hooks steer it there.
+If you installed it for one repo (`-s project`, `-s local`, `--project` or `--repo`), run
+the uninstall in that repo with the same scope, for example `claude plugin uninstall
+token-accounting-statement@ai-multi-tool -s project`.
 
-## Documentation
+Removing the marketplace also removes the auto-update entry the install script wrote to your
+user settings. After a `--project` or `--repo` install, delete
+`extraKnownMarketplaces.ai-multi-tool` from that repo's `.claude/settings.json` or
+`.claude/settings.local.json`.
 
-- [docs/USAGE.md](docs/USAGE.md): install, connecting agents, every setting, every command,
-  `mt query` ops, the `mt apply` bundle, output stores, the visualizer, `mt tools`,
-  troubleshooting.
-- [docs/RESEARCH.md](docs/RESEARCH.md): the evidence, with methods, every A/B, rejected designs
-  and threats to validity.
-- [docs/HISTORY.md](docs/HISTORY.md): a readable index of the development log, one entry per
-  section with its outcome.
-- [DEVLOG.md](DEVLOG.md): the full development log, 45+ dated sections with raw numbers and
-  transcripts.
-- [skills/mt/SKILL.md](skills/mt/SKILL.md): the reference the model reads.
+Last, delete the statement's own record:
 
-## Repository layout
+```bash
+rm -rf ~/.claude/token-accounting
+```
+
+If the local server is running, it stops by itself within 30 minutes. The plugin leaves
+nothing else behind.
+
+## Limitations
+
+- **Claude Code's log format is not a public contract** and changes between versions. Missing
+  records reduce the detail but don't break the run.
+- **Amounts are API-equivalent**, not your bill. Subscription usage limits aren't in the logs,
+  so they aren't shown or predicted.
+- **Claude Code's own requests** (titles, summaries, safety checks) aren't logged one by one.
+  They appear as a single "Not itemized" line.
+- **An opened line shows the content as the log recorded it**, not a byte-for-byte copy of the
+  request. Thinking text isn't recorded, only its token count.
+- **This machine only.** Merge the CSV or JSON exports from several machines to combine them.
+- **A resumed session that continues in a new log file** shows up as a second statement.
+
+## Development
 
 ```
-src/        the binary: index, graph, resolve, query, context, apply, serve, hook, compress, tools,
-            config, events, viz (+ viz.html, compiled in)
-tests/      integration tests (speed, compression, map, briefing, virtual context)
-plugin/     Claude Code plugin: hooks.json, bin/mt, skills/mt
-skills/mt/  the model-facing reference
-bench/      benchmark harnesses, task definitions, gold sets, summarised results
+.claude-plugin/marketplace.json      the marketplace: one plugin
+token-accounting-statement/
+  .claude-plugin/plugin.json         plugin manifest
+  hooks/hooks.json, register.tsx     the mod: /token-statement, the pane, the status line
+  bin/statement.mjs                  command line, the statement's own record, the local server
+  bin/account.mjs                    the accounting rules: log records in, entries out (pure)
+  bin/render.mjs                     the HTML pages and the text statement
+  rates.json                         prices
+  fonts/                             IBM Plex, embedded in each page
+  types/index.d.ts                   the mod's state contract
+  test/                              statement.test.mjs (node --test), pane.test.tsx (claude plugin test)
+docs/TOKEN-ACCOUNTING-STATEMENT.md   the design: accounting rules, what the logs hold, decisions
 ```
+
+There's no build step and there are no dependencies. To work on it, load it from your clone with
+`claude --plugin-dir token-accounting-statement`. Before sending a change, run the checks CI
+runs:
+
+```bash
+node --test token-accounting-statement/test/statement.test.mjs
+claude plugin test token-accounting-statement
+claude plugin validate . && claude plugin validate token-accounting-statement
+```
+
+Issues and pull requests are welcome. [CHANGELOG.md](CHANGELOG.md) lists the changes in each
+release.
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+[MIT](LICENSE). The IBM Plex fonts in `token-accounting-statement/fonts/` are under the SIL
+Open Font License 1.1 ([OFL.txt](token-accounting-statement/fonts/OFL.txt)).
+
+This project isn't affiliated with Anthropic. Claude and Claude Code are trademarks of
+Anthropic.

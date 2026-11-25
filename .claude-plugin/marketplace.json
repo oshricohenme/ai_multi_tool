@@ -5,9 +5,12 @@
   },
   "plugins": [
     {
-      "name": "coach",
-      "source": "./coach",
-      "description": "Claude coach: inspect every model call and tool call (reasoning, tokens, cost, timing, context, cache, habits, nudges) in a pane and a local web app"
+      "name": "token-accounting-statement",
+      "source": "./token-accounting-statement",
+      "description": "Token Accounting Statement: what Claude Code spends, laid out like a bank statement and kept live while a session runs. Every request, the context balance, the reason for each change, and what it cost"
     }
-  ]
+  ],
+  "metadata": {
+    "description": "Claude Code plugins by Oshri Cohen. Token Accounting Statement: what every Claude Code session spends, as a bank statement."
+  }
 }

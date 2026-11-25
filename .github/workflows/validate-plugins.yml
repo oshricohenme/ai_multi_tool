@@ -1,4 +1,4 @@
-# Validate the marketplace and the coach plugin, and syntax-check coach's JavaScript.
+# Validate the marketplace and the plugin, syntax-check its scripts, and run its tests.
 name: validate-plugins
 
 on:
@@ -15,5 +15,7 @@ jobs:
           node-version: lts/*
       - run: npm i -g @anthropic-ai/claude-code
       - run: claude plugin validate .
-      - run: claude plugin validate coach
-      - run: node --check coach/server/server.mjs && node --check coach/server/transcripts.mjs && node --check coach/web/coach.js && node --check coach/web/classify.js
+      - run: claude plugin validate token-accounting-statement
+      - run: node --check token-accounting-statement/bin/statement.mjs && node --check token-accounting-statement/bin/account.mjs && node --check token-accounting-statement/bin/render.mjs
+      - run: node --test token-accounting-statement/test/statement.test.mjs
+      - run: claude plugin test token-accounting-statement
