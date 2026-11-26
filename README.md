@@ -9,7 +9,7 @@ in its own folder and installs on its own. The repo is also a Claude Code plugin
 
 | Tool | What it does |
 |------|--------------|
-| [Token Accounting Statement](#token-accounting-statement) | What every Claude Code session spends, itemized like a bank statement and kept live while it runs. |
+| [Token Accounting Statement](#token-accounting-statement) | What every coding agent session spends (Claude Code, Codex, opencode, Gemini CLI), itemized like a bank statement. |
 
 More tools will be added here as they're released.
 
