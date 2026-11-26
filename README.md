@@ -1,3 +1,20 @@
+# ai_multi_tool
+
+My open-source tools for Claude Code and other AI coding agents, in one repo. Each tool lives
+in its own folder and installs on its own. The repo is also a Claude Code plugin marketplace:
+
+```
+/plugin marketplace add oshricohenme/ai_multi_tool
+```
+
+| Tool | What it does |
+|------|--------------|
+| [Token Accounting Statement](#token-accounting-statement) | What every Claude Code session spends, itemized like a bank statement and kept live while it runs. |
+
+More tools will be added here as they're released.
+
+---
+
 # Token Accounting Statement
 
 **What every coding agent session spends, itemized like a bank statement.** Claude Code, Codex,
