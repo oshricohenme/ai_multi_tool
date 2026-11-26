@@ -1,8 +1,14 @@
 # Token Accounting Statement
 
-**What every Claude Code session spends, itemized like a bank statement.** One line per model
-request, the context balance after it, the reason it changed, and what it cost. It stays live
-while the session runs, in Claude Code and in your browser.
+**What every coding agent session spends, itemized like a bank statement.** Claude Code, Codex,
+opencode and Gemini CLI: one line per model request, the context balance after it, the reason it
+changed, and what it cost. It stays live while the session runs, in Claude Code and in your browser.
+
+Install it for every agent on your machine and open the last 7 days, in one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oshricohenme/ai_multi_tool/main/install.sh | sh
+```
 
 [![validate-plugins](https://github.com/oshricohenme/ai_multi_tool/actions/workflows/validate-plugins.yml/badge.svg)](https://github.com/oshricohenme/ai_multi_tool/actions/workflows/validate-plugins.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -13,7 +19,7 @@ while the session runs, in Claude Code and in your browser.
 
 ## Why
 
-Claude Code logs every model request on your machine, with the exact number of tokens it used.
+Coding agents log every model request on your machine, with the exact number of tokens it used.
 Nothing turns those logs into an account of where the tokens went, and on a subscription no
 invoice itemizes them either. Tokens translate directly into cost, so this plugin keeps the
 books:
@@ -26,8 +32,8 @@ books:
 - **Why.** Each line names its cause: a prompt, a tool result (which tool, which file), a hook,
   a subagent's report, a compaction, or a cache that expired while you were away.
 - **What it was.** Open any line to see what that request sent and what came back.
-- **Whether it adds up.** Each session closes with a reconciliation against the totals Claude
-  Code recorded itself. Anything the logs don't break down goes on one "Not itemized" line.
+- **Whether it adds up.** Each Claude Code session closes with a reconciliation against the
+  totals Claude Code recorded itself. Anything the logs don't break down goes on one "Not itemized" line.
   Nothing is dropped.
 
 It only reads logs. It sends nothing off your machine, never calls a model (so it spends no
@@ -107,31 +113,56 @@ Its **Why** section shows what filled the context and what cost extra:
 
 ![The Why section: what filled the context, by source, and the events that cost extra or brought the context down](docs/images/why.png)
 
-### From a shell
+### From a shell, or from any other agent
 
-The statement is a plain Node script with no dependencies, and it works with no Claude session
-open. From a clone of this repo (or from the installed copy, whose path `claude plugin list`
-prints):
+The install script puts a `token-statement` command on your `PATH`. It's a plain Node script with
+no dependencies, and it needs no agent open. It reads every agent's sessions at once:
 
 ```bash
-node token-accounting-statement/bin/statement.mjs                       # the last 30 days, as text
-node token-accounting-statement/bin/statement.mjs open --since 7d       # the last 7 days, in the browser
-node token-accounting-statement/bin/statement.mjs --month 2026-11 --html november.html
-node token-accounting-statement/bin/statement.mjs --session <id> --csv  # one line per request
-node token-accounting-statement/bin/statement.mjs --help
+token-statement                                  # the last 30 days, as text
+token-statement open --since 7d                  # the last 7 days, in the browser
+token-statement open --session latest            # the session written to last, live in the browser
+token-statement --month 2026-11 --html november.html
+token-statement --session <id> --csv             # one line per request
+token-statement --help
 ```
+
+From a clone of this repo, `node token-accounting-statement/bin/statement.mjs` is the same command.
+
+A period statement covering more than one agent adds a **By coding agent** table, and each session
+statement names its agent.
+
+### In Codex, opencode, Gemini CLI and other agents
+
+| Agent | What the install script adds | How to use it |
+|---|---|---|
+| Codex, and agents that read `~/.agents/skills` | A `token-statement` skill | Ask for the token statement, or `$token-statement` in Codex |
+| opencode | `/token-statement` (`~/.config/opencode/command/`) | Opens this session in the browser and shows the summary |
+| Gemini CLI | `/token-statement` (`~/.gemini/commands/`) | The same |
+| Anything with a shell | `token-statement` on your `PATH` | Run it yourself, or ask the agent to |
+
+Unlike `/token-statement` in Claude Code, these hand the summary to the agent's model, so showing
+it costs a few hundred tokens.
 
 `--json` gives the same figures as JSON.
 
 ## Requirements
 
-- **Claude Code.** Tested on 2.1.331. The one-line install below needs 2.1.275 or later.
-- **Node.js 20 or later** on your `PATH`. The plugin runs `node`. Tested on Node 22.
+- **A coding agent:** Claude Code (tested on 2.1.331; the one-line plugin install needs 2.1.275 or
+  later), Codex (tested on 0.167), opencode or Gemini CLI.
+- **Node.js 20 or later** on your `PATH`. Reading opencode's sessions needs Node 22.13 or later,
+  for its built-in SQLite. Tested on Node 22.
 - **A web browser** for the full statement. The pane and status line need nothing else.
 
 ## Install
 
-**In Claude Code**, run:
+**For every agent, in one command** (the [install script](#the-install-script)):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oshricohenme/ai_multi_tool/main/install.sh | sh
+```
+
+**Only the Claude Code plugin, in Claude Code**, run:
 
 ```
 /plugin install token-accounting-statement --marketplace oshricohenme/ai_multi_tool
@@ -156,22 +187,34 @@ By default the plugin is installed for you in every repo (user scope). Add `-s p
 install it for the current repo and share it with your team through `.claude/settings.json`,
 or `-s local` for the current repo only for you.
 
-**With the install script**, which also turns on auto-update for the marketplace:
+### The install script
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/oshricohenme/ai_multi_tool/main/install.sh | sh
 ```
 
+It sets up what it finds, then opens the last 7 days in your browser:
+
+1. **`token-statement`**, a copy of the plugin in `~/.local/share/token-accounting-statement` and a
+   command in `~/.local/bin`. Run the script again to update it.
+2. **Claude Code**, when `claude` is installed: the plugin from this marketplace, with auto-update
+   turned on.
+3. **Other agents:** the `token-statement` skill in `~/.agents/skills`, and `/token-statement` for
+   opencode and Gemini CLI when they're installed.
+
 | Flag | Effect |
 |---|---|
-| (none) | Install for you in every repo (user scope). Removes per-repo installs, which would make it load twice. |
-| `--repo` | This repo only, for you (`.claude/settings.local.json`) |
-| `--project` | This repo, shared with your team (`.claude/settings.json`) |
+| (none) | Claude Code plugin for you in every repo (user scope). Removes per-repo installs, which would make it load twice. |
+| `--repo` | Claude Code: this repo only, for you (`.claude/settings.local.json`) |
+| `--project` | Claude Code: this repo, shared with your team (`.claude/settings.json`) |
 | `--keep-repo-installs` | With user scope, keep the per-repo installs |
-| `--no-start` | Don't start `claude` at the end |
+| `--no-claude` | Skip the Claude Code plugin |
+| `--no-start` | Don't open the statement at the end |
 
-Pass flags after `sh -s --`, for example `curl -fsSL … | sh -s -- --project`. The script
-needs `claude` and `python3`. Read it first if you like: it's [install.sh](install.sh).
+Pass flags after `sh -s --`, for example `curl -fsSL … | sh -s -- --project`. `PREFIX` and
+`BIN_DIR` move the command. The script needs `node`, plus `curl` and `tar` when it's piped from
+`curl`, and `python3` for the Claude Code step. Read it first if you like: it's
+[install.sh](install.sh).
 
 **To try it without installing**, load it from a clone for one session:
 
@@ -227,7 +270,10 @@ Amounts are in USD at the list prices in [`rates.json`](token-accounting-stateme
 ## Privacy and security
 
 - **What it reads.** Claude Code's logs in `~/.claude/projects`, and in
-  `$CLAUDE_CONFIG_DIR/projects` when that is set. It never writes to them.
+  `$CLAUDE_CONFIG_DIR/projects` when that is set. Codex's in `~/.codex/sessions` and
+  `archived_sessions` (or `$CODEX_HOME`). opencode's database in `~/.local/share/opencode` (or
+  `$XDG_DATA_HOME/opencode`), opened read-only. Gemini CLI's chats in `~/.gemini/tmp`. It never
+  writes to any of them.
 - **What it writes.** Only to its own folder, `~/.claude/token-accounting/`, with folders
   readable by you only (`0700`) and files likewise (`0600`). It keeps each session's figures
   there so statements outlive Claude Code's cleanup of old logs: numbers and short labels of up
@@ -253,7 +299,8 @@ Amounts are in USD at the list prices in [`rates.json`](token-accounting-stateme
 | `CLAUDE_CONFIG_DIR` | unset | Also read logs from this Claude Code config folder |
 | `--tz <zone>` | your local zone | Time zone for times and days, for example `--tz UTC` |
 | `--project <name>` | all | Limit a period statement to one project |
-| `--root <dir>` | | Read logs from another `projects` folder |
+| `CODEX_HOME`, `XDG_DATA_HOME` | unset | Where Codex and opencode keep their logs, when not the default |
+| `--root <dir>` | | Read Claude Code logs from this `projects` folder only, and no other agent's |
 | `--port <n>`, `--idle <minutes>` | any free port, 30 | The local server's port and idle timeout |
 
 ## Uninstall
@@ -281,9 +328,11 @@ user settings. After a `--project` or `--repo` install, delete
 `extraKnownMarketplaces.ai-multi-tool` from that repo's `.claude/settings.json` or
 `.claude/settings.local.json`.
 
-Last, delete the statement's own record:
+Then remove what the install script added for the other agents, and the statement's own record:
 
 ```bash
+rm -rf ~/.local/share/token-accounting-statement ~/.local/bin/token-statement ~/.agents/skills/token-statement
+rm -f ~/.config/opencode/command/token-statement.md ~/.gemini/commands/token-statement.toml
 rm -rf ~/.claude/token-accounting
 ```
 
@@ -292,8 +341,15 @@ nothing else behind.
 
 ## Limitations
 
-- **Claude Code's log format is not a public contract** and changes between versions. Missing
+- **No agent's log format is a public contract**, and they change between versions. Missing
   records reduce the detail but don't break the run.
+- **Prices.** `rates.json` lists Anthropic's models. Requests on other models (GPT, Gemini, GLM
+  and so on) are counted in full but carry no amount until you add their rates.
+- **Codex, opencode and Gemini CLI record no control total**, so their sessions have no
+  reconciliation. Codex subagents and opencode subsessions show as sessions of their own. Older
+  Codex logs record usage after the tool results, so a line's cause can name the result of its
+  own request. Codex's zstd-compressed archives aren't read.
+- **Gemini CLI's chats don't record the project folder**, unless a `.project_root` file is there.
 - **Amounts are API-equivalent**, not your bill. Subscription usage limits aren't in the logs,
   so they aren't shown or predicted.
 - **Claude Code's own requests** (titles, summaries, safety checks) aren't logged one by one.
@@ -312,6 +368,7 @@ token-accounting-statement/
   hooks/hooks.json, register.tsx     the mod: /token-statement, the pane, the status line
   bin/statement.mjs                  command line, the statement's own record, the local server
   bin/account.mjs                    the accounting rules: log records in, entries out (pure)
+  bin/agents.mjs                     Codex, opencode and Gemini CLI logs, read as Claude Code-shaped records
   bin/render.mjs                     the HTML pages and the text statement
   rates.json                         prices
   fonts/                             IBM Plex, embedded in each page
@@ -326,6 +383,7 @@ runs:
 
 ```bash
 node --test token-accounting-statement/test/statement.test.mjs
+shellcheck -s sh install.sh
 claude plugin test token-accounting-statement
 claude plugin validate . && claude plugin validate token-accounting-statement
 ```

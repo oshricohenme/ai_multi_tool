@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Token Accounting Statement: reads Claude Code's session logs and prints a statement of token use.
+// Token Accounting Statement: reads the session logs of Claude Code, Codex, opencode and Gemini CLI and prints a
+// statement of token use.
 // The design is docs/TOKEN-ACCOUNTING-STATEMENT.md. Plain Node, no dependencies. It reads history only, changes no
 // session, and sends nothing off this machine.
 import fs from 'node:fs'
@@ -10,6 +11,7 @@ import readline from 'node:readline'
 import crypto from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { others, recordsOf } from './agents.mjs'
 import { sessionOf, rowsOf, periodOf, rowUse, amountOf, num, plural } from './account.mjs'
 import { sessionHtml, periodHtml, sessionText, periodText, summaryText, sessionBrief, rangeText, usd, CSP, LIVE_CSP } from './render.mjs'
 
@@ -45,16 +47,17 @@ export async function readLog(file) {
   return recs
 }
 
+// Claude Code's log folders. Other agents' sessions are read too, unless --root names one folder to read.
 function rootsOf(o) {
   if (o.root) return [o.root]
   const out = new Set()
   for (const r of [process.env.CLAUDE_CONFIG_DIR && path.join(process.env.CLAUDE_CONFIG_DIR, 'projects'), path.join(os.homedir(), '.claude', 'projects')])
     try { if (r) out.add(fs.realpathSync(r)) } catch {}
-  return [...out]
+  return Object.assign([...out], { others: true })
 }
 
-// Every session on disk: id -> { id, path: its log, dir: the folder holding its subagent logs }.
-// A session whose own log is gone but whose subagent logs remain is still listed.
+// Every session on disk: id -> { id, path: its log, dir: the folder holding its subagent logs }, and other agents'
+// sessions from agents.mjs. A session whose own log is gone but whose subagent logs remain is still listed.
 function listSessions(roots) {
   const map = new Map()
   const at = id => map.get(id) || map.set(id, { id }).get(id)
@@ -70,6 +73,7 @@ function listSessions(roots) {
       }
     }
   }
+  if (roots.others) for (const s of others()) if (!map.has(s.id)) map.set(s.id, s)
   return map
 }
 
@@ -80,8 +84,11 @@ function agentFiles(s) {
   } catch { return [] }
 }
 
+// What a session's figures depend on: its log files, or for a database row, when it last changed.
+const statsOf = s => (s.stamp != null ? [{ f: s.id, size: 0, mtimeMs: s.stamp }] : [s.path, ...agentFiles(s)].filter(Boolean).map(f => ({ f, ...fs.statSync(f) })))
+
 async function loadSession(s, detail) {
-  const main = s.path ? await readLog(s.path) : []
+  const main = s.agent ? await recordsOf(s, readLog) : s.path ? await readLog(s.path) : []
   const subs = []
   for (const f of agentFiles(s)) {
     let meta = null
@@ -90,7 +97,7 @@ async function loadSession(s, detail) {
   }
   const started = x => (x.recs.find(r => r.timestamp) || {}).timestamp || ''
   subs.sort((a, b) => (started(a) < started(b) ? -1 : 1))
-  return sessionOf(main, subs, { id: s.id, rates: RATES, detail })
+  return sessionOf(main, subs, { id: s.id, rates: RATES, detail, agent: s.agent })
 }
 
 // The figures of one session, from the statement's record when its logs have not changed.
@@ -111,7 +118,7 @@ async function rowsFor(s, stats) {
 async function sessionsSince(roots, from) {
   const index = listSessions(roots), out = []
   for (const s of index.values()) {
-    const stats = [s.path, ...agentFiles(s)].filter(Boolean).map(f => ({ f, ...fs.statSync(f) }))
+    const stats = statsOf(s)
     if (stats.length && Math.max(...stats.map(x => x.mtimeMs)) >= from) out.push(await rowsFor(s, stats))
   }
   // Claude Code deletes old logs. What the statement already recorded about them stays on the books.
@@ -138,6 +145,12 @@ function findSession(roots, arg) {
     arg = path.basename(arg, '.jsonl')
   }
   const index = listSessions(roots)
+  if (arg === 'latest') { // the session written to last, of any agent: usually the one asking
+    const last = s => Math.max(0, ...statsOf(s).map(x => x.mtimeMs))
+    const best = [...index.values()].reduce((a, s) => (!a || last(s) > last(a) ? s : a), null)
+    if (!best) throw new Error('No session found')
+    return best
+  }
   const hits = index.has(arg) ? [index.get(arg)] : [...index.values()].filter(s => s.id.startsWith(arg))
   if (hits.length !== 1) throw new Error(hits.length ? 'More than one session starts with ' + arg : 'No session found for ' + arg)
   return hits[0]
@@ -235,9 +248,9 @@ export function serve(o = {}) {
     const s = m && ID.test(m[1]) && listSessions(roots).get(m[1])
     if (!s) return send(res, 404, TEXT, m ? 'No log for this session is on disk. If it was removed, its totals still count in period statements.' : 'Not found.')
     // Live: the page asks again with the tag it holds, and gets 304 until one of the session's logs changes.
-    const tag = '"' + crypto.createHash('sha1').update([s.path, ...agentFiles(s)].filter(Boolean).map(f => {
-      try { const x = fs.statSync(f); return f + ':' + x.size + ':' + x.mtimeMs } catch { return f }
-    }).join('|')).digest('hex').slice(0, 20) + '"'
+    let stats = []
+    try { stats = statsOf(s) } catch {}
+    const tag = '"' + crypto.createHash('sha1').update(stats.map(x => x.f + ':' + x.size + ':' + x.mtimeMs).join('|')).digest('hex').slice(0, 20) + '"'
     if (req.headers['if-none-match'] === tag) return res.writeHead(304, { ETag: tag, 'Cache-Control': 'no-store' }), res.end()
     return send(res, 200, HTML, sessionHtml(await loadSession(s, true), { tz: o.tz, asOf: RATES.asOf, live: tag, back: { href: '../', label: 'Period statement, last 30 days' } }), { csp: LIVE_CSP, tag })
   }
@@ -276,7 +289,7 @@ async function serverUrl(o) {
 // ---- the command line -----------------------------------------------------------------------
 
 const USAGE = [
-  'Usage: statement.mjs [serve | open | index] [--session <id or log file> | --since 7d | --month 2026-11]',
+  'Usage: statement.mjs [serve | open | index] [--session <id, log file or latest> | --since 7d | --month 2026-11]',
   '                     [--project <name>] [--text | --html <file> | --json | --csv | --brief] [--no-detail]',
   '',
   '  (no command)  print a statement: one session with --session, otherwise a period (default: last 30 days)',
@@ -284,6 +297,7 @@ const USAGE = [
   '  serve         run the local server in the foreground and print its address',
   '  index         bring the statement’s own record up to date and print nothing',
   '',
+  '  Reads Claude Code, Codex, opencode (Node 22.13+) and Gemini CLI sessions. --session latest is the last one written.',
   '  --text is the default. --html <file> writes one self-contained page, readable by you only.',
   '  --no-detail leaves out message content. --csv gives one line per request. --no-open skips the browser.',
   '  --brief, with --session, prints the figures and the latest entries as JSON, for the pane in Claude Code.',
@@ -316,7 +330,8 @@ export async function main(argv) {
   }
   if (o.cmd === 'index') return void (await sessionsSince(roots, rangeOf(o).from))
   const show = url => {
-    if (!o['no-open'] && process.platform === 'darwin') spawn('open', [url], { detached: true, stdio: 'ignore' }).unref()
+    const opener = { darwin: 'open', linux: 'xdg-open' }[process.platform]
+    if (!o['no-open'] && opener) spawn(opener, [url], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref()
   }
 
   if (o.session) {

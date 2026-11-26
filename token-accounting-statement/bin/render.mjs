@@ -430,7 +430,7 @@ export function sessionHtml(s, o = {}) {
   const parts = []
   if (o.back) parts.push('<nav class="back"><a href="' + esc(o.back.href) + '">' + LEFT + esc(o.back.label) + '</a>' + (o.live ? '<span class="live">Live: this page follows the session as it runs</span>' : '') + '</nav>')
   parts.push(masthead('Session statement', s.title, [
-    ['Session', s.id.slice(0, 8)], ['Project', s.project || '—'],
+    ['Session', s.id.slice(0, 8)], ['Project', s.project || '—'], ['Agent', s.agent || 'Claude Code'],
     ['Date', s.first ? c.span(s.first, m.last || s.first) : '—'], ['Model', model],
   ]))
   parts.push('<dl class="figs">\n' + figs.map(([k, v, n]) => '<div><dt>' + k + '</dt><dd class="v">' + v + '</dd><dd class="note">' + esc(n) + '</dd></div>').join('\n') + '\n</dl>')
@@ -456,7 +456,7 @@ export function sessionHtml(s, o = {}) {
   parts.push(section('Reconciliation',
     k ? 'This statement against the total Claude Code recorded for the session. “Not itemized” is spend the log does not break down: requests the engine makes for itself, such as session titles and compaction summaries.' +
         (neg ? ' Here Claude Code’s own total is lower than what this log itemizes, shown with a minus sign, so it is not a full figure for this session: its counter can miss part of a resumed session, and the work of background workflow agents. The itemized figures are the fuller count.' : '')
-      : 'No control total recorded in this log, so this statement cannot be checked against Claude Code’s own figure.',
+      : 'No control total recorded in this log, so this statement cannot be checked against ' + (s.agent && s.agent !== 'Claude Code' ? s.agent + '’s' : 'Claude Code’s') + ' own figure.',
     k ? reconTable(t, k) : ''))
   parts.push(howTo(detail ? [['Content is shown as the log recorded it', 'The exact bytes sent can differ slightly, because the engine adds wrappers around some records.']] : [], o.asOf))
   return page('Token Accounting Statement: ' + s.title, parts.join('\n'), o.live)
@@ -489,7 +489,7 @@ export function periodHtml(P, o = {}) {
   const c = clock(o.tz), K = P.classes
   const share = (a, b) => esc(pct(a, b))
   const parts = [masthead('Period statement', 'Statement of token use, ' + o.lede, [
-    ['Statement', o.statement], ...(P.project ? [['Project', P.project]] : []), ['Account', 'Claude Code, this machine'],
+    ['Statement', o.statement], ...(P.project ? [['Project', P.project]] : []), ['Account', ([...(P.coders || new Map())].sort((a, b) => b[1].n - a[1].n).map(x => x[0]).join(', ') || 'Claude Code') + ', this machine'],
     ['Prepared', c.stamp(o.prepared)], ['Amounts', 'API-equivalent, USD'],
   ])]
 
@@ -540,6 +540,7 @@ export function periodHtml(P, o = {}) {
     '<div class="stack">\n<h3 class="h3">By model</h3>\n' +
       table('w640', [['Model', 'l'], ['Requests'], ['New input'], ['Cache write'], ['Cache read'], ['Output'], ['Amount'], ['Share']],
         byAmount(P.models).map(([name, x]) => [esc(name), num(x.n), num(x.in), num(x.cw), num(x.cr), num(x.out), rateKnown(o.rates, name) ? usd(x.amt) : '—', share(x.amt, P.amt)])) +
+      (P.coders && P.coders.size > 1 ? '\n</div>\n<div class="stack">\n<h3 class="h3">By coding agent</h3>\n' + cut(P.coders, 'Coding agent') : '') +
       '\n</div>\n<div class="stack">\n<h3 class="h3">By agent</h3>\n' + cut(P.agents, 'Thread', top(byAmount(P.agents), 'kinds of subagent')) +
       (tags.length ? '\n</div>\n<div class="stack">\n<h3 class="h3">By skill, plugin and MCP server</h3>\n' + cut(P.tags, 'Working for', tags.slice(0, 15)) +
         el('p', 'small', 'A request counts here when Claude Code tagged it as working for a skill, a plugin or an MCP server. One request can count toward more than one, and most count toward none, so these shares do not add up to 100%.' + (tags.length > 15 ? ' The 15 largest of ' + tags.length + ' are shown.' : '')) : '') +
@@ -611,7 +612,7 @@ export function sessionText(s, o = {}) {
   const line = (no, time, entry, ctx, change, cw, cr, out, amt) => ' ' + padL(no, 4) + '  ' + padR(time, 5) + '  ' + padR(entry, 40) + padL(ctx, 10) + padL(change, 10) + padL(cw, 10) + padL(cr, 12) + padL(out, 8) + padL(amt, 9)
   const out = [
     ' TOKEN ACCOUNTING STATEMENT · SESSION',
-    ' Session  ' + s.title + ' (' + s.id.slice(0, 8) + ')    Project  ' + (s.project || '—'),
+    ' Session  ' + s.title + ' (' + s.id.slice(0, 8) + ')    Project  ' + (s.project || '—') + '    Agent  ' + (s.agent || 'Claude Code'),
     ' Period   ' + (s.first ? c.span(s.first, m.last || s.first) : '—') + '    Model  ' + (m.models.join(', ') || '—'),
     ' ' + '═'.repeat(W),
     line('No.', 'Time', 'Entry', 'Context', 'Change', 'Cache', 'Cache', 'Output', 'Amount'),

@@ -9,6 +9,7 @@ import http from 'node:http'
 import crypto from 'node:crypto'
 import { accountOf, sessionOf, rowsOf, periodOf, rateFor, split } from '../bin/account.mjs'
 import { sessionHtml, periodHtml, sessionBrief } from '../bin/render.mjs'
+import { codexRecords, opencodeRecords, geminiRecords } from '../bin/agents.mjs'
 
 const RATES = { asOf: 'test', cacheRead: 0.1, cacheWrite5m: 1.25, cacheWrite1h: 2, webSearchPer1000: 10, models: { 'claude-test-1': { in: 10, out: 50 } } }
 
@@ -93,6 +94,46 @@ test('a session reconciles, and a response in two files counts once in a period'
   assert.equal(P.flags.idle.n, 1)
   assert.equal(P.comps.manual, 1)
   assert.match(periodHtml(P, { tz: 'UTC', lede: 'test', statement: 'test', prepared: 0, rates: RATES }), /Period statement/)
+})
+
+test('Codex, opencode and Gemini CLI logs make the same account', () => {
+  const ts = '2026-11-12T09:00:00.000Z'
+  // the same two requests, as each agent records them: 500 new input, 1,600 cache read, 60 output of which 20 thinking
+  const codex = codexRecords([
+    { _n: 1, timestamp: ts, type: 'session_meta', payload: { cwd: '/work/demo' } },
+    { _n: 2, timestamp: ts, type: 'turn_context', payload: { model: 'claude-test-1' } },
+    { _n: 3, timestamp: ts, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Find the bug' }] } },
+    { _n: 4, timestamp: ts, type: 'response_item', payload: { type: 'function_call', name: 'shell', arguments: '{"command":"npm test"}', call_id: 'c1' } },
+    { _n: 5, timestamp: ts, type: 'token_usage_record', payload: { response_id: 'r1', usage: { input_tokens: 1000, cached_input_tokens: 600, output_tokens: 50, reasoning_output_tokens: 20 } } },
+    { _n: 6, timestamp: ts, type: 'response_item', payload: { type: 'function_call_output', call_id: 'c1', output: '14 passed' } },
+    { _n: 7, timestamp: ts, type: 'token_usage_record', payload: { response_id: 'r2', usage: { input_tokens: 1100, cached_input_tokens: 1000, output_tokens: 10 } } },
+  ])
+  const md = { role: 'assistant', modelID: 'anthropic/claude-test-1', path: { cwd: '/work/demo' } }
+  const opencode = opencodeRecords([
+    { md: { role: 'user' }, pd: { type: 'text', text: 'Find the bug' }, pid: 'p1', t: 1 },
+    { md, pd: { type: 'tool', tool: 'shell', callID: 'c1', state: { status: 'completed', input: { command: 'npm test' }, output: '14 passed' } }, pid: 'p2', t: 2 },
+    { md, pd: { type: 'step-finish', tokens: { input: 400, output: 30, reasoning: 20, cache: { read: 600, write: 0 } } }, pid: 'p3', t: 3 },
+    { md, pd: { type: 'step-finish', tokens: { input: 100, output: 10, reasoning: 0, cache: { read: 1000, write: 0 } } }, pid: 'p4', t: 4 },
+  ])
+  const gemini = geminiRecords({ messages: [
+    { type: 'user', timestamp: ts, content: 'Find the bug' },
+    { type: 'gemini', id: 'g1', timestamp: ts, model: 'claude-test-1', tokens: { input: 1000, cached: 600, output: 30, thoughts: 20 }, toolCalls: [{ id: 'c1', name: 'shell', args: { command: 'npm test' }, resultDisplay: '14 passed' }] },
+    { type: 'gemini', id: 'g2', timestamp: ts, model: 'claude-test-1', tokens: { input: 1100, cached: 1000, output: 10, thoughts: 0 } },
+  ] }, '/work/demo')
+  for (const [agent, recs] of [['Codex', codex], ['opencode', opencode], ['Gemini CLI', gemini]]) {
+    const s = sessionOf(recs, [], { id: 'x', rates: RATES, agent })
+    const t = s.totals
+    assert.deepEqual([t.n, t.in, t.cr, t.cw, t.out, t.think, t.unpriced], [2, 500, 1600, 0, 60, 20, 0], agent)
+    assert.equal(s.main.entries[1].title, 'Tool result · shell', agent)
+    assert.equal(s.title, 'Find the bug', agent)
+    assert.equal(s.project, 'demo', agent)
+    assert.equal(rowsOf(s).agent, agent)
+  }
+  const P = periodOf([rowsOf(sessionOf(codex, [], { id: 'a', rates: RATES, agent: 'Codex' })), rowsOf(sessionOf(madeUpLog(), [], { id: 'b', rates: RATES }))], { from: 0, to: Date.UTC(2027, 0, 1), tz: 'UTC' }, RATES)
+  assert.deepEqual([...P.coders.keys()].sort(), ['Claude Code', 'Codex'])
+  // older Codex logs only a running count, sometimes twice: a repeat is not a request
+  const count = (n, last, total) => ({ _n: n, timestamp: ts, type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { input_tokens: last, output_tokens: 1 }, total_token_usage: { total_tokens: total } } } })
+  assert.equal(sessionOf(codexRecords([count(1, 100, 101), count(2, 100, 101), count(3, 200, 302)]), []).totals.n, 2)
 })
 
 test('pages escape log content and forbid scripts', () => {

@@ -16,6 +16,13 @@ jobs:
       - run: npm i -g @anthropic-ai/claude-code
       - run: claude plugin validate .
       - run: claude plugin validate token-accounting-statement
-      - run: node --check token-accounting-statement/bin/statement.mjs && node --check token-accounting-statement/bin/account.mjs && node --check token-accounting-statement/bin/render.mjs
+      - run: node --check token-accounting-statement/bin/statement.mjs && node --check token-accounting-statement/bin/account.mjs && node --check token-accounting-statement/bin/render.mjs && node --check token-accounting-statement/bin/agents.mjs
       - run: node --test token-accounting-statement/test/statement.test.mjs
       - run: claude plugin test token-accounting-statement
+      - run: shellcheck -s sh install.sh
+      - name: install.sh, without Claude Code, into an empty home
+        run: |
+          export HOME=$(mktemp -d)
+          sh install.sh --no-claude --no-start
+          "$HOME/.local/bin/token-statement" --since 1d
+          test -f "$HOME/.agents/skills/token-statement/SKILL.md"

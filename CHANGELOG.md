@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Every coding agent.** The statement also reads Codex, opencode and Gemini CLI sessions. Period
+  statements gain a "By coding agent" table, and session statements name their agent.
+  `--session latest` picks the session written to last.
+- **One command to install and run.** `install.sh` installs a `token-statement` command, the
+  Claude Code plugin when Claude Code is there, a skill for agents that read `~/.agents/skills`,
+  and `/token-statement` for opencode and Gemini CLI. Then it opens the last 7 days. `--no-claude`
+  skips the plugin.
+- The browser opens on Linux too (`xdg-open`).
 - Session pages never show raw JSON. Tool call inputs, JSON tool results and the API's usage
   show as named fields, tables of like records, numbered lists and code blocks.
 
