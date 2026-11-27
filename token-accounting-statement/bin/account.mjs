@@ -472,7 +472,7 @@ export function sessionOf(main, subs = [], o = {}) {
   const totals = addTotals(addTotals(zero(), m.totals), subTotals)
   const cwd = m.cwd || (threads[0] && threads[0].cwd) || ''
   return {
-    id: o.id || '', title: m.title || o.id || 'Untitled session', project: cwd ? base(cwd) : o.project || '', cwd,
+    id: o.id || '', title: m.title || o.id || 'Untitled session', project: cwd ? base(cwd) : o.project || '', cwd, agent: o.agent || 'Claude Code',
     main: m, subs: threads, totals, subTotals, control: controlOf(m.control),
     first: [m, ...threads].map(t => t.first).filter(Boolean).sort((a, b) => a - b)[0] || null,
     last: Math.max(m.last || 0, ...threads.map(t => t.last || 0)) || null,
@@ -495,7 +495,7 @@ export function rowsOf(s) {
   }
   add(s.main, -1)
   s.subs.forEach(add)
-  return { id: s.id, title: clip(s.title, 80), project: s.project, rows, comps, control: s.control, agents: s.subs.map(t => t.type) }
+  return { id: s.id, title: clip(s.title, 80), project: s.project, agent: s.agent, rows, comps, control: s.control, agents: s.subs.map(t => t.type) }
 }
 
 export const rowUse = r => ({ model: r.m, in: r.i, cw5: r.w5, cw1: r.w1, cr: r.r, out: r.o, web: r.web, speed: r.sp, geo: r.geo })
@@ -512,7 +512,7 @@ export function periodOf(sessions, o, rates) {
   const P = {
     from, to, project, n: 0, unpriced: 0, amt: 0, think: 0, web: 0, webAmt: 0, saved: 0, premium: 0,
     classes: { in: cls(), cw: cls(), cr: cls(), out: cls() },
-    sessions: [], projects: new Map(), models: new Map(), days: new Map(), agents: new Map(), tags: new Map(), windows: [],
+    sessions: [], projects: new Map(), coders: new Map(), models: new Map(), days: new Map(), agents: new Map(), tags: new Map(), windows: [],
     by: {}, cnt: {}, tools: {}, toolCnt: {}, flags: {}, recomp: { n: 0, tok: 0 }, comps: { auto: 0, manual: 0, fall: 0 },
     recon: { n: 0, missing: 0, crossing: 0, short: 0, shortAmt: 0, ours: zero(), theirs: { in: 0, cw: 0, cr: 0, out: 0, usd: 0 } },
   }
@@ -550,6 +550,7 @@ export function periodOf(sessions, o, rates) {
       } else P.unpriced++
       P.classes.in.tok += r.i; P.classes.cw.tok += r.w5 + r.w1; P.classes.cr.tok += r.r; P.classes.out.tok += r.o
       bump(P.projects, s.project || 'unknown', r, a, s.id)
+      bump(P.coders, s.agent || 'Claude Code', r, a, s.id) // records kept before other agents were read are Claude Code's
       bump(P.models, r.m, r, a, s.id)
       bump(P.days, dayOf.format(r.t), r, a, s.id)
       bump(P.agents, r.k === -1 ? 'Main thread' : (s.agents && s.agents[r.k]) || 'agent', r, a, s.id)

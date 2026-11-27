@@ -172,6 +172,22 @@ As checked against Claude Code's logs in November 2026 (Claude Code 2.1).
   (`tail`), and some of those messages are stored as `api-request-blob` records, but
   not all (347 hashes against 154 stored in the sample). This design does not use them.
 
+### Other coding agents
+
+`bin/agents.mjs` reads Codex rollouts (`~/.codex/sessions`), opencode's SQLite database and
+Gemini CLI chats (`~/.gemini/tmp`) and turns them into records shaped like Claude Code's, so every
+rule below applies to them unchanged. Each agent splits tokens its own way; the reader brings them
+to new input (not cached), cache read, cache write and output with thinking included:
+
+| Agent | One request is | Cached tokens | Thinking |
+|---|---|---|---|
+| Codex | a `token_usage_record` (older: a changed `token_count`) | inside `input_tokens` | inside `output_tokens` |
+| opencode | a `step-finish` part | apart from `input` | apart from `output` |
+| Gemini CLI | a `gemini` message with `tokens` | inside `input` | apart from `output` |
+
+None of them records a control total like Claude Code's `cost-state`, so their sessions are not
+reconciled. Their models are priced only when `rates.json` lists them.
+
 ## Accounting rules
 
 These are the rules every number follows. They are the part to get right.
